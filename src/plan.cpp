@@ -1,6 +1,7 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "persist.hpp"
+#include "exposure.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -392,7 +393,7 @@ Json package_json(const Package& package) {
         {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
         {"commands",Json::array()},{"shortcuts",Json::array()},{"persistence",Json::array()},
         {"environment",Json::array()},{"path_entries",Json::array()},{"scripts",Json::array()}};
-    for (const auto& item : package.commands) result["commands"].push_back({{"target",path_text(item.target)},{"name",item.name},{"arguments",item.arguments}});
+    for (const auto& item : package.commands) result["commands"].push_back({{"target",path_text(item.target)},{"name",item.name},{"arguments",item.arguments},{"launcher",command_launcher_name(item.target)}});
     for (const auto& item : package.shortcuts) result["shortcuts"].push_back({{"target",path_text(item.target)},{"name",item.name},{"arguments",item.arguments},{"icon",path_text(item.icon)}});
     for (const auto& item : package.persistence) result["persistence"].push_back({{"source",path_text(item.source)},{"target",path_text(item.target)}});
     for (const auto& item : package.environment) result["environment"].push_back({{"name",item.name},{"value",item.value}});
@@ -516,6 +517,7 @@ Plan make_plan(const Context& context, Action action, const std::string& request
                 plan.preconditions.push_back(command.executable);
                 plan.preconditions.push_back(command.metadata);
             }
+            for (const auto& shortcut : plan.adoption->shortcuts) plan.preconditions.push_back({shortcut.path,shortcut.sha256});
         }
     }
     if (action == Action::uninstall) {
@@ -565,6 +567,16 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             {"version",item.version},{"installed",item.installed},{"status",item.installed ? "satisfied" : "planned"},
             {"dependencies",item.dependencies}});
     result["planned_dependencies"] = plan.planned_dependencies;
+    const fs::path exposure_base = (action == Action::install || action == Action::update)
+        ? context.root/L"apps"/wide(plan.package.name)/L"current"
+        : action == Action::adopt ? plan.local.current : plan.local.directory;
+    result["exposure"] = exposure_plan_json(context,plan.package,exposure_base);
+    if (plan.adoption) {
+        Json adopted = Json::array();
+        for (const auto& shortcut : plan.adoption->shortcuts)
+            adopted.push_back({{"name",shortcut.name},{"path",path_text(shortcut.path)},{"sha256",shortcut.sha256}});
+        result["exposure"]["adopted_shortcuts"] = adopted;
+    }
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
     if (plan.update_candidate) {
@@ -572,6 +584,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         if (!plan.update_candidate->diagnostics.empty()) result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     }
     if (!plan.package.diagnostics.empty()) {
+        result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
+        result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
+    }
+    if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
+            return !launcher_kind(command.target);
+        })) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
@@ -592,7 +610,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file EXE and ZIP/tar archive packages without scripts, shortcuts or environment changes; declared persist mappings and installed dependencies are supported, while persist mapping changes and missing dependency evidence remain unverified"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP and tar archive packages without scripts, installers or uninstallers; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified"}});
     return result;
 }
 struct PackageOutcome {

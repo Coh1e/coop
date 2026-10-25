@@ -3,6 +3,7 @@
 #include "native.hpp"
 #include "archive.hpp"
 #include "persist.hpp"
+#include "exposure.hpp"
 #include <windows.h>
 #include <array>
 #include <cctype>
@@ -39,9 +40,8 @@ void erase_tree(const fs::path& path) {
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
-    if (!package.scripts.empty() ||
-        !package.shortcuts.empty() || !package.path_entries.empty() || !package.environment.empty() || package.installer || package.uninstaller)
-        throw std::runtime_error("Execution currently requires archives or files without scripts, shortcuts or environment changes; declared persist mappings and dependencies are supported");
+    if (!package.scripts.empty() || package.installer || package.uninstaller)
+        throw std::runtime_error("Execution currently requires archives or files without scripts, installers or uninstallers; declared persist mappings, dependencies, command entries, shortcuts and environment declarations are supported");
     const auto lower_name = [](std::string value) {
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
@@ -65,7 +65,9 @@ void require_capabilities(const Package& package) {
         }
     }
     for (const auto& command : package.commands)
-        if (command.target.extension() != L".exe") throw std::runtime_error("Only direct EXE command entries are currently supported");
+        if (!launcher_kind(command.target))
+            throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target)+
+                "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR");
 }
 fs::path record_relative_path(const std::string& value) {
     fs::path path(wide(value));
@@ -89,6 +91,30 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
     }
     const auto artifact = directory/wide(installed.artifacts.front().filename);
     if (sha256_file(artifact) != installed.artifacts.front().sha256) throw std::runtime_error("Installed executable changed; refusing operation");
+}
+void verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link, bool legacy) {
+    std::string expected;
+    fs::path recorded;
+    if (legacy) {
+        if (!managed.contains("legacy_shortcuts") || !managed.at("legacy_shortcuts").is_object() ||
+            !managed.at("legacy_shortcuts").contains(shortcut.name))
+            throw std::runtime_error("Managed legacy shortcut record is missing");
+        const auto& entry = managed.at("legacy_shortcuts").at(shortcut.name);
+        recorded = fs::path(wide(entry.at("path").get<std::string>()));
+        expected = entry.at("sha256").get<std::string>();
+    } else {
+        const auto entries = managed.value("shortcuts",Json::array());
+        const auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
+            return item.is_object() && equal_name(item.value("name",std::string{}),shortcut.name);
+        });
+        if (found == entries.end()) throw std::runtime_error("Managed shortcut record is missing");
+        recorded = fs::path(wide(found->at("path").get<std::string>()));
+        expected = found->at("sha256").get<std::string>();
+    }
+    if (!fs::is_regular_file(link)) throw std::runtime_error("Managed shortcut is missing: "+path_text(link));
+    if (!same_identity(recorded,link)) throw std::runtime_error("Managed shortcut path changed");
+    if (sha256_file(link) != expected)
+        throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
 }
 void publish_new(const fs::path& source, const fs::path& destination) {
     DWORD error = ERROR_SUCCESS;
@@ -209,10 +235,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             owned_inputs.push_back({target,sha256_file(target)});
         }
     }
+    const bool legacy_record = managed.is_object() && managed.value("shim_format",std::string{}) == "scoop";
     for (const auto& command : installed.commands) {
         const auto exe = shims/(wide(command.name)+L".exe");
-        const bool legacy = managed.is_object() && managed.value("shim_format",std::string{}) == "scoop";
-        const auto metadata = shims/(wide(command.name)+(legacy ? L".shim" : L".coop-shim.json"));
+        const auto metadata = shims/(wide(command.name)+(legacy_record ? L".shim" : L".coop-shim.json"));
         if (plan.action == Action::install) {
             if (fs::exists(exe) || fs::exists(metadata)) throw std::runtime_error("Command entry conflicts with an existing file");
         } else {
@@ -220,22 +246,38 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             ordinary_parents(context.root,exe);
             ordinary_parents(context.root,metadata);
             std::string executable_hash;
-            if (legacy) {
+            if (legacy_record) {
                 const auto& entry = managed.at("legacy_shims").at(command.name);
                 executable_hash = entry.at("executable_sha256");
                 if (sha256_file(metadata) != entry.at("metadata_sha256").get<std::string>()) throw std::runtime_error("Managed Scoop command metadata changed");
             } else {
+                const auto entries = managed.value("commands",Json::array());
+                const auto record = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
+                    return item.is_object() && equal_name(item.value("name",std::string{}),command.name);
+                });
+                if (record == entries.end()) throw std::runtime_error("Managed command record is missing");
                 const auto entry = read_json(metadata);
-                executable_hash = managed.at("shim_sha256");
+                executable_hash = record->at("launcher_sha256").get<std::string>();
+                if (sha256_file(metadata) != record->at("metadata_sha256").get<std::string>()) throw std::runtime_error("Managed command metadata changed");
                 if (!equal_name(entry.value("package",std::string{}),package.name) ||
                     !same_identity(fs::path(wide(entry.value("target",std::string{}))),app/L"current"/command.target) ||
-                    entry.value("arguments",std::string{}) != command.arguments)
+                    entry.value("arguments",std::string{}) != command.arguments ||
+                    entry.value("launcher",std::string{}) != command_launcher_name(command.target))
                     throw std::runtime_error("Managed command entry ownership changed");
             }
             if (sha256_file(exe) != executable_hash) throw std::runtime_error("Managed command launcher changed");
             owned_inputs.push_back({exe,executable_hash});
             owned_inputs.push_back({metadata,sha256_file(metadata)});
         }
+    }
+    for (const auto& shortcut : installed.shortcuts) {
+        const auto link = shortcut_link_path(context,shortcut.name);
+        if (plan.action == Action::install) {
+            if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
+            continue;
+        }
+        verify_shortcut_ownership(managed,shortcut,link,legacy_record);
+        owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
         if (package.version == installed.version && package.manifest_sha256 == installed.manifest_sha256) {
@@ -246,6 +288,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return equal_name(old.name,command.name); })) continue;
             if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")))
                 throw std::runtime_error("New command entry conflicts with an existing file");
+        }
+        for (const auto& shortcut : package.shortcuts) {
+            if (std::any_of(installed.shortcuts.begin(),installed.shortcuts.end(),[&](const ShortcutExposure& old) { return equal_name(old.name,shortcut.name); })) continue;
+            const auto link = shortcut_link_path(context,shortcut.name);
+            if (fs::exists(link)) throw std::runtime_error("New shortcut conflicts with an existing file: "+path_text(link));
         }
     }
     const auto transaction = state/L"transactions"/(std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
@@ -324,9 +371,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 move(app/L"current",transaction/L"old-current");
                 for (const auto& command : installed.commands) {
                     move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".old.exe"));
-                    const auto suffix = managed.value("shim_format",std::string{}) == "scoop" ? L".shim" : L".coop-shim.json";
+                    const auto suffix = legacy_record ? L".shim" : L".coop-shim.json";
                     move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
                 }
+                for (std::size_t index = 0; index < installed.shortcuts.size(); ++index)
+                    move(shortcut_link_path(context,installed.shortcuts[index].name),
+                        transaction/(L"old-shortcut-"+std::to_wstring(index)+L".lnk"));
                 move(record_path,transaction/L"old-managed-record.json");
             }
             fs::create_directories(app);
@@ -338,19 +388,50 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             std::array<wchar_t,32768> module{};
             const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
             if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
+            const auto environment = expanded_environment(context,package,app/L"current");
+            const auto path_entries = expanded_path_entries(context,package,app/L"current");
+            Json command_records = Json::array();
             for (const auto& command : package.commands) {
+                const auto kind = launcher_kind(command.target);
+                if (!kind) throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target));
                 const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                 const auto exe = shims/(wide(command.name)+L".exe");
-                publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},{"arguments",command.arguments}});
+                const bool gui = *kind == LauncherKind::direct && is_gui_executable(version/command.target);
+                publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
+                    {"launcher",launcher_text(*kind)},{"arguments",command.arguments},{"gui",gui},
+                    {"environment",environment},{"path_entries",path_entries}});
                 const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
                 fs::copy_file(fs::path(module.data()),prepared);
+                if (gui) mark_launcher_gui(prepared);
+                const auto launcher_hash = sha256_file(prepared);
                 create(exe,[&]() { publish_new(prepared,exe); });
+                command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                    {"arguments",command.arguments},{"launcher",launcher_text(*kind)},{"gui",gui},
+                    {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
+            }
+            Json shortcut_records = Json::array();
+            for (const auto& shortcut : package.shortcuts) {
+                const auto link = shortcut_link_path(context,shortcut.name);
+                const auto target = app/L"current"/shortcut.target;
+                if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
+                const auto icon = shortcut.icon.empty() ? fs::path{} : app/L"current"/shortcut.icon;
+                if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
+                std::error_code error;
+                fs::create_directories(link.parent_path(),error);
+                if (error) throw std::runtime_error("Cannot create the shortcut directory: "+path_text(link.parent_path()));
+                const auto temporary = link.parent_path()/(link.filename().wstring()+L".coop-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(shortcut_records.size()));
+                write_shortcut(temporary,target,shortcut.arguments,icon);
+                try { create(link,[&]() { publish_new(temporary,link); }); }
+                catch (...) { DeleteFileW(temporary.c_str()); throw; }
+                shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
+                    {"target",path_text(target)},{"arguments",shortcut.arguments},{"sha256",sha256_file(link)}});
             }
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                 {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
-                {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"},{"command_targets",command_targets},
+                {"status","ready"},{"command_targets",command_targets},{"commands",command_records},{"shortcuts",shortcut_records},
+                {"environment",environment},{"path_entries",path_entries},
                 {"dependencies",package.dependencies},{"persistence",persistence},
                 {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
                 {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
@@ -358,9 +439,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             move(app/L"current",transaction/L"current");
             for (const auto& command : package.commands) {
                 move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".exe"));
-                const auto suffix = managed.value("shim_format",std::string{}) == "scoop" ? L".shim" : L".coop-shim.json";
+                const auto suffix = legacy_record ? L".shim" : L".coop-shim.json";
                 move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
             }
+            for (std::size_t index = 0; index < package.shortcuts.size(); ++index)
+                move(shortcut_link_path(context,package.shortcuts[index].name),
+                    transaction/(L"shortcut-"+std::to_wstring(index)+L".lnk"));
             move(version,transaction/L"removed-version");
             move(record_path,transaction/L"managed-record.json");
         }

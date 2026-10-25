@@ -51,6 +51,7 @@ struct FilePrecondition { fs::path path; std::string sha256; };
 struct LocalFacts { fs::path current; fs::path directory; bool exists = false; };
 enum class AdoptionEligibility { eligible, already_managed, unsupported, untested, inconsistent };
 struct LegacyCommand { std::string name; FilePrecondition executable; FilePrecondition metadata; };
+struct LegacyShortcut { std::string name; fs::path path; std::string sha256; };
 struct DependencyItem {
     std::string request;
     std::string name;
@@ -62,6 +63,7 @@ struct DependencyItem {
 struct AdoptionAssessment {
     AdoptionEligibility eligibility = AdoptionEligibility::untested;
     std::vector<LegacyCommand> commands;
+    std::vector<LegacyShortcut> shortcuts;
     std::vector<Diagnostic> diagnostics;
 };
 struct Plan {

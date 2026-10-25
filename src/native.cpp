@@ -16,19 +16,6 @@ struct InternetHandle {
     HINTERNET value;
     ~InternetHandle() { if (value) WinHttpCloseHandle(value); }
 };
-std::wstring quote(const std::wstring& argument) {
-    std::wstring result = L"\"";
-    std::size_t slashes = 0;
-    for (const auto c : argument) {
-        if (c == L'\\') { ++slashes; continue; }
-        if (c == L'\"') result.append(slashes*2+1,L'\\');
-        else result.append(slashes,L'\\');
-        slashes = 0;
-        result += c;
-    }
-    result.append(slashes*2,L'\\');
-    return result+L'\"';
-}
 int hex_value(char value) {
     if (value >= '0' && value <= '9') return value-'0';
     if (value >= 'a' && value <= 'f') return value-'a'+10;
@@ -130,29 +117,6 @@ void make_junction(const fs::path& link, const fs::path& target) {
         throw std::runtime_error("Cannot create native junction (Windows error "+std::to_string(error)+")");
     }
 }
-bool run_shim(int argc, wchar_t** argv, int& result) {
-    std::array<wchar_t,32768> module{};
-    const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
-    if (!length || length >= module.size()) throw std::runtime_error("Cannot locate command executable");
-    const auto metadata = fs::path(module.data()).replace_extension(L".coop-shim.json");
-    if (!fs::exists(metadata)) return false;
-    const auto record = read_json(metadata);
-    const auto target = wide(record.at("target").get<std::string>());
-    auto command = quote(target);
-    const auto defaults = record.value("arguments",std::string{});
-    if (!defaults.empty()) command += L" "+wide(defaults);
-    for (int i = 1; i < argc; ++i) command += L" "+quote(argv[i]);
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(target.c_str(),command.data(),nullptr,nullptr,TRUE,0,nullptr,nullptr,&startup,&process))
-        throw std::runtime_error("Command target cannot be started (Windows error "+std::to_string(GetLastError())+")");
-    CloseHandle(process.hThread);
-    WaitForSingleObject(process.hProcess,INFINITE);
-    DWORD exit_code = 1;
-    GetExitCodeProcess(process.hProcess,&exit_code);
-    CloseHandle(process.hProcess);
-    result = static_cast<int>(exit_code);
-    return true;
+
 }
-}
+

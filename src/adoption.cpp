@@ -1,6 +1,7 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "persist.hpp"
+#include "exposure.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <fstream>
@@ -122,6 +123,32 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
                 throw std::runtime_error("Existing Scoop command entry points to a different package or arguments");
             result.commands.push_back(std::move(legacy));
         }
+        for (const auto& shortcut : plan.package.shortcuts) {
+            const auto link = shortcut_link_path(context,shortcut.name);
+            if (!fs::exists(link)) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-evidence-missing",
+                    "Existing Scoop shortcut is missing: "+path_text(link)); return result;
+            }
+            const auto identity = read_shortcut(link);
+            if (!identity) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-unreadable",
+                    "Existing shortcut cannot be read as a Windows shortcut: "+path_text(link)); return result;
+            }
+            const auto target = expected/shortcut.target;
+            if (!same_identity(identity->target,target) && !same_identity(identity->target,plan.local.current/shortcut.target)) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-target-mismatch",
+                    "Existing shortcut points to a different target: "+path_text(link)); return result;
+            }
+            if (identity->arguments != shortcut.arguments) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-arguments-mismatch",
+                    "Existing shortcut uses different arguments: "+path_text(link)); return result;
+            }
+            if (!shortcut.icon.empty() && !identity->icon.empty() && !same_identity(identity->icon,expected/shortcut.icon)) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-icon-mismatch",
+                    "Existing shortcut uses a different icon: "+path_text(link)); return result;
+            }
+            result.shortcuts.push_back({shortcut.name,link,sha256_file(link)});
+        }
         result.eligibility = AdoptionEligibility::eligible;
     } catch (const std::exception& error) {
         reject(AdoptionEligibility::inconsistent,DiagnosticKind::environment,"adoption-evidence-mismatch",error.what());
@@ -175,9 +202,16 @@ Json commit_adoption_result(const Context& context, const Plan& plan) {
         Json legacy = Json::object();
         for (const auto& command : plan.adoption->commands) legacy[command.name] = {
             {"executable_sha256",command.executable.sha256},{"metadata_sha256",command.metadata.sha256}};
+        Json legacy_shortcuts = Json::object();
+        for (const auto& shortcut : plan.adoption->shortcuts) legacy_shortcuts[shortcut.name] = {
+            {"path",path_text(shortcut.path)},{"sha256",shortcut.sha256}};
         const Json managed = {{"name",package.name},{"version",package.version},{"architecture",package.architecture},{"bucket",package.bucket},
             {"directory",path_text(plan.local.directory)},{"manifest_sha256",package.manifest_sha256},{"status","ready"},
-            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"dependencies",package.dependencies},{"persistence",persistence},
+            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"legacy_shortcuts",legacy_shortcuts},
+            {"environment",expanded_environment(context,package,plan.local.current)},
+            {"path_entries",expanded_path_entries(context,package,plan.local.current)},
+            {"exposure_scope","Existing user environment values and shortcuts remain external evidence; uninstall removes only command entries and shortcuts whose original contents were verified during adoption"},
+            {"dependencies",package.dependencies},{"persistence",persistence},
             {"adoption_backup",path_text(backup)}};
         write_json(transaction/L"record.json",managed);
         record_hash = sha256_file(transaction/L"record.json");

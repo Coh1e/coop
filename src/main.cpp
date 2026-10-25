@@ -3,6 +3,7 @@
 #include "app.hpp"
 #include "package.hpp"
 #include "native.hpp"
+#include "shim.hpp"
 #include <windows.h>
 
 int wmain(int argc, wchar_t** argv) {

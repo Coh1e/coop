@@ -149,11 +149,14 @@ Package parse_package(const fs::path& path, const std::string& name, const std::
         const auto shortcuts = pick("shortcuts");
         if (!shortcuts.is_null()) {
             if (!shortcuts.is_array()) throw std::runtime_error("shortcuts must be an array");
+            std::set<std::string> names;
             for (const auto& item : shortcuts) {
                 const auto parts = strings(item,"shortcut");
                 if (parts.size() < 2 || parts.size() > 4) throw std::runtime_error("Invalid shortcut");
-                ShortcutExposure shortcut{relative_path(parts[0]),parts[1],{}, {}};
-                validate_component(shortcut.name);
+                ShortcutExposure shortcut{relative_path(parts[0]),path_text(relative_path(parts[1])),{}, {}};
+                // Scoop allows shortcut names such as "Git\\Git Bash" that create subfolders
+                // below its Start Menu folder; they are still package-independent relative names.
+                if (!names.insert(lower(shortcut.name)).second) throw std::runtime_error("Duplicate shortcut name");
                 if (parts.size() > 2) shortcut.arguments = parts[2];
                 if (parts.size() > 3) shortcut.icon = relative_path(parts[3]);
                 package.shortcuts.push_back(std::move(shortcut));
