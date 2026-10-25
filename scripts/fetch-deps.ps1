@@ -68,7 +68,9 @@ $testArchives = @(
     @{Name='ripgrep-15.2.0-x86_64-pc-windows-msvc.zip'; Url='https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip'; Hash='71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'},
     @{Name='air_1.67.3_windows_amd64.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.3/air_1.67.3_windows_amd64.tar.gz'; Hash='150ab78cf4a48f46ca845660b41a913b0bae94572c061ea5dbe75cd745849a5a'},
     @{Name='air_1.67.4_windows_amd64.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_amd64.tar.gz'; Hash='c35dbd568cff98055cc382d003bfda06bcdae82389568fb5e60ce5da278fa79d'},
-    @{Name='air_1.67.4_windows_386.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_386.tar.gz'; Hash='91df7ef7f35da4a23129e172675137e1b8cd6835392736d817bb443c0dc424c8'}
+    @{Name='air_1.67.4_windows_386.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_386.tar.gz'; Hash='91df7ef7f35da4a23129e172675137e1b8cd6835392736d817bb443c0dc424c8'},
+    @{Name='7z2605-x64.msi'; Url='https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.msi'; Hash='3fe4ab99fa15629c652944309a2b2bc6e41fc933fc6b63f5df1ebcf3aea68263'},
+    @{Name='node-v26.12.1-win-x64.7z'; Url='https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.7z'; Hash='4deef78146a60555c9518438cae38da8df71722ca856920b90078f5cdeb642a6'}
 )
 foreach ($file in $testArchives) { Get-PinnedFile $file.Name $file.Url $file.Hash $archives | Out-Null }
-Write-Output 'Verified fixed real ZIP and tar.gz test archives'
+Write-Output 'Verified fixed real ZIP, tar.gz, 7z and MSI test archives'

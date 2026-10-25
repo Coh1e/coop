@@ -1,6 +1,6 @@
 # 生命周期 Hook 与真实脚本兼容
 
-本页记录 Coop 对 Manifest `pre_install`、`post_install`、`pre_uninstall` 等生命周期 Hook 的实际支持范围、脚本上下文、执行顺序、失败语义和未验证项。行为依据固定提交 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f` 的 [`install_app`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L8-L82)、[`Invoke-Installer`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L84-L167)、[`scoop-update`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-update.ps1#L260-L395) 与 [`scoop-uninstall`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-uninstall.ps1#L46-L151)，脚本原文取自 [固定样本](../tests/corpus/index.json)，不把“能解析 Manifest”当成脚本兼容。
+本页记录 Coop 对 Manifest `pre_install`、`installer.script`、`post_install`、`pre_uninstall`、`uninstaller.script` 等生命周期 Hook 的实际支持范围、脚本上下文、执行顺序、失败语义和未验证项。行为依据固定提交 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f` 的 [`install_app`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L8-L82)、[`Invoke-Installer`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L84-L167)、[`scoop-update`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-update.ps1#L260-L395) 与 [`scoop-uninstall`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-uninstall.ps1#L46-L151)，脚本原文取自 [固定样本](../tests/corpus/index.json)，不把“能解析 Manifest”当成脚本兼容。
 
 ## 支持范围
 
@@ -9,11 +9,12 @@ Coop 只执行样本实际证明的脚本阶段和语句子集，且只对固定
 | 项目 | 已启用 | 说明 |
 | --- | --- | --- |
 | `pre_install` | 是 | 在真实版本目录中、持久化链接建立之前运行 |
+| `installer.script` | 部分 | 生命周期阶段已接入；只有落在已证明子集内的文本可执行。固定样本 Main/python 的文本依赖外部工具和子表达式，明确诊断 |
 | `post_install` | 是 | 在 `current`、命令入口、快捷方式和持久化链接建立之后运行 |
 | `pre_uninstall` | 是 | 在移除 `current`、入口和版本目录之前运行，`$dir` 仍指向具体版本目录 |
-| `installer.script` / `uninstaller.script` | 否 | 固定样本中的此类脚本依赖注册表导入、环境变量写入或外部工具，当前明确诊断 |
+| `uninstaller.script` | 部分 | 生命周期阶段已接入；Main/rclone 原文可执行，Main/7zip/git/notepadplusplus/vscode 的注册表导入明确阻塞 |
 | `post_uninstall` | 否 | 样本中的 `post_uninstall` 会删除 `%APPDATA%` 等用户数据，无法在项目内隔离验证 |
-| `installer` / `uninstaller` 进程声明 | 否 | 进程型安装器仍单独拒绝，不与脚本子集混同 |
+| `installer` / `uninstaller` 进程声明 | 否 | 进程型安装器仍单独拒绝，不与脚本子集混同；固定样本没有此类声明 |
 
 脚本在真实 PowerShell 子进程中运行，由 Coop 提供上下文和辅助函数；Coop 不实现任意 PowerShell 解释器，也不把脚本改写成另一门语言。执行前的静态检查是兼容性门槛，不是安全沙箱：它只接受下面列出的命令、参数、变量和成员访问，并拒绝其他构造；被接受的脚本仍是受信任的包内容，与下载的软件产物同级。
 
@@ -52,14 +53,17 @@ Coop 只执行样本实际证明的脚本阶段和语句子集，且只对固定
 | `Copy-Item` | 复制文件/目录，支持 `-Force` 与 `-Recurse` |
 | `Remove-Item` | 删除文件/目录，支持 `-Recurse` 与 `-Force` |
 | `Join-Path` / `Split-Path` | 连接或取父路径；结果仍受根目录限制 |
+| `Get-Item` | 只读取受限根下路径的元数据，支持 `.LinkType` 与 `.Length` 成员访问，供真实 rclone `uninstaller.script` 使用 |
 | `Out-Null` / `ForEach-Object` | 管道消费与逐项处理 |
 
 约束：
 
 - 写入或读取路径必须以 `$dir`、`$original_dir`、`$persist_dir` 或 `$bucketsdir` 开头，且不能含 `..` 父目录组件；`$env:*`、用户目录、注册表和任意驱动器路径会被诊断拒绝。
-- 不接受外部命令（`Invoke-WebRequest`、`Start-Process`、`reg`、`sc`、`pip` 等）、`$()` 子表达式、`.NET` 方法调用、`Set-ItemProperty`、`Get-ChildItem`、`Where-Object`、`Select-Object` 等其他构造。
+- 不接受外部命令（`Invoke-WebRequest`、`Start-Process`、`reg`、`sc`、`pip`、`Expand-DarkArchive`、`Expand-MsiArchive`、`Get-EnvVar`、`Set-EnvVar` 等）、`$()` 子表达式、`.NET` 方法调用、`Set-ItemProperty`、`Get-ChildItem`、`Where-Object`、`Select-Object` 等其他构造。已知外部命令会在诊断中列出所需工具，并声明 Coop 不自动下载或安装。
 - 参数名也受白名单限制，未列出的参数同样产生诊断，而不是被忽略。
 - 单脚本上限 1 MiB；空脚本视为能力缺失。
+
+- **安装器阶段**：`installer.script` 与普通 Hook 共用同一子集和失败语义，但固定样本中没有通过子集的真实 `installer.script`；Main/python 被阻塞。`uninstaller.script` 中 Main/rclone 原文已实际运行。注册表导入、环境变量写入和服务控制仍排除。
 
 ### 与固定 Scoop 的已知差异
 
@@ -73,17 +77,17 @@ Coop 只执行样本实际证明的脚本阶段和语句子集，且只对固定
 
 静态检查跟踪变量赋值：由 `Join-Path`/`Split-Path` 从受限根派生的变量仍视为受限路径，`ForEach-Object` 块使用独立作用域。字符串中出现的 `$env:*` 作为路径使用时会产生“必须位于受限根”的诊断；作为普通文本（例如替换内容）不构成路径逃逸。
 
-这一边界来自以下真实样本：`Extras/notepadplusplus` 的 `pre_install`/`post_install`、`Main/nodejs` 的 `post_install`、`Main/git` 的 `pre_uninstall`。同一批样本中 `Main/git` 的 `pre_install`/`post_install`、`Extras/vscode`、`Extras/7zip`、`Extras/aider-desk`、`Main/azure-cli` 等脚本需要正则、`Get-ChildItem` 管道、`reg import`、外部进程或 `.NET` 调用，仍被判为不支持；它们不能因为“同一 bucket 的另一个包里可用”而被视为已兼容。
+这一边界来自以下真实样本：`Extras/notepadplusplus` 的 `pre_install`/`post_install`、`Main/nodejs` 的 `post_install`、`Main/git` 的 `pre_uninstall`、`Main/rclone` 的 `uninstaller.script`。同一批样本中 `Main/git` 的 `pre_install`/`post_install`、`Extras/vscode`、`Extras/7zip`、`Extras/aider-desk`、`Main/azure-cli` 等脚本需要正则、`Get-ChildItem` 管道、`reg import`、外部进程或 `.NET` 调用，仍被判为不支持；它们不能因为“同一 bucket 的另一个包里可用”而被视为已兼容。
 
 ## 官方顺序与 `$dir` 语义
 
 Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 
-- 安装：下载/校验/解压 → 创建具体版本目录 → `pre_install`（`$dir`=版本目录）→ 建立持久化链接 → 链接 `current`、创建命令入口/快捷方式/环境 → `post_install`（`$dir`=current）→ 提交管理记录。
-- 更新：下载/校验/解压新产物 → 旧版本 `pre_uninstall`/`uninstaller.script` → 移除旧 `current`/入口/快捷方式 → 旧版本 `post_uninstall` → 新版本 `pre_install` → 新 `current`/入口/快捷方式/持久化 → 新 `post_install` → 提交管理记录；旧版本默认保留。
+- 安装：下载/校验/解压 → 创建具体版本目录 → `pre_install`（`$dir`=版本目录）→ `installer.script`（`$dir`=版本目录，`$cmd=install`）→ 建立持久化链接 → 链接 `current`、创建命令入口/快捷方式/环境 → `post_install`（`$dir`=current）→ 提交管理记录。
+- 更新：下载/校验/解压新产物 → 旧版本 `pre_uninstall`/`uninstaller.script` → 移除旧 `current`/入口/快捷方式 → 旧版本 `post_uninstall` → 新版本 `pre_install`/`installer.script` → 新 `current`/入口/快捷方式/持久化 → 新 `post_install` → 提交管理记录；旧版本默认保留。
 - 卸载：`pre_uninstall`/`uninstaller.script` → 移除 `current`/入口/快捷方式 → 移除版本目录 → `post_uninstall` → 提交；普通卸载保留 `persist` 数据。
 
-`pre_install` 直接在最终版本目录运行，避免把事务临时路径写进脚本生成的文件；`post_install` 在 `current` 建立后运行，因此 `$dir` 与 `$persist_dir` 的语义与 Scoop 一致。更新时旧版本脚本先于新版本脚本运行，且 `$cmd` 为 `update`。
+`pre_install` 直接在最终版本目录运行，避免把事务临时路径写进脚本生成的文件；`installer.script` 也在该版本目录运行并在 `current` 发布前完成；`post_install` 在 `current` 建立后运行，因此 `$dir` 与 `$persist_dir` 的语义与 Scoop 一致。更新时旧版本脚本先于新版本脚本运行，且 `$cmd` 为 `update`。
 
 ## 预览、诊断与失败
 
@@ -114,10 +118,13 @@ Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 
 真实软件产物未在本轮下载或运行：测试用项目固定程序代替包产物，Hook 文本、bucket 脚本资源和生命周期顺序是真实样本。真实 `notepadplusplus`/`nodejs`/`git` 包的下载、安装、更新与卸载不在本轮证据内。
 
+`tests/installers.ps1`（CTest `installers`）补充安装器阶段：真实 MSI、7z 产物和 rclone `uninstaller.script` 原文见 [Installer/Uninstaller 与特殊安装机制](installer-support.md)；该测试用测试脚本验证通用 installer 阶段的顺序、上下文、退出码和失败传播，不声称 Main/python 的 installer.script 已兼容。
+
 ## 未运行或未承诺
 
-- 真实包产物的完整下载、安装、更新、卸载（网络与真实程序行为）。
-- `installer`/`uninstaller` 进程、`installer.script`/`uninstaller.script`、`post_uninstall`。
+- 真实包产物的完整下载、安装、更新、卸载（网络与真实程序行为）；本轮只对固定 MSI/7z/rclone 脚本做隔离证据。
+- 任意 `installer`/`uninstaller` 进程声明、`post_uninstall`。
+- `installer.script` 的固定样本正向覆盖：Main/python 仍被诊断；只有落在子集内的测试脚本验证了阶段语义。
 - 注册表导入、用户/系统环境变量写入、服务控制、外部进程（如 `Start-Process`、`Invoke-WebRequest`、`python -m ensurepip`）。
 - 正则替换、`Get-ChildItem`/`Where-Object`/`Select-Object` 管道、`.NET` 静态方法、`$()` 子表达式。
 - 接管带 Hook 的现有安装并继续更新；该类保持 `untested`，不提升接管资格。

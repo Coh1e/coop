@@ -125,13 +125,18 @@ if ((Get-Content $journal.FullName -Raw | ConvertFrom-Json).state -ne 'rolled-ba
 # Unsupported mechanisms fail clearly without starting an external installer.
 $root = New-TestRoot
 $unsupported = @(
-    @{Name='seven'; Manifest=@{version='26.12.1';url='https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.7z';hash='4deef78146a60555c9518438cae38da8df71722ca856920b90078f5cdeb642a6';extract_dir='node-v26.12.1-win-x64';bin='node.exe'}; Pattern='7z'},
-    @{Name='msi'; Manifest=@{version='1';url='https://example.invalid/setup.msi';hash=('0'*64);bin='setup.exe'}; Pattern='MSI'},
+    @{Name='msi'; Manifest=@{version='1';url='https://example.invalid/setup.msi';hash=('0'*64);bin='setup.exe'}; Pattern='msiexec'},
     @{Name='bzip2'; Manifest=@{version='1';url='https://example.invalid/tool.tar.bz2';hash=('0'*64);bin='tool.exe'}; Pattern='tar compression'}
 )
+$previousMsiExec = $env:COOP_MSIEXEC
 foreach ($item in $unsupported) {
     Write-Manifest $root $item.Name $item.Manifest
+    if ($item.Name -eq 'msi') { $env:COOP_MSIEXEC = "$root/missing-msiexec.exe" }
     $output = & $CoopExe --root $root install "test/$($item.Name)" --json 2>&1
+    if ($item.Name -eq 'msi') {
+        if ($null -eq $previousMsiExec) { Remove-Item Env:COOP_MSIEXEC -ErrorAction SilentlyContinue }
+        else { $env:COOP_MSIEXEC = $previousMsiExec }
+    }
     Assert-Failed "unsupported $($item.Name) archive unexpectedly succeeded" ($output -join "`n")
     if (($output -join "`n") -notmatch [regex]::Escape($item.Pattern)) { throw "unsupported $($item.Name) mechanism was not reported clearly" }
     if ((Test-Path "$root/apps/$($item.Name)/current") -or (Test-Path "$root/.coop/packages/$($item.Name).json")) { throw "unsupported $($item.Name) published state" }

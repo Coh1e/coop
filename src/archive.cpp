@@ -4,9 +4,14 @@
 #include <archive.h>
 #include <archive_entry.h>
 #include <array>
+#include <algorithm>
 #include <cstdint>
+#include <cwchar>
+#include <cwctype>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace coop {
@@ -113,6 +118,53 @@ void write_entry(archive* source, const fs::path& destination) {
         throw std::runtime_error("Archive entry cannot be read: "+archive_error(source));
     }
 }
+std::wstring quote_argument(const std::wstring& value) {
+    if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos) return value;
+    std::wstring result = L"\"";
+    unsigned backslashes = 0;
+    for (const auto character : value) {
+        if (character == L'\\') { ++backslashes; continue; }
+        if (character == L'"') result.append(backslashes*2+1,L'\\');
+        else result.append(backslashes,L'\\');
+        result += character;
+        backslashes = 0;
+    }
+    result.append(backslashes*2,L'\\');
+    result += L'"';
+    return result;
+}
+std::wstring quote_property(const wchar_t* name, const std::wstring& value) {
+    // Windows Installer parses TARGETDIR itself; the quotes must wrap the value after '=',
+    // otherwise a target path containing spaces is split and the install waits on invalid input.
+    return std::wstring(name)+L"="+quote_argument(value);
+}
+std::vector<wchar_t> child_environment(const fs::path& temp_directory) {
+    // Keep Windows Installer's temporary files inside the transaction instead of the user's
+    // TEMP. The block is Unicode and sorted as required by CreateProcessW.
+    std::vector<std::wstring> entries;
+    if (LPWCH block = GetEnvironmentStringsW()) {
+        for (LPWCH item = block; *item; item += std::wcslen(item)+1) {
+            std::wstring entry(item);
+            std::wstring lower = entry;
+            for (auto& character : lower) character = static_cast<wchar_t>(std::towlower(character));
+            if (lower.starts_with(L"temp=") || lower.starts_with(L"tmp=")) continue;
+            entries.push_back(std::move(entry));
+        }
+        FreeEnvironmentStringsW(block);
+    }
+    entries.push_back(L"TEMP="+temp_directory.wstring());
+    entries.push_back(L"TMP="+temp_directory.wstring());
+    std::sort(entries.begin(),entries.end(),[](const std::wstring& left, const std::wstring& right) {
+        return _wcsicmp(left.c_str(),right.c_str()) < 0;
+    });
+    std::vector<wchar_t> result;
+    for (const auto& entry : entries) {
+        result.insert(result.end(),entry.begin(),entry.end());
+        result.push_back(L'\0');
+    }
+    result.push_back(L'\0');
+    return result;
+}
 }
 void extract_archive(const fs::path& archive_path, const fs::path& destination) {
     ensure_directory(destination);
@@ -184,5 +236,74 @@ void merge_archive_tree(const fs::path& source, const fs::path& extract_director
             throw std::runtime_error("Extracted tree contains an unsupported entry type");
         }
     }
+}
+std::optional<fs::path> msi_installer() {
+    wchar_t configured[32768]{};
+    const auto configured_length = GetEnvironmentVariableW(L"COOP_MSIEXEC",configured,static_cast<DWORD>(std::size(configured)));
+    if (configured_length && configured_length < std::size(configured)) {
+        const fs::path candidate(configured);
+        if (fs::is_regular_file(candidate)) return candidate;
+        return std::nullopt;
+    }
+    std::vector<wchar_t> system_directory(32768);
+    const auto system_length = GetSystemDirectoryW(system_directory.data(),static_cast<UINT>(system_directory.size()));
+    if (system_length && system_length < system_directory.size()) {
+        const fs::path candidate = fs::path(system_directory.data())/L"msiexec.exe";
+        if (fs::is_regular_file(candidate)) return candidate;
+    }
+    wchar_t windows[32768]{};
+    const auto windows_length = GetWindowsDirectoryW(windows,static_cast<UINT>(std::size(windows)));
+    if (windows_length && windows_length < std::size(windows)) {
+        const fs::path candidate = fs::path(windows)/L"System32"/L"msiexec.exe";
+        if (fs::is_regular_file(candidate)) return candidate;
+    }
+    return std::nullopt;
+}
+std::vector<ExternalTool> package_external_tools(const Package& package) {
+    std::vector<ExternalTool> tools;
+    const auto installer = msi_installer();
+    for (const auto& artifact : package.artifacts) {
+        if (artifact.archive != ArchiveKind::msi) continue;
+        tools.push_back({"msiexec.exe","MSI administrative extraction for "+artifact.filename,
+            "detected on this system; Coop never downloads or installs external tools automatically",
+            installer.has_value(),installer.value_or(fs::path{})});
+    }
+    return tools;
+}
+MsiExtraction extract_msi_archive(const fs::path& archive, const fs::path& transaction, std::size_t index) {
+    const auto tool = msi_installer();
+    if (!tool)
+        throw std::runtime_error("MSI extraction requires Windows Installer (msiexec.exe), which was not found; Coop does not download or install external tools automatically");
+    MsiExtraction result;
+    result.tool = *tool;
+    result.work_directory = transaction/(L"msi-"+std::to_wstring(index));
+    result.source_directory = result.work_directory/L"SourceDir";
+    result.log_path = transaction/(L"msi-"+std::to_wstring(index)+L".log");
+    ensure_directory(result.work_directory);
+    const auto temp_directory = result.work_directory/L"temp";
+    ensure_directory(temp_directory);
+    auto environment = child_environment(temp_directory);
+    auto command_line = quote_argument(result.tool.wstring())+
+        L" /a "+quote_argument(archive.wstring())+
+        L" /qn "+quote_property(L"TARGETDIR",result.source_directory.wstring())+
+        L" /L*v "+quote_argument(result.log_path.wstring());
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr,command_line.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT,
+                        environment.data(),result.work_directory.c_str(),&startup,&process))
+        throw std::runtime_error("Cannot start Windows Installer for MSI extraction (Windows error "+std::to_string(GetLastError())+")");
+    CloseHandle(process.hThread);
+    WaitForSingleObject(process.hProcess,INFINITE);
+    DWORD exit_code = 1;
+    if (!GetExitCodeProcess(process.hProcess,&exit_code)) {
+        CloseHandle(process.hProcess);
+        throw std::runtime_error("Cannot read the Windows Installer exit code");
+    }
+    CloseHandle(process.hProcess);
+    result.exit_code = static_cast<int>(exit_code);
+    return result;
 }
 }

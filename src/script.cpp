@@ -238,6 +238,7 @@ public:
     }
     const std::set<std::string>& commands() const { return commands_; }
     const std::set<std::string>& helpers() const { return helpers_; }
+    const std::set<std::string>& required_tools() const { return external_tools_; }
 
 private:
     const Token& peek(std::size_t offset = 0) const {
@@ -440,16 +441,23 @@ private:
             if (!accept(Tok::dot)) break;
             if (!at(Tok::word)) return fail("member access requires a name");
             const auto member = advance().text;
-            if (member != "Replace")
+            if (member == "Replace") {
+                if (!expect(Tok::lparen,"'(' after .Replace")) return false;
+                Value first;
+                if (!or_expression(first)) return false;
+                if (!expect(Tok::comma,"',' between .Replace arguments")) return false;
+                Value second;
+                if (!or_expression(second)) return false;
+                if (!expect(Tok::rparen,"')' after .Replace arguments")) return false;
+                result = Value::plain();
+            } else if (member == "LinkType" || member == "Length") {
+                // Read-only file properties used by the fixed rclone uninstaller script. The
+                // referenced path is still root-restricted through Get-Item above.
+                if (at(Tok::lparen)) return fail("member '"+member+"' does not accept arguments in the proven hook subset");
+                result = Value::plain();
+            } else {
                 return fail("member '"+member+"' is outside the proven hook subset");
-            if (!expect(Tok::lparen,"'(' after .Replace")) return false;
-            Value first;
-            if (!or_expression(first)) return false;
-            if (!expect(Tok::comma,"',' between .Replace arguments")) return false;
-            Value second;
-            if (!or_expression(second)) return false;
-            if (!expect(Tok::rparen,"')' after .Replace arguments")) return false;
-            result = Value::plain();
+            }
         }
         return true;
     }
@@ -491,12 +499,34 @@ private:
     bool command(const std::string& raw, Value& result) {
         const auto name = lower_text(raw);
         static const std::set<std::string> commands = {"test-path","get-content","set-content","new-item","copy-item",
-            "remove-item","join-path","split-path","out-null"};
+            "remove-item","join-path","split-path","get-item","out-null"};
         static const std::set<std::string> helpers = {"ensure","info","warn"};
         const bool known_command = commands.contains(name);
         const bool known_helper = helpers.contains(name);
-        if (!known_command && !known_helper)
+        if (!known_command && !known_helper) {
+            // These names need a real external program, host feature or system state. They are
+            // reported together with the required tool so a preview never looks like it could
+            // silently download or install the missing capability.
+            static const std::map<std::string,std::string> external = {
+                {"reg","reg.exe and the real user/system registry"},
+                {"sc","the Windows Service Control Manager (sc.exe)"},
+                {"expand-darkarchive","WiX Dark (dark.exe) for Windows Installer dark archives"},
+                {"expand-msiarchive","Windows Installer (msiexec.exe) or lessmsi"},
+                {"get-envvar","real user/system environment variables"},
+                {"set-envvar","real user/system environment variables"},
+                {"start-process","an arbitrary external program"},
+                {"invoke-webrequest","network access and an external download"},
+                {"stop-process","another running program"},
+                {"stop-service","the Windows Service Control Manager"},
+                {"get-service","the Windows Service Control Manager"},
+                {"write-host","an interactive host console"}};
+            if (const auto found = external.find(name); found != external.end()) {
+                external_tools_.insert(found->second);
+                return fail("command '"+raw+"' requires "+found->second+
+                    ", which is outside the isolated lifecycle and is not executed; Coop does not download or install external tools automatically");
+            }
             return fail("command '"+raw+"' is not in the proven hook helper set");
+        }
         advance(); // command name
         std::map<std::string,Value> named;
         std::vector<Value> positional;
@@ -542,6 +572,16 @@ private:
             if (!path) path = positional_path(0);
             if (!path) return fail("Test-Path requires a path");
             if (!require_path(*path,"Test-Path path")) return false;
+            result = Value::plain();
+            return true;
+        }
+        if (name == "get-item") {
+            if (!allowed(raw,named,{"path","literalpath","force"})) return false;
+            if (positional.size() > 1) return fail("Get-Item accepts at most one positional path");
+            const auto* path = find(named,"path","literalpath");
+            if (!path) path = positional_path(0);
+            if (!path) return fail("Get-Item requires a path");
+            if (!require_path(*path,"Get-Item path")) return false;
             result = Value::plain();
             return true;
         }
@@ -633,6 +673,7 @@ private:
     std::map<std::string,bool> parents_;
     std::set<std::string> commands_;
     std::set<std::string> helpers_;
+    std::set<std::string> external_tools_;
 };
 
 std::wstring quote_argument(const std::wstring& value) {
@@ -796,11 +837,12 @@ ScriptCapability check_package_scripts(const Package& package) {
         ScriptReport report;
         report.phase = script.phase;
         const auto phase = std::string(script_phase_name(script.phase));
-        if (script.phase != ScriptPhase::before_install && script.phase != ScriptPhase::after_install &&
-            script.phase != ScriptPhase::before_uninstall) {
+        if (script.phase != ScriptPhase::before_install && script.phase != ScriptPhase::installer &&
+            script.phase != ScriptPhase::after_install && script.phase != ScriptPhase::before_uninstall &&
+            script.phase != ScriptPhase::uninstaller) {
             report.compatible = false;
             report.diagnostics.push_back({DiagnosticKind::capability,"unsupported-script-phase",
-                "The "+phase+" script phase is not enabled; only pre_install, post_install and pre_uninstall hooks are supported"});
+                "The "+phase+" script phase is not enabled; only pre_install, installer, post_install, pre_uninstall and uninstaller hooks are supported"});
         } else if (script.text.empty()) {
             report.compatible = false;
             report.diagnostics.push_back({DiagnosticKind::capability,"empty-script","The "+phase+" hook is empty"});
@@ -817,7 +859,9 @@ ScriptCapability check_package_scripts(const Package& package) {
                     phase+" hook: "+error});
             } else {
                 Checker checker(tokens,error);
-                if (!checker.run()) {
+                const bool checked = checker.run();
+                report.required_tools.assign(checker.required_tools().begin(),checker.required_tools().end());
+                if (!checked) {
                     report.compatible = false;
                     report.diagnostics.push_back({DiagnosticKind::capability,"unsupported-script",
                         phase+" hook "+error});

@@ -14,6 +14,7 @@ struct ScriptReport {
     bool compatible = true;
     std::vector<std::string> commands;
     std::vector<std::string> helpers;
+    std::vector<std::string> required_tools;
     std::vector<Diagnostic> diagnostics;
 };
 struct ScriptCapability {

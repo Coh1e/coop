@@ -42,7 +42,7 @@ void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
     if (package.installer || package.uninstaller)
-        throw std::runtime_error("Installer and uninstaller processes are not enabled; lifecycle hook scripts inside the proven subset are supported");
+        throw std::runtime_error("installer/uninstaller process declarations (installer.file/args) are not enabled; no fixed sample requires them, and a failed external program cannot be rolled back safely");
     const auto scripts = check_package_scripts(package);
     if (!scripts.compatible()) {
         const auto messages = scripts.messages();
@@ -68,9 +68,11 @@ void require_capabilities(const Package& package) {
             break;
         }
         case ArchiveKind::seven_zip:
-            throw std::runtime_error("7z archive lifecycle is not enabled; ZIP and tar archives are supported");
+            break;
         case ArchiveKind::msi:
-            throw std::runtime_error("MSI extraction requires external tooling and is not supported natively");
+            if (!msi_installer())
+                throw std::runtime_error("MSI extraction requires Windows Installer (msiexec.exe), which was not found; Coop does not download or install external tools automatically");
+            break;
         }
     }
     for (const auto& command : package.commands)
@@ -334,7 +336,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     ordinary_parents(context.root,transaction);
     fs::create_directories(transaction);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
-        {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
+        {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"external_tools",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
     const auto shortcut_was_absent = [&](const std::string& name) {
         return std::any_of(absent_shortcuts.begin(),absent_shortcuts.end(),[&](const std::string& item) { return equal_name(item,name); });
     };
@@ -431,6 +433,25 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     const auto target = stage/wide(artifact.filename);
                     if (!fs::copy_file(downloaded_files[i],target,fs::copy_options::none))
                         throw std::runtime_error("Artifact path collides with another package file");
+                } else if (artifact.archive == ArchiveKind::msi) {
+                    const auto extraction = extract_msi_archive(downloaded_files[i],transaction,i);
+                    journal["external_tools"].push_back({{"name","msiexec.exe"},
+                        {"purpose","MSI administrative extraction for "+artifact.filename},
+                        {"tool",path_text(extraction.tool)},{"log",path_text(extraction.log_path)},
+                        {"exit_code",extraction.exit_code},{"status",extraction.exit_code == 0 ? "succeeded" : "failed"}});
+                    save();
+                    if (extraction.exit_code != 0)
+                        throw std::runtime_error("Windows Installer failed to extract "+artifact.filename+" with exit code "+
+                            std::to_string(extraction.exit_code)+"; log: "+path_text(extraction.log_path));
+                    const auto raw = fs::is_directory(extraction.source_directory) ? extraction.source_directory : extraction.work_directory;
+                    // Administrative installs copy the MSI beside the payload. Fixed Scoop removes that
+                    // copy when the destination differs from the original MSI directory; do the same here
+                    // so an MSI without extract_dir does not publish its own installer file.
+                    const auto copied = raw/wide(artifact.filename);
+                    if (fs::is_regular_file(copied)) fs::remove(copied);
+                    const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
+                    merge_archive_tree(raw,artifact.extract_directory,destination);
+                    erase_tree(extraction.work_directory);
                 } else {
                     const auto raw = transaction/(L"extract-"+std::to_wstring(i));
                     extract_archive(downloaded_files[i],raw);
@@ -479,6 +500,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             // because hooks may embed $dir into files that outlive the installation step.
             journal["stage"] = "running-pre-install-hooks"; save();
             run_scripts(package,ScriptPhase::before_install,version,version,updating ? "update" : "install",false);
+            // Fixed Scoop order: pre_install, then an installer program (not enabled), then the
+            // installer.script hook, all before current, entries and persistence are published.
+            journal["stage"] = "running-installer-hooks"; save();
+            run_scripts(package,ScriptPhase::installer,version,version,updating ? "update" : "install",false);
             persistence = prepare_persistence(context,package,version);
             make_junction(transaction/L"new-current",version);
             create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
@@ -582,6 +607,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
         {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
+        {"external_tools",journal.value("external_tools",Json::array())},
         {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs}};
     if (plan.action == Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);

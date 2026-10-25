@@ -3,6 +3,7 @@
 #include "persist.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
+#include "archive.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -389,6 +390,13 @@ void add_install(Plan& plan) {
     add_scripts(plan,plan.package,ScriptPhase::after_install);
     plan.steps.push_back({StepKind::commit_state});
 }
+Json external_tools_json(const Package& package) {
+    Json result = Json::array();
+    for (const auto& tool : package_external_tools(package))
+        result.push_back({{"name",tool.name},{"purpose",tool.purpose},{"policy",tool.policy},
+            {"available",tool.available},{"path",path_text(tool.path)}});
+    return result;
+}
 Json package_json(const Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
         {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
@@ -405,17 +413,19 @@ Json package_json(const Package& package) {
         const auto& report = scripts.scripts[index];
         Json entry = {{"phase",script_phase_name(script.phase)},{"text",script.text},
             {"compatible",report.compatible},{"commands",report.commands},{"helpers",report.helpers},
+            {"required_tools",report.required_tools},
             {"diagnostics",Json::array()},
             {"side_effects","trusted Manifest script text; effects outside the managed package and persist roots cannot be predicted or rolled back, and a failed hook is never re-run automatically"}};
         for (const auto& diagnostic : report.diagnostics) entry["diagnostics"].push_back({{"code",diagnostic.code},{"message",diagnostic.message}});
         result["scripts"].push_back(std::move(entry));
     }
-    result["script_support"] = {{"phases",Json::array({"pre_install","post_install","pre_uninstall"})},
+    result["script_support"] = {{"phases",Json::array({"pre_install","installer","post_install","pre_uninstall","uninstaller"})},
         {"context",Json::array({"$app","$bucket","$version","$architecture","$fname","$dir","$original_dir","$persist_dir","$bucketsdir","$global","$cmd","$_"})},
         {"helpers",Json::array({"ensure","info","warn"})},
-        {"commands",Json::array({"Test-Path","Get-Content","Set-Content","New-Item","Copy-Item","Remove-Item","Join-Path","Split-Path","Out-Null","ForEach-Object"})},
+        {"commands",Json::array({"Test-Path","Get-Content","Set-Content","New-Item","Copy-Item","Remove-Item","Join-Path","Split-Path","Get-Item","Out-Null","ForEach-Object"})},
         {"host","real PowerShell child process with the proven context; not an embedded PowerShell interpreter"},
         {"scope","path arguments must resolve under $dir, $original_dir, $persist_dir or $bucketsdir; no external commands, environment writes or arbitrary .NET calls are enabled"}};
+    result["external_tools"] = external_tools_json(package);
     result["dependencies"] = package.dependencies;
     const auto process_json = [](const InstallerProcess& process) {
         return Json{{"file",path_text(process.file)},{"arguments",process.arguments},{"keep",process.keep},
@@ -568,6 +578,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     const auto action = plan.action;
     Json result = {{"action",action_name(action)},{"package",package_json(plan.package)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
+        {"external_tools",external_tools_json(plan.package)},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
     const auto persistence_directory = (action == Action::install || action == Action::update)
@@ -614,7 +625,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     } else if (!plan.package.scripts.empty()) {
-        result["lifecycle_checks"]["hooks"] = "supported-path; verified with real upstream hook text in tests/hooks.ps1";
+        result["lifecycle_checks"]["hooks"] = "supported-path; verified with real upstream hook text in tests/hooks.ps1 and real installer/uninstaller script text in tests/installers.ps1";
     }
     if (plan.previous && !check_package_scripts(*plan.previous).compatible())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
@@ -643,7 +654,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP and tar archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; lifecycle hooks run in the fixed Scoop order only for pre_install, post_install and pre_uninstall scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; MSI extraction uses the detected Windows Installer (msiexec.exe) administrative install and is never downloaded or installed by Coop; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
     return result;
 }
 struct PackageOutcome {
