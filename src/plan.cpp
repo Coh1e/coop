@@ -44,14 +44,14 @@ const char* step_name(StepKind kind) {
     }
     return "unknown";
 }
+void add_scripts(Plan& plan, const Package& package, ScriptPhase phase, bool previous = false) {
+    for (std::size_t i = 0; i < package.scripts.size(); ++i)
+        if (package.scripts[i].phase == phase) plan.steps.push_back({StepKind::script,i,previous});
+}
 void add_remove(Plan& plan, const Package& package, bool previous, bool retain_version) {
-    const auto scripts = [&](ScriptPhase phase) {
-        for (std::size_t i = 0; i < package.scripts.size(); ++i)
-            if (package.scripts[i].phase == phase) plan.steps.push_back({StepKind::script,i,previous});
-    };
-    scripts(ScriptPhase::before_uninstall);
+    add_scripts(plan,package,ScriptPhase::before_uninstall,previous);
     if (package.uninstaller) plan.steps.push_back({StepKind::uninstaller,0,previous});
-    scripts(ScriptPhase::uninstaller);
+    add_scripts(plan,package,ScriptPhase::uninstaller,previous);
     plan.steps.push_back({StepKind::unlink_current,0,previous});
     if (!package.commands.empty()) plan.steps.push_back({StepKind::remove_commands,0,previous});
     if (!package.shortcuts.empty()) plan.steps.push_back({StepKind::remove_shortcuts,0,previous});
@@ -60,7 +60,7 @@ void add_remove(Plan& plan, const Package& package, bool previous, bool retain_v
         if (!package.persistence.empty()) plan.steps.push_back({StepKind::unlink_persistence,0,previous});
         plan.steps.push_back({StepKind::remove_version,0,previous});
     }
-    scripts(ScriptPhase::after_uninstall);
+    add_scripts(plan,package,ScriptPhase::after_uninstall,previous);
 }
 void add_install(Plan& plan) {
     for (std::size_t i = 0; i < plan.package.artifacts.size(); ++i) {
@@ -69,19 +69,15 @@ void add_install(Plan& plan) {
         if (plan.package.artifacts[i].archive != ArchiveKind::none) plan.steps.push_back({StepKind::extract,i});
     }
     if (plan.previous) add_remove(plan,*plan.previous,true,true);
-    const auto scripts = [&](ScriptPhase phase) {
-        for (std::size_t i = 0; i < plan.package.scripts.size(); ++i)
-            if (plan.package.scripts[i].phase == phase) plan.steps.push_back({StepKind::script,i});
-    };
-    scripts(ScriptPhase::before_install);
+    add_scripts(plan,plan.package,ScriptPhase::before_install);
     if (plan.package.installer) plan.steps.push_back({StepKind::installer});
-    scripts(ScriptPhase::installer);
+    add_scripts(plan,plan.package,ScriptPhase::installer);
     plan.steps.push_back({StepKind::publish_current});
     if (!plan.package.commands.empty()) plan.steps.push_back({StepKind::commands});
     if (!plan.package.shortcuts.empty()) plan.steps.push_back({StepKind::shortcuts});
     if (!plan.package.environment.empty() || !plan.package.path_entries.empty()) plan.steps.push_back({StepKind::environment});
     if (!plan.package.persistence.empty()) plan.steps.push_back({StepKind::persistence});
-    scripts(ScriptPhase::after_install);
+    add_scripts(plan,plan.package,ScriptPhase::after_install);
     plan.steps.push_back({StepKind::commit_state});
 }
 Json package_json(const Package& package) {
@@ -96,6 +92,13 @@ Json package_json(const Package& package) {
     for (const auto& item : package.path_entries) result["path_entries"].push_back(path_text(item));
     static const char* phases[] = {"pre_install","installer","post_install","pre_uninstall","uninstaller","post_uninstall"};
     for (const auto& item : package.scripts) result["scripts"].push_back({{"phase",phases[static_cast<int>(item.phase)]},{"text",item.text},{"side_effects","arbitrary trusted script; external effects cannot be predicted or universally rolled back"}});
+    result["dependencies"] = package.dependencies;
+    const auto process_json = [](const InstallerProcess& process) {
+        return Json{{"file",path_text(process.file)},{"arguments",process.arguments},{"keep",process.keep},
+            {"side_effects","external program; effects are unverified and cannot be universally rolled back"}};
+    };
+    result["installer"] = package.installer ? process_json(*package.installer) : Json(nullptr);
+    result["uninstaller"] = package.uninstaller ? process_json(*package.uninstaller) : Json(nullptr);
     return result;
 }
 }
@@ -117,25 +120,28 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         const auto install_path = installed_record(plan.local.current,L"install");
         const auto install = read_json(install_path);
         plan.preconditions.push_back({install_path,sha256_file(install_path)});
-        auto package = parse_package(manifest,name,install.value("bucket",std::string{}),install.value("architecture",architecture));
+        auto package = parse_package(manifest,name,install.value("bucket",std::string{}),install.value("architecture",architecture.empty() ? std::string("64bit") : architecture));
         plan.preconditions.push_back({manifest,package.manifest_sha256});
         if (!bucket.empty() && !equal_name(bucket,package.bucket))
             plan.diagnostics.push_back({DiagnosticKind::environment,"installed-bucket-mismatch","Installed package has a different bucket"});
         return package;
     };
+    auto target_architecture = architecture.empty() ? std::string("64bit") : architecture;
+    if (action == Action::update) {
+        plan.previous = read_installed();
+        if (bucket.empty()) bucket = plan.previous->bucket;
+        if (architecture.empty()) target_architecture = plan.previous->architecture;
+        plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
+    }
     if (action == Action::install || action == Action::update) {
         Json matches = Json::array();
         for (const auto& item : catalog(context))
             if (equal_name(item.at("name"),name) && (bucket.empty() || equal_name(item.at("bucket"),bucket))) matches.push_back(item);
         if (matches.size() != 1) throw std::runtime_error(matches.empty() ? "Package not found in local buckets" : "Ambiguous package; qualify it with its bucket");
         const auto& item = matches.front();
-        plan.package = parse_package(fs::path(wide(item.at("path"))),item.at("name"),item.at("bucket"),architecture);
+        plan.package = parse_package(fs::path(wide(item.at("path"))),item.at("name"),item.at("bucket"),target_architecture);
         if (!version.empty() && plan.package.version != version)
             plan.diagnostics.push_back({DiagnosticKind::environment,"version-unavailable","Requested version is absent locally; no URL will be guessed"});
-        if (action == Action::update) {
-            plan.previous = read_installed();
-            plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
-        }
         add_install(plan);
     } else {
         plan.package = read_installed();

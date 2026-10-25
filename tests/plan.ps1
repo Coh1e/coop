@@ -48,6 +48,18 @@ if ($LASTEXITCODE -eq 0 -or 'syntax' -notin (($text -join "`n") | ConvertFrom-Js
 $query = & $CoopExe --root $root info bad --json
 if ($LASTEXITCODE -ne 0 -or ($query | ConvertFrom-Json)[0].name -ne 'bad') { throw 'execution validation hid query result' }
 if (Test-Path "$root/.coop") { throw 'preview wrote management state' }
+'{"bucket":"main","architecture":"32bit"}' | Set-Content "$root/apps/jq/current/scoop-install.json" -Encoding utf8
+New-Item -ItemType Directory -Path "$root/buckets/other/bucket" | Out-Null
+Copy-Item "$root/buckets/main/bucket/jq.json" "$root/buckets/other/bucket/jq.json"
+$text = & $CoopExe --root $root update jq --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw 'update failed to inherit installed source' }
+$update32 = ($text -join "`n") | ConvertFrom-Json
+if ($update32.package.architecture -ne '32bit' -or $update32.package.bucket -ne 'main' -or $update32.artifacts[0].url -notlike '*i386*') { throw 'update changed installed architecture or source' }
+$processManifest = @{version='1';url='https://invalid.example/test.exe';hash=('0'*64);depends='main/jq';installer=@{file='setup.exe';args=@('/silent','value with spaces');keep=$true};uninstaller=@{file='remove.exe';args='/quiet'}} | ConvertTo-Json -Depth 5
+$processManifest | Set-Content "$root/buckets/main/bucket/process.json" -Encoding utf8
+$text = & $CoopExe --root $root install main/process --dry-run --json
+$processPlan = ($text -join "`n") | ConvertFrom-Json
+if ($processPlan.package.installer.file -ne 'setup.exe' -or $processPlan.package.installer.arguments[1] -ne 'value with spaces' -or $processPlan.package.uninstaller.file -ne 'remove.exe' -or 'main/jq' -notin $processPlan.package.dependencies) { throw 'missing installer/ dependency disclosure' }
 $guard = Join-Path (Split-Path $CoopExe) 'process_guard.exe'
 $guardOutput = & $guard $CoopExe --root $root install rclone --dry-run --json
 if ($LASTEXITCODE -ne 0) { throw 'preview launched a script or helper process' }

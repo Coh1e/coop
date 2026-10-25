@@ -22,7 +22,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     try {
         coop::Context context;
-        std::string architecture = "64bit";
+        std::string architecture;
         std::vector<std::wstring> arguments;
         for (int i = 1; i < argc; ++i) {
             const std::wstring_view arg(argv[i]);
