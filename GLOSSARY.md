@@ -13,3 +13,7 @@ Coop 管理 Windows 软件包，并接管已有 Scoop 安装。以下术语用�
 **未接管包（Unadopted Package）**：Coop 已识别但尚未取得生命周期管理资格的软件包安装；不能通过 Coop 更新或卸载。
 
 **持久化数据（Persistent Data）**：Manifest 的 `persist` 声明、存放在版本目录之外的配置或内容。普通卸载保留这些数据；链接归属必须可验证，链接本身不是数据本体。
+
+**依赖（Dependency）**：Manifest `depends` 明确声明的另一个软件包，可限定 bucket。安装时先解析并安装依赖，已安装依赖跳过；不从脚本、用户项目或 Coop 自身工具需求推断依赖。
+
+**反向依赖（Reverse Dependency）**：已安装包的保存 Manifest 声明依赖目标包的关系。已知反向依赖方（包括未接管安装）会阻止普通卸载，卸载保护不使用猜测或自动连带删除。

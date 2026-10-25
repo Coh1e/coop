@@ -39,9 +39,9 @@ void erase_tree(const fs::path& path) {
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
-    if (!package.scripts.empty() || !package.dependencies.empty() ||
+    if (!package.scripts.empty() ||
         !package.shortcuts.empty() || !package.path_entries.empty() || !package.environment.empty() || package.installer || package.uninstaller)
-        throw std::runtime_error("Execution currently requires archives or files without scripts, dependencies, shortcuts or environment changes; declared persist mappings are supported");
+        throw std::runtime_error("Execution currently requires archives or files without scripts, shortcuts or environment changes; declared persist mappings and dependencies are supported");
     const auto lower_name = [](std::string value) {
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
@@ -107,7 +107,11 @@ std::string package_execution_blocker(const Package& package) {
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.action == Action::adopt) {
-        if (!plan.adoption || (plan.adoption->eligibility != AdoptionEligibility::eligible && plan.adoption->eligibility != AdoptionEligibility::already_managed))
+        if (plan.adoption && plan.adoption->eligibility == AdoptionEligibility::already_managed) return {};
+        for (const auto& dependency : plan.package.dependencies)
+            if (!dependency_is_installed(context,dependency))
+                return "Declared dependency is not installed: "+dependency;
+        if (!plan.adoption || plan.adoption->eligibility != AdoptionEligibility::eligible)
             return "Package is not eligible for in-place adoption; inspect --dry-run";
         return {};
     }
@@ -122,14 +126,45 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         try { verify_persistence(context,plan.action == Action::update ? *plan.previous : plan.package,plan.local.directory); }
         catch (const std::exception& error) { return std::string("Managed persistence state cannot be verified: ")+error.what(); }
     }
-    if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
+    if (plan.action == Action::install || plan.action == Action::update) {
+        for (const auto& dependency : plan.package.dependencies) {
+            const auto name = dependency_package_name(dependency);
+            const bool planned = std::any_of(plan.planned_dependencies.begin(),plan.planned_dependencies.end(),[&](const std::string& item) {
+                return equal_name(item,name) || equal_name(item,dependency);
+            });
+            if (!planned && !dependency_is_installed(context,dependency))
+                return "Declared dependency is not installed: "+dependency;
+        }
+    }
     if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
+    if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
+    if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
     if (plan.action == Action::install && plan.local.exists) return "Package already exists; use adoption or update";
     if ((plan.action == Action::uninstall || plan.action == Action::update) && !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json")))
         return "Package is unadopted; update/uninstall is refused";
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
+    const auto result = execute_plan_result(context,plan);
+    if (plan.action == Action::adopt) {
+        std::cout << result.dump(2) << '\n';
+        return 0;
+    }
+    if (context.json_output) {
+        std::cout << result.dump(2) << '\n';
+        return 0;
+    }
+    if (result.value("status",std::string{}) == "up-to-date") {
+        std::cout << plan.package.name << ": up-to-date\n";
+        return 0;
+    }
+    std::cout << plan.package.name << ": success\n";
+    const Json persistence = result.contains("persistence") ? result.at("persistence") : Json::array();
+    if (persistence.is_array() && !persistence.empty())
+        std::cout << "Persistent data retained; old program versions and stored data are reported separately\n";
+    return 0;
+}
+Json execute_plan_result(const Context& context, const Plan& plan) {
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) throw std::runtime_error(blocker);
     const auto& package = plan.package;
@@ -154,7 +189,7 @@ int execute_plan(const Context& context, const Plan& plan) {
             throw std::runtime_error("Pending transaction requires recovery: "+path_text(journal_path));
         }
     }
-    if (plan.action == Action::adopt) return commit_adoption(context,plan);
+    if (plan.action == Action::adopt) return commit_adoption_result(context,plan);
     Json managed;
     Json persistence = Json::array();
     std::vector<FilePrecondition> owned_inputs;
@@ -204,9 +239,7 @@ int execute_plan(const Context& context, const Plan& plan) {
     }
     if (updating) {
         if (package.version == installed.version && package.manifest_sha256 == installed.manifest_sha256) {
-            if (context.json_output) std::cout << Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}}.dump() << '\n';
-            else std::cout << package.name << ": up-to-date\n";
-            return 0;
+            return Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}};
         }
         if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
         for (const auto& command : package.commands) {
@@ -241,7 +274,6 @@ int execute_plan(const Context& context, const Plan& plan) {
         journal["moves"].back()["moved"] = true; save();
     };
     save();
-    bool committed = false;
     try {
         if (plan.action == Action::install || updating) {
             const auto stage = transaction/L"payload";
@@ -319,7 +351,7 @@ int execute_plan(const Context& context, const Plan& plan) {
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                 {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
                 {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"},{"command_targets",command_targets},
-                {"persistence",persistence},
+                {"dependencies",package.dependencies},{"persistence",persistence},
                 {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
                 {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
         } else {
@@ -332,7 +364,7 @@ int execute_plan(const Context& context, const Plan& plan) {
             move(version,transaction/L"removed-version");
             move(record_path,transaction/L"managed-record.json");
         }
-        journal["state"] = "committed"; save(); committed = true;
+        journal["state"] = "committed"; save();
     } catch (...) {
         try {
             for (auto entry = owned.rbegin(); entry != owned.rend(); ++entry) erase_tree(*entry);
@@ -346,29 +378,22 @@ int execute_plan(const Context& context, const Plan& plan) {
         } catch (...) { /* Original failure propagates; pending journal preserves recovery evidence. */ }
         throw;
     }
-    if (committed) {
-        if (plan.action == Action::uninstall) {
-            erase_tree(transaction/L"current");
-            erase_tree(transaction/L"removed-version");
-        }
-        try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
-        Json result = {{"package",package.name},{"version",package.version},{"status","success"},
-            {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence}};
-        if (plan.action == Action::uninstall) {
-            result["retained_versions"] = retained_versions(context,package.name,package.version);
-            result["data_retained"] = true;
-        } else if (updating) {
-            result["retained_versions"] = retained_versions(context,package.name,package.version);
-            result["data_rollback"] = "none";
-        } else {
-            result["retained_versions"] = Json::array();
-        }
-        if (context.json_output) std::cout << result.dump(2) << '\n';
-        else {
-            std::cout << package.name << ": success\n";
-            if (!persistence.empty()) std::cout << "Persistent data retained; old program versions and stored data are reported separately\n";
-        }
+    if (plan.action == Action::uninstall) {
+        erase_tree(transaction/L"current");
+        erase_tree(transaction/L"removed-version");
     }
-    return 0;
+    try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
+    Json result = {{"package",package.name},{"version",package.version},{"status","success"},
+        {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence}};
+    if (plan.action == Action::uninstall) {
+        result["retained_versions"] = retained_versions(context,package.name,package.version);
+        result["data_retained"] = true;
+    } else if (updating) {
+        result["retained_versions"] = retained_versions(context,package.name,package.version);
+        result["data_rollback"] = "none";
+    } else {
+        result["retained_versions"] = Json::array();
+    }
+    return result;
 }
 }

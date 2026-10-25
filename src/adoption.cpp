@@ -66,6 +66,10 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (!current_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"adoption-lifecycle-unsupported",current_blocker); return result;
         }
+        for (const auto& dependency : plan.package.dependencies)
+            if (!dependency_is_installed(context,dependency)) {
+                reject(AdoptionEligibility::inconsistent,DiagnosticKind::environment,"missing-dependency","Declared dependency is not installed: "+dependency); return result;
+            }
         if (!plan.update_candidate) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"missing-update-manifest","No same-source local Manifest to assess future updates"); return result;
         }
@@ -124,12 +128,12 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
     }
     return result;
 }
-int commit_adoption(const Context& context, const Plan& plan) {
+Json commit_adoption_result(const Context& context, const Plan& plan) {
     const auto& package = plan.package;
     const auto state = context.root/L".coop";
     const auto record = state/L"packages"/(wide(package.name)+L".json");
     if (plan.adoption->eligibility == AdoptionEligibility::already_managed) {
-        std::cout << Json{{"package",package.name},{"status","already-managed"}}.dump() << '\n'; return 0;
+        return Json{{"package",package.name},{"status","already-managed"}};
     }
     const auto id = std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());
     const auto transaction = state/L"transactions"/id;
@@ -173,7 +177,7 @@ int commit_adoption(const Context& context, const Plan& plan) {
             {"executable_sha256",command.executable.sha256},{"metadata_sha256",command.metadata.sha256}};
         const Json managed = {{"name",package.name},{"version",package.version},{"architecture",package.architecture},{"bucket",package.bucket},
             {"directory",path_text(plan.local.directory)},{"manifest_sha256",package.manifest_sha256},{"status","ready"},
-            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"persistence",persistence},
+            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"dependencies",package.dependencies},{"persistence",persistence},
             {"adoption_backup",path_text(backup)}};
         write_json(transaction/L"record.json",managed);
         record_hash = sha256_file(transaction/L"record.json");
@@ -194,9 +198,8 @@ int commit_adoption(const Context& context, const Plan& plan) {
         } catch (...) { /* Preserve pending evidence if controlled rollback cannot complete. */ }
         throw;
     }
-    std::cout << Json{{"package",package.name},{"version",package.version},{"status","adopted"},{"backup",path_text(backup)},
-        {"persistence",verify_persistence(context,package,plan.local.directory)}}.dump(2) << '\n';
-    return 0;
+    return Json{{"package",package.name},{"version",package.version},{"status","adopted"},{"backup",path_text(backup)},
+        {"persistence",verify_persistence(context,package,plan.local.directory)}};
 }
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path) {
     const auto journal = read_json(journal_path);

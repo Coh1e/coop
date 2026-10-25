@@ -1,5 +1,5 @@
 #pragma once
-#include "app.hpp"
+#include "data.hpp"
 #include <optional>
 
 namespace coop {
@@ -51,6 +51,14 @@ struct FilePrecondition { fs::path path; std::string sha256; };
 struct LocalFacts { fs::path current; fs::path directory; bool exists = false; };
 enum class AdoptionEligibility { eligible, already_managed, unsupported, untested, inconsistent };
 struct LegacyCommand { std::string name; FilePrecondition executable; FilePrecondition metadata; };
+struct DependencyItem {
+    std::string request;
+    std::string name;
+    std::string bucket;
+    std::string version;
+    bool installed = false;
+    std::vector<std::string> dependencies;
+};
 struct AdoptionAssessment {
     AdoptionEligibility eligibility = AdoptionEligibility::untested;
     std::vector<LegacyCommand> commands;
@@ -68,21 +76,27 @@ struct Plan {
     std::optional<Package> update_candidate;
     std::optional<AdoptionAssessment> adoption;
     std::vector<std::string> blocking_dependents;
+    std::vector<std::string> unverified_dependents;
+    std::vector<DependencyItem> dependency_order;
+    std::vector<std::string> planned_dependencies;
 };
 std::string sha256_file(const fs::path& path);
 // Windows identity boundaries: names and paths are ordinal case-insensitive; existing paths are also
 // compared by filesystem identity so junctions, short names and separator differences cannot split one package.
 bool equal_name(const std::string& a, const std::string& b);
 bool same_identity(const fs::path& a, const fs::path& b);
+std::string dependency_package_name(const std::string& specified);
+bool dependency_is_installed(const Context& context, const std::string& specified);
 Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
                       const std::string& architecture);
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture);
 void recheck_plan(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);
+Json execute_plan_result(const Context& context, const Plan& plan);
 std::string execution_blocker(const Context& context, const Plan& plan);
 std::string package_execution_blocker(const Package& package);
 AdoptionAssessment assess_adoption(const Context& context, const Plan& plan);
-int commit_adoption(const Context& context, const Plan& plan);
+Json commit_adoption_result(const Context& context, const Plan& plan);
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path);
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args,
             const std::string& architecture);

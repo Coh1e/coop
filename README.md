@@ -12,6 +12,7 @@ Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有
 - [goop 实现对照](docs/research/git-free-buckets.md)
 - [归档生命周期覆盖](docs/archive-support.md)
 - [持久化数据支持](docs/persistence-support.md)
+- [依赖安装与反向依赖保护](docs/dependency-support.md)
 - [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
 
 开发需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。首次运行 `./scripts/fetch-deps.ps1` 获取并校验固定 nlohmann/json 3.12.0 头文件、libgit2 1.9.7 源码、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 归档源码、Scoop 原生测试夹具及真实 ZIP/tar.gz 测试归档（全部仅项目内）；然后运行 `./scripts/build.ps1` 配置、构建并测试。产物在被忽略的 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。
@@ -22,12 +23,16 @@ Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有
 
 Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop bucket和旧快照不会被强制重置或清除。发现本地文件修改会拒绝更新。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-`install|update|uninstall|adopt <包名> --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本及预计操作；接管检查同时查看本地更新清单。已知不支持/无效项与尚未验证的生命周期分别报告。
+`install|update|uninstall|adopt <包名>... --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本、依赖顺序及预计操作；接管检查同时查看本地更新清单。已知不支持/无效项与尚未验证的生命周期分别报告。
+
+`install` 读取 Manifest 显式 `depends`，先安装依赖再安装请求包；已安装依赖标为跳过。缺失、循环、跨 bucket 歧义和来源冲突在写入前明确失败，带版本的依赖写法仍拒绝。`install|update|uninstall|adopt` 可一次接收多个包，逐包报告 `success`、`skipped` 或 `failed`；每个包有独立事务，部分失败总体非零且不回滚已完成项，不声称全局事务。依赖安装、更新前检查和批量结果见 [依赖安装与反向依赖保护](docs/dependency-support.md)。
+
+卸载前检查所有已安装包保存 Manifest 的已知依赖，包括未接管的安装；被依赖时列出依赖方并拒绝卸载，证据不可读时也不会假定没有依赖。Coop 不自动连带卸载，不自动清理疑似无用依赖，也不删除 Manifest 声明的外部工具需求。
 
 不带包名的 `adopt --dry-run` 逐包列出当前用户根内安装的接管资格：`eligible`、`already-managed`、`unsupported`、`untested`、`inconsistent`，并逐项给出原因；系统级根只列出并标为 `unsupported`，不会写入。`adopt <包名>` 只接管资格为 `eligible` 的安装：不重新下载、不重新安装、不执行脚本，原程序路径、原始 Scoop 安装记录和命令入口保持不变；备份、原始入口摘要和 Coop 管理记录写入 `.coop`。重复接管同一安装返回 `already-managed`；中断留下的事务由下一次接管先恢复，预览不会改写恢复状态。
 
 `list` 分开显示管理权（`managed`/`unadopted`）、安装状态和上次操作状态，更新失败不会被报告为未安装或已成功。Windows 文件名不区分大小写，包名与安装目录的身份比较同样不区分大小写。
 
-目前 `adopt` 只执行无脚本、无依赖、无归档的单 EXE 包，并可接管 Manifest 声明了 `persist` 且现有 junction/hardlink 归属可验证的安装；接管不搬动原数据，更新要求持久化映射不变，普通卸载只解除链接并保留声明的持久化数据。`install|update|uninstall <包名>` 还可执行无脚本、无依赖、无快捷方式/环境声明的普通单文件、ZIP 与 tar.gz 包，包括 `extract_dir`、`extract_to`、多产物、真实命令入口和目录/文件持久化映射，使用原生下载、SHA256 校验、内置 libarchive 解压及原生 junction/hardlink，不需要安装 7-Zip。7z、MSI、InnoSetup/NSIS 等特殊安装器与脚本/持久化组合在执行前明确拒绝，不静默下载外部工具；`--purge` 尚未实现。归档格式与持久化语义、真实样本、安全边界和未验证项见 [归档生命周期覆盖](docs/archive-support.md) 与 [持久化数据支持](docs/persistence-support.md)。仅管理 Coop 自己记录且证据未变化的安装；入口和持久化链接冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口和链接；保留旧程序不代表持久化数据已回滚。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入，恢复命令仍在实现。当前阶段仅用于项目隔离测试，尚不能用于真实迁移。
+目前 `adopt` 只执行无脚本、无归档的单 EXE 包，可接管已安装且声明依赖均已存在、Manifest 声明了 `persist` 且现有 junction/hardlink 归属可验证的安装；接管不搬动原数据，更新要求持久化映射不变，普通卸载只解除链接并保留声明的持久化数据。`install|update|uninstall <包名>` 还可执行无脚本、无快捷方式/环境声明的普通单文件、ZIP 与 tar.gz 包，包括 `extract_dir`、`extract_to`、多产物、已安装依赖、真实命令入口和目录/文件持久化映射，使用原生下载、SHA256 校验、内置 libarchive 解压及原生 junction/hardlink，不需要安装 7-Zip。7z、MSI、InnoSetup/NSIS 等特殊安装器与脚本/持久化组合在执行前明确拒绝，不静默下载外部工具；`--purge` 尚未实现。归档格式与持久化语义、真实样本、安全边界和未验证项见 [归档生命周期覆盖](docs/archive-support.md) 与 [持久化数据支持](docs/persistence-support.md)。仅管理 Coop 自己记录且证据未变化的安装；入口和持久化链接冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口和链接；保留旧程序不代表持久化数据已回滚。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入，恢复命令仍在实现。当前阶段仅用于项目隔离测试，尚不能用于真实迁移。
 
 默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、真实ZIP/tar.gz归档生命周期、归档安全拒绝、本地Git增量、故障、中断和并发验证。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。

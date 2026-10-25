@@ -71,7 +71,7 @@
 未运行项：
 
 - `--purge`、旧版本显式清理与 persist 的交互。
-- 有脚本、依赖、快捷方式、环境变量、7z/MSI/安装器与 persist 的组合。
+- 有脚本、快捷方式、环境变量、7z/MSI/安装器与 persist 的组合；已安装依赖与 persist 的组合见依赖生命周期测试。
 - 真实 Main/7zip、Main/rclone、Extras/vscode 的完整生命周期（当前仍被脚本/格式能力阻止）。
 - 权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装 persist 权限。
 - 数据迁移后整个事务失败时回滚 store 内容；当前明确不承诺该行为。
