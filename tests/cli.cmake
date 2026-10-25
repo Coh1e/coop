@@ -1,6 +1,7 @@
 if(NOT EXISTS "${COOP_EXE}")
   message(FATAL_ERROR "Coop executable is not built")
 endif()
+file(MAKE_DIRECTORY "${TEST_ROOT}")
 execute_process(COMMAND "${COOP_EXE}" unsupported-command WORKING_DIRECTORY "${TEST_ROOT}"
   RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 2 OR NOT output STREQUAL "" OR NOT error MATCHES "unknown command")
@@ -16,7 +17,6 @@ execute_process(COMMAND "${COOP_EXE}" --help WORKING_DIRECTORY "${TEST_ROOT}"
 if(NOT result EQUAL 0 OR NOT output MATCHES "Usage: coop" OR NOT error STREQUAL "")
   message(FATAL_ERROR "help failed: ${result}, ${output}, ${error}")
 endif()
-file(MAKE_DIRECTORY "${TEST_ROOT}")
 execute_process(COMMAND "${COOP_EXE}" --version WORKING_DIRECTORY "${TEST_ROOT}"
   RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
 if(NOT result EQUAL 0 OR NOT output MATCHES "^coop [0-9]+\\.[0-9]+\\.[0-9]+" OR NOT error STREQUAL "")
