@@ -20,4 +20,6 @@ Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有
 
 Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop bucket和旧快照不会被强制重置或清除。发现本地文件修改会拒绝更新。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-默认测试不依赖外网，包含真实CLI、进程树观测、本地Git增量、故障、中断和并发验证。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。当前无安装命令，切勿据此尝试真实接管。
+`install|update|uninstall|adopt <包名> --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本及预计操作；接管检查同时查看本地更新清单。已知不支持/无效项与尚未验证的生命周期分别报告。目前只提供预览，不能执行软件操作。
+
+默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、本地Git增量、故障、中断和并发验证。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string_view>
 #include "app.hpp"
+#include "package.hpp"
 #include <windows.h>
 
 int wmain(int argc, wchar_t** argv) {
@@ -21,6 +22,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     try {
         coop::Context context;
+        std::string architecture = "64bit";
         std::vector<std::wstring> arguments;
         for (int i = 1; i < argc; ++i) {
             const std::wstring_view arg(argv[i]);
@@ -28,10 +30,13 @@ int wmain(int argc, wchar_t** argv) {
                 if (++i == argc) throw std::runtime_error("Root option requires a path");
                 if (arg == L"--root") context.root = argv[i];
                 else context.global_root = argv[i];
+            } else if (arg == L"--arch") {
+                if (++i == argc) throw std::runtime_error("--arch requires an architecture");
+                architecture = coop::utf8(argv[i]);
             } else if (arg == L"--json") context.json_output = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"adopt")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
@@ -43,6 +48,8 @@ int wmain(int argc, wchar_t** argv) {
             context.root = coop::fs::absolute(context.root).lexically_normal();
             if (context.global_root) context.global_root = coop::fs::absolute(*context.global_root).lexically_normal();
             if (command == L"bucket") return coop::bucket_command(context,arguments);
+            if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"adopt")
+                return coop::preview(context,command,arguments,architecture);
             return coop::query(context, command, arguments);
         }
         std::cerr << "coop: unknown command; use --help\n";
