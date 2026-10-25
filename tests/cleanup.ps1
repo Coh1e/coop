@@ -103,9 +103,40 @@ if ($install3.code -ne 0) { throw "retained fixture install failed: $($install3.
 Manifest $root3 'retainedfixture' '2' $fixture2
 $update3 = Run-Json @('--root',$root3,'update','retainedfixture','--json')
 if ($update3.code -ne 0) { throw "retained fixture update failed: $($update3.text)" }
+# Removing the current junction must not make the recorded current version look like an old
+# version. Cleanup blocks before moving anything and leaves the management record unchanged.
+$record3 = "$root3/.coop/packages/retainedfixture.json"
+$record3Before = [IO.File]::ReadAllText($record3)
+Remove-Junction "$root3/apps/retainedfixture/current"
+$blockedCurrent = Run-Json @('--root',$root3,'cleanup','retainedfixture','--json')
+$blockedCurrentPreview = Run-Json @('--root',$root3,'cleanup','retainedfixture','--dry-run','--json')
+if ($blockedCurrent.code -eq 0 -or $blockedCurrent.value[0].status -ne 'blocked' -or
+    $blockedCurrentPreview.code -eq 0 -or $blockedCurrentPreview.value[0].status -ne 'blocked') {
+    throw "cleanup accepted a missing current link with a recorded current version: $($blockedCurrent.text)"
+}
+if (-not (Test-Path "$root3/apps/retainedfixture/2/retainedfixture.exe") -or
+    [IO.File]::ReadAllText($record3) -ne $record3Before) {
+    throw 'cleanup deleted or changed the recorded current version while current was missing'
+}
+New-Item -ItemType Junction -Path "$root3/apps/retainedfixture/current" -Target "$root3/apps/retainedfixture/2" | Out-Null
 $remove3 = Run-Json @('--root',$root3,'uninstall','retainedfixture','--json')
 if ($remove3.code -ne 0 -or -not (Test-Path "$root3/apps/retainedfixture/1/retainedfixture.exe") -or (Test-Path "$root3/.coop/packages/retainedfixture.json")) { throw "normal uninstall did not retain old version/evidence: $($remove3.text)" }
 if (-not (Test-Path "$root3/.coop/retained/retainedfixture.json")) { throw 'normal uninstall did not retain version ownership evidence' }
+# An interrupted cleanup that already moved a candidate to its transaction trash is completed by
+# the next cleanup invocation instead of leaving a permanently pending cleanup journal.
+$interrupted = "$root3/.coop/transactions/interrupted-cleanup"
+$interruptedTrash = "$interrupted/0-1"
+New-Item -ItemType Directory -Path $interrupted -Force | Out-Null
+Move-Item -LiteralPath "$root3/apps/retainedfixture/1" -Destination $interruptedTrash
+@{state='pending';action='cleanup';package='retainedfixture';candidates=@(@{version='1';
+    from="$root3/apps/retainedfixture/1";trash=$interruptedTrash;moved=$true;recovery=$false})} |
+    ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$interrupted/journal.json" -Encoding utf8
+$recovered = Run-Json @('--root',$root3,'cleanup','retainedfixture','--json')
+if ($recovered.code -ne 0 -or (Test-Path "$root3/apps/retainedfixture/1") -or (Test-Path $interruptedTrash)) {
+    throw "interrupted cleanup was not completed: $($recovered.text)"
+}
+$recoveredJournal = Get-Content -LiteralPath "$interrupted/journal.json" -Raw | ConvertFrom-Json
+if ($recoveredJournal.state -ne 'committed') { throw 'interrupted cleanup journal was not marked committed' }
 $later = Run-Json @('--root',$root3,'cleanup','retainedfixture','--json')
 if ($later.code -ne 0 -or (Test-Path "$root3/apps/retainedfixture/1")) { throw "cleanup after normal uninstall failed: $($later.text)" }
 

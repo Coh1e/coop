@@ -134,6 +134,13 @@ struct CleanupResult {
     bool failed = false;
 };
 
+bool has_current_problem(const Json& inventory) {
+    return std::any_of(inventory.begin(),inventory.end(),[](const Json& entry) {
+        const auto status = entry.value("status",std::string{});
+        return status == "current-missing" || status == "current-mismatch";
+    });
+}
+
 CleanupResult cleanup_package(const Context& context, const std::string& package_name, bool dry_run) {
     CleanupResult outcome;
     const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
@@ -157,6 +164,13 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     Json result = {{"package",package_name},{"action","cleanup"},
         {"versions",inventory},{"removable",cleanable},{"unmanageable",unmanageable},
         {"pending_transactions",pending}};
+    if (has_current_problem(inventory)) {
+        result["status"] = "blocked";
+        result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
+        outcome.failed = true;
+        outcome.value = std::move(result);
+        return outcome;
+    }
     if (dry_run) {
         result["status"] = !pending.empty() ? "blocked" : cleanable.empty() && unmanageable.empty() ? "nothing-to-clean" :
             unmanageable.empty() ? "planned" : "partial";
@@ -185,6 +199,13 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     result["versions"] = inventory;
     result["removable"] = cleanable;
     result["unmanageable"] = unmanageable;
+    if (has_current_problem(inventory)) {
+        result["status"] = "blocked";
+        result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
+        outcome.failed = true;
+        outcome.value = std::move(result);
+        return outcome;
+    }
     if (cleanable.empty()) {
         result["status"] = unmanageable.empty() ? "nothing-to-clean" : "partial";
         outcome.failed = !unmanageable.empty();
@@ -470,6 +491,22 @@ Json recorded_version_evidence(const Context& context, const std::string& packag
 Json version_cleanup_inventory(const Context& context, const std::string& package_name,
                                const std::string& current_version) {
     const auto app = context.root/L"apps"/wide(package_name);
+    const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
+    std::string managed_version;
+    fs::path managed_directory;
+    if (fs::is_regular_file(managed_path)) {
+        try {
+            const auto managed = read_json(managed_path);
+            if (managed.contains("version") && managed.at("version").is_string())
+                managed_version = managed.at("version").get<std::string>();
+            if (managed.contains("directory") && managed.at("directory").is_string())
+                managed_directory = fs::path(wide(managed.at("directory").get<std::string>()));
+        } catch (const std::exception&) {
+            // A malformed management record cannot prove which version is current. Cleanup
+            // will not delete anything unless the normal current link and evidence agree.
+        }
+    }
+    const bool has_managed_current = !managed_version.empty() || !managed_directory.empty();
     const auto recorded = recorded_version_evidence(context,package_name);
     const auto actual = scan_version_evidence(app);
     const auto pending = pending_transactions(context);
@@ -481,8 +518,24 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
     for (auto entry : actual) {
         const auto version = entry.at("version").get<std::string>();
         actual_versions.insert(lower_key(version));
-        if ((!current_version.empty() && equal_name(version,current_version)) ||
-            (current_exists && same_identity(app/wide(version),current))) continue;
+        const fs::path directory = app/wide(version);
+        const bool protected_by_version = (!current_version.empty() && equal_name(version,current_version)) ||
+            (!managed_version.empty() && equal_name(version,managed_version));
+        const bool protected_by_directory = !managed_directory.empty() && same_identity(directory,managed_directory);
+        const bool published_current = current_exists && same_identity(directory,current);
+        if (protected_by_version || protected_by_directory) {
+            const bool record_points_at_current = managed_directory.empty() ? published_current :
+                same_identity(current,managed_directory);
+            if (published_current && record_points_at_current) continue;
+            entry["recorded"] = true;
+            entry["status"] = current_exists ? "current-mismatch" : "current-missing";
+            entry["reason"] = current_exists ?
+                "Management record names a current version that is not the published current link; cleanup is blocked" :
+                "Management record names this version as current but the current link is missing or dangling; cleanup is blocked";
+            result.push_back(std::move(entry));
+            continue;
+        }
+        if (published_current) continue;
         entry["recorded"] = false;
         if (entry.at("status").get<std::string>() == "retained") {
             try { entry["tree_stamp"] = version_tree_stamp(app/wide(version)); }
@@ -537,8 +590,20 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
     for (const auto& record : recorded) {
         const auto version = record.at("version").get<std::string>();
         if (actual_versions.contains(lower_key(version))) continue;
-        if ((!current_version.empty() && equal_name(version,current_version)) ||
-            (current_exists && same_identity(fs::path(wide(record.at("directory").get<std::string>())),current))) continue;
+        const fs::path directory(wide(record.at("directory").get<std::string>()));
+        const bool protected_by_version = (!current_version.empty() && equal_name(version,current_version)) ||
+            (!managed_version.empty() && equal_name(version,managed_version));
+        const bool protected_by_directory = !managed_directory.empty() && same_identity(directory,managed_directory);
+        if (protected_by_version || protected_by_directory) {
+            if (has_managed_current) result.push_back({{"version",version},{"directory",record.at("directory").get<std::string>()},
+                {"status",current_exists ? "current-mismatch" : "current-missing"},
+                {"reason",current_exists ? "Management record names a current version that is not published" :
+                    "Management record names this version as current but the version directory is missing; cleanup is blocked"},
+                {"manifest_present",false},{"install_record_present",false},{"recorded",true},
+                {"provenance",record.value("provenance",std::string{})}});
+            continue;
+        }
+        if (current_exists && same_identity(directory,current)) continue;
         result.push_back({{"version",version},{"directory",record.at("directory").get<std::string>()},
             {"status","already-absent"},{"reason","Recorded old version is no longer present"},
             {"manifest_present",false},{"install_record_present",false},{"recorded",true},
