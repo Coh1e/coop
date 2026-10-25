@@ -107,6 +107,9 @@ Json adoption_recovery_status(const Context& context, const fs::path& journal_pa
 // owned by Coop and can be reverted without guessing. Scripts recorded by the journal are
 // never re-run; their external effects remain unknown.
 Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute);
+// Query may read the last committed record moved into a transaction, but only from Coop's own
+// transaction subtree and after the same path safety checks used by recovery.
+bool recovery_record_path_allowed(const Context& context, const fs::path& path);
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args,
             const std::string& architecture);
 }

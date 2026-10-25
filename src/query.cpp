@@ -27,13 +27,13 @@ static Json previous_record(const Context& context, const std::string& name, con
             const fs::path candidate(wide(move.at("to").get<std::string>()));
             const auto filename = candidate.filename().wstring();
             if (filename != L"old-managed-record.json" && filename != L"managed-record.json") continue;
-            if (!fs::is_regular_file(candidate)) continue;
+            if (!recovery_record_path_allowed(context,candidate) || !fs::is_regular_file(candidate)) continue;
             const auto record = read_json(candidate);
-            if (record.is_object()) return record;
+            if (!record.is_object() || !record.contains("name") || !record.at("name").is_string() ||
+                !equal_name(record.at("name").get<std::string>(),name)) continue;
+            return record;
         }
     } catch (const std::exception&) { /* The current published record remains the fallback. */ }
-    (void)context;
-    (void)name;
     return Json();
 }
 static std::vector<Persistence> listed_persistence(const Json& manifest) {

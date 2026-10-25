@@ -5,6 +5,7 @@
 #include <cctype>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 
 namespace coop {
@@ -17,13 +18,22 @@ std::string lower_name(std::string value) {
 bool report_failed(const Json& entry) {
     const auto mode = entry.value("mode",std::string{});
     const auto status = entry.value("status",std::string{});
-    return mode == "manual" || status == "manual" || status == "failed";
+    return mode == "manual" || status == "manual" || status == "failed" || status == "not-pending";
 }
 }
-Json pending_recovery_report(const Context& context, bool execute) {
+Json pending_recovery_report(const Context& context, bool execute,
+                             const std::vector<std::string>& requested) {
     Json result = Json::array();
+    std::set<std::string> wanted;
+    for (const auto& name : requested) if (!name.empty()) wanted.insert(lower_name(name));
     const auto directory = context.root/L".coop"/L"transactions";
-    if (!fs::is_directory(directory)) return result;
+    if (!fs::is_directory(directory)) {
+        for (const auto& name : wanted)
+            result.push_back({{"package",name},{"mode","none"},{"status","not-pending"},
+                {"requested",true},{"skipped",false},{"actions",Json::array()},
+                {"reason","No pending transaction for package "+name}});
+        return result;
+    }
     std::vector<fs::path> journals;
     for (const auto& entry : fs::directory_iterator(directory)) {
         if (!entry.is_directory()) continue;
@@ -33,22 +43,42 @@ Json pending_recovery_report(const Context& context, bool execute) {
     std::sort(journals.begin(),journals.end(),[](const fs::path& a, const fs::path& b) {
         return path_text(a) < path_text(b);
     });
+    std::set<std::string> seen;
     for (const auto& journal : journals) {
         Json info;
+        bool matched = wanted.empty();
         try {
             const auto value = read_json(journal);
             if (!value.is_object() || value.value("state",std::string{}) != "pending") continue;
             const auto action = value.value("action",std::string{});
-            if (action == "adopt") info = adoption_recovery_status(context,journal,execute);
-            else if (action == "cleanup") info = cleanup_recovery_status(context,journal,execute);
-            else info = package_recovery_status(context,journal,execute);
+            const auto package = lower_name(value.value("package",std::string{}));
+            matched = wanted.empty() || (!package.empty() && wanted.contains(package));
+            // A scoped command must never run a transaction the caller did not name.
+            const bool execute_this = execute && matched;
+            if (action == "adopt") info = adoption_recovery_status(context,journal,execute_this);
+            else if (action == "cleanup") info = cleanup_recovery_status(context,journal,execute_this);
+            else info = package_recovery_status(context,journal,execute_this);
         } catch (const std::exception& error) {
             info = {{"journal",path_text(journal)},{"mode","manual"},{"status","manual"},
                 {"reason",std::string("Transaction journal cannot be read: ")+error.what()}};
         }
         if (!info.contains("journal")) info["journal"] = path_text(journal);
+        info["requested"] = matched;
+        info["skipped"] = !matched;
+        if (!matched) {
+            const auto reason = info.value("reason",std::string{});
+            info["reason"] = std::string("Not requested; transaction was left pending") +
+                (reason.empty() ? std::string{} : ": "+reason);
+        } else {
+            const auto package = lower_name(info.value("package",std::string{}));
+            if (!package.empty()) seen.insert(package);
+        }
         result.push_back(std::move(info));
     }
+    for (const auto& name : wanted) if (!seen.contains(name))
+        result.push_back({{"package",name},{"mode","none"},{"status","not-pending"},
+            {"requested",true},{"skipped",false},{"actions",Json::array()},
+            {"reason","No pending transaction for package "+name}});
     return result;
 }
 int recovery_command(const Context& context, const std::vector<std::wstring>& args) {
@@ -59,22 +89,20 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
             if (dry_run) throw std::runtime_error("--dry-run was specified more than once");
             dry_run = true;
         } else if (arg.starts_with(L"--")) throw std::runtime_error("Unknown recover option");
-        else requested.push_back(lower_name(utf8(arg)));
+        else {
+            const auto name = lower_name(utf8(arg));
+            if (std::find(requested.begin(),requested.end(),name) == requested.end()) requested.push_back(name);
+        }
     }
     std::unique_ptr<RootLock> lock;
     if (!dry_run) lock = std::make_unique<RootLock>(context.root);
-    auto report = pending_recovery_report(context,!dry_run);
-    if (!requested.empty()) {
-        Json filtered = Json::array();
-        for (const auto& entry : report) {
-            const auto name = lower_name(entry.value("package",std::string{}));
-            if (std::find(requested.begin(),requested.end(),name) != requested.end())
-                filtered.push_back(entry);
-        }
-        report = std::move(filtered);
-    }
+    const auto report = pending_recovery_report(context,!dry_run,requested);
     bool failed = false;
-    for (const auto& entry : report) failed = failed || report_failed(entry);
+    bool remaining = false;
+    for (const auto& entry : report) {
+        failed = failed || report_failed(entry);
+        remaining = remaining || entry.value("skipped",false);
+    }
     if (context.json_output) {
         std::cout << report.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     } else if (report.empty()) {
@@ -84,7 +112,9 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
             const auto package = entry.value("package",std::string{});
             const auto action = entry.value("action",std::string{"unknown"});
             const auto status = entry.value("status",std::string{"unknown"});
-            std::cout << (package.empty() ? std::string("transaction") : package) << ": " << action << ": " << status << '\n';
+            std::cout << (package.empty() ? std::string("transaction") : package) << ": " << action << ": " << status;
+            if (entry.value("skipped",false)) std::cout << " (not requested; left pending)";
+            std::cout << '\n';
             if (entry.contains("reason")) std::cout << "  " << entry.at("reason").get<std::string>() << '\n';
             if (entry.contains("actions")) for (const auto& action_entry : entry.at("actions")) {
                 std::cout << "  " << action_entry.value("kind",std::string{"action"}) << ' '
@@ -92,6 +122,6 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
             }
         }
     }
-    return failed ? 1 : 0;
+    return failed || remaining ? 1 : 0;
 }
 }

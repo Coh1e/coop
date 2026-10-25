@@ -21,6 +21,16 @@ function Pending-Journals([string]$Root) {
         ForEach-Object { @{Path=$_.FullName;Value=(Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json)} } |
         Where-Object { $_.Value.state -eq 'pending' })
 }
+function New-PendingInstall([string]$Root,[string]$Name) {
+    $tx = Join-Path $Root ".coop/transactions/tx-$Name"
+    $version = Join-Path $Root "apps/$Name/1"
+    New-Item -ItemType Directory -Path $version,$tx -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $version 'payload.bin'),"payload $Name")
+    @{state='pending';action='install';package=$Name;stage='publishing-version';
+      created=@(@{path=$version;owned=$true});moves=@();scripts=@()} |
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $tx 'journal.json') -Encoding utf8
+    return @{Tx=$tx;Version=$version;Journal=(Join-Path $tx 'journal.json')}
+}
 function Start-Coordinated([string]$Exe,[string]$Root,[string[]]$Arguments,[Net.Sockets.TcpListener]$Listener) {
     $connection = $Listener.AcceptTcpClientAsync()
     $start = [Diagnostics.ProcessStartInfo]::new($Exe)
@@ -311,8 +321,58 @@ try {
         throw "Cleanup journal was not recovered through the shared command: $cleanupRecovered"
     }
 
+    # H: package names scope execution. Unrequested pending transactions stay pending and are
+    # reported as skipped; an unknown name mutates nothing and reports not-pending.
+    $rootH = "$sessionRoot/scoped"
+    $alpha = New-PendingInstall $rootH 'alpha'
+    $beta = New-PendingInstall $rootH 'beta'
+    $scoped = & $CoopExe --root $rootH recover alpha --json
+    $scopedEntries = @($scoped | ConvertFrom-Json)
+    $scopedAlpha = @($scopedEntries | Where-Object package -eq 'alpha')
+    $scopedBeta = @($scopedEntries | Where-Object package -eq 'beta')
+    if ($LASTEXITCODE -ne 1 -or $scopedAlpha.Count -ne 1 -or $scopedAlpha[0].status -ne 'recovered' -or
+        $scopedBeta.Count -ne 1 -or $scopedBeta[0].skipped -ne $true -or $scopedBeta[0].requested -ne $false -or
+        (Get-Content -LiteralPath $alpha.Journal -Raw | ConvertFrom-Json).state -ne 'rolled-back' -or
+        (Test-Path -LiteralPath $alpha.Version) -or
+        (Get-Content -LiteralPath $beta.Journal -Raw | ConvertFrom-Json).state -ne 'pending' -or
+        -not (Test-Path -LiteralPath $beta.Version)) {
+        throw "Scoped recovery executed or hid an unrequested transaction: $scoped"
+    }
+    $unknown = & $CoopExe --root $rootH recover nosuchpackage --json
+    $unknownEntries = @($unknown | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 1 -or @($unknownEntries | Where-Object { $_.package -eq 'nosuchpackage' -and $_.status -eq 'not-pending' }).Count -ne 1 -or
+        @($unknownEntries | Where-Object { $_.package -eq 'beta' -and $_.skipped -eq $true }).Count -ne 1 -or
+        (Get-Content -LiteralPath $beta.Journal -Raw | ConvertFrom-Json).state -ne 'pending' -or
+        -not (Test-Path -LiteralPath $beta.Version)) {
+        throw "Unknown scoped package mutated pending state or returned empty success: $unknown"
+    }
+    $betaRecovered = & $CoopExe --root $rootH recover beta --json
+    if ($LASTEXITCODE -ne 0 -or @($betaRecovered | ConvertFrom-Json)[0].status -ne 'recovered' -or
+        (Test-Path -LiteralPath $beta.Version)) { throw "Scoped recovery did not finish the requested package: $betaRecovered" }
+
+    # I: a scoped automatic recovery must still report a different manual transaction and return
+    # nonzero instead of claiming global success.
+    $rootI = "$sessionRoot/scoped-manual"
+    $auto = New-PendingInstall $rootI 'autopkg'
+    $manualTx = "$rootI/.coop/transactions/tx-manualpkg"
+    $manualCurrent = "$rootI/apps/manualpkg/current"
+    $manualOld = "$manualTx/old-current"
+    New-Item -ItemType Directory -Path $manualCurrent,$manualOld -Force | Out-Null
+    @{state='pending';action='update';package='manualpkg';created=@();scripts=@();
+      moves=@(@{from=$manualCurrent;to=$manualOld;moved=$true})} |
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$manualTx/journal.json" -Encoding utf8
+    $scopedManual = & $CoopExe --root $rootI recover autopkg --json
+    $scopedManualEntries = @($scopedManual | ConvertFrom-Json)
+    if ($LASTEXITCODE -ne 1 -or
+        @($scopedManualEntries | Where-Object { $_.package -eq 'autopkg' -and $_.status -eq 'recovered' }).Count -ne 1 -or
+        @($scopedManualEntries | Where-Object { $_.package -eq 'manualpkg' -and $_.skipped -eq $true -and $_.mode -eq 'manual' }).Count -ne 1 -or
+        (Get-Content -LiteralPath "$manualTx/journal.json" -Raw | ConvertFrom-Json).state -ne 'pending' -or
+        (Test-Path -LiteralPath $auto.Version)) {
+        throw "Scoped automatic recovery claimed success while manual state remained: $scopedManual"
+    }
+
     @{root=$root; fresh_root=$rootB; publication_root=$rootC; script_root=$rootD; manual_root=$rootE;
-      adopt_journal_root=$rootF; cleanup_journal_root=$rootG;
+      adopt_journal_root=$rootF; cleanup_journal_root=$rootG; scoped_root=$rootH; scoped_manual_root=$rootI;
       interrupted_update_journal=$journalPath; recovery_mode='automatic-and-manual';
       actual_process_interruptions=2; simulated_publication_stage=$true} |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $sessionRoot 'recovery-evidence.json') -Encoding utf8

@@ -875,4 +875,7 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
         return result;
     }
 }
+bool recovery_record_path_allowed(const Context& context, const fs::path& path) {
+    return path_is_under(path,context.root/L".coop"/L"transactions") && recovery_path_allowed(context,path);
+}
 }
