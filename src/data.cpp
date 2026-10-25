@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <fstream>
 #include <stdexcept>
+#include <algorithm>
+#include <cctype>
 
 namespace coop {
 std::string utf8(const std::wstring& value) {
@@ -37,5 +39,65 @@ Json read_json(const fs::path& path) {
 fs::path installed_record(const fs::path& directory, const std::wstring& kind) {
     const auto preferred = directory / (L"scoop-" + kind + L".json");
     return fs::exists(preferred) ? preferred : directory / (kind + L".json");
+}
+void validate_component(const std::string& value) {
+    if (value.empty() || value == "." || value == ".." || value.back() == '.' || value.back() == ' ')
+        throw std::runtime_error("Invalid path component");
+    if (std::any_of(value.begin(), value.end(), [](unsigned char c) { return c < 32 || std::string("<>:\"/\\|?*").find(c) != std::string::npos; }))
+        throw std::runtime_error("Unsafe path component");
+    auto base = value.substr(0,value.find('.'));
+    for (auto& c : base) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" ||
+        (base.size() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) && base[3] >= '0' && base[3] <= '9'))
+        throw std::runtime_error("Reserved Windows path component");
+}
+RootLock::RootLock(const fs::path& root) : handle_(INVALID_HANDLE_VALUE) {
+    const auto state = root/L".coop";
+    const DWORD attributes = GetFileAttributesW(state.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+        throw std::runtime_error("Coop state directory cannot be a reparse point");
+    fs::create_directories(state);
+    handle_ = CreateFileW((state/L"write.lock").c_str(), GENERIC_READ|GENERIC_WRITE, 0, nullptr,
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle_ == INVALID_HANDLE_VALUE) throw std::runtime_error("Root is busy or write lock cannot be opened");
+    FILE_ATTRIBUTE_TAG_INFO tag{};
+    if (!GetFileInformationByHandleEx(handle_, FileAttributeTagInfo, &tag, sizeof(tag)) || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        CloseHandle(handle_);
+        throw std::runtime_error("Unsafe root lock file");
+    }
+}
+RootLock::~RootLock() { if (handle_ != INVALID_HANDLE_VALUE) CloseHandle(handle_); }
+Json bucket_sources(const Context& context) {
+    Json sources = Json::array();
+    const auto registry = context.root/L".coop"/L"buckets.json";
+    if (fs::exists(registry)) sources = read_json(registry);
+    if (!sources.is_array()) throw std::runtime_error("Invalid bucket registry");
+    const auto buckets = context.root/L"buckets";
+    if (fs::exists(buckets)) for (const auto& bucket : fs::directory_iterator(buckets)) {
+        if (!bucket.is_directory()) continue;
+        const auto name = path_text(bucket.path().filename());
+        if (std::any_of(sources.begin(),sources.end(),[&](const Json& source) {
+            const auto registered = wide(source.at("name").get<std::string>());
+            return CompareStringOrdinal(registered.c_str(),-1,bucket.path().filename().c_str(),-1,TRUE) == CSTR_EQUAL;
+        })) continue;
+        sources.push_back({{"name",name},{"kind","unmanaged"},{"path",path_text(bucket.path())},
+            {"url",path_text(bucket.path())},{"synced_at",nullptr}});
+    }
+    return sources;
+}
+void write_json(const fs::path& path, const Json& value) {
+    const auto bytes = value.dump(2) + "\n";
+    fs::create_directories(path.parent_path());
+    const auto temporary = fs::path(path.wstring()+L".tmp-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
+    HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create temporary state file");
+    DWORD written = 0;
+    const bool success = WriteFile(file,bytes.data(),static_cast<DWORD>(bytes.size()),&written,nullptr) &&
+        written == bytes.size() && FlushFileBuffers(file);
+    CloseHandle(file);
+    if (!success || !MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(temporary.c_str());
+        throw std::runtime_error("Cannot commit state file");
+    }
 }
 }

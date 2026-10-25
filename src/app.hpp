@@ -15,4 +15,5 @@ std::string utf8(const std::wstring& value);
 std::wstring wide(const std::string& value);
 std::string path_text(const fs::path& path);
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args);
+int bucket_command(const Context& context, const std::vector<std::wstring>& args);
 }

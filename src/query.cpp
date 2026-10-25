@@ -41,15 +41,15 @@ Json installed_packages(const Context& context) {
 }
 Json catalog(const Context& context) {
     Json result = Json::array();
-    const auto buckets = context.root / L"buckets";
-    if (!fs::exists(buckets)) return result;
-    for (const auto& bucket : fs::directory_iterator(buckets)) {
-        if (!bucket.is_directory()) continue;
-        const auto directory = fs::is_directory(bucket.path()/L"bucket") ? bucket.path()/L"bucket" : bucket.path();
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        const fs::path location(wide(source.at("path").get<std::string>()));
+        if (!fs::is_directory(location)) continue;
+        const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
         for (const auto& file : fs::directory_iterator(directory)) {
             if (!file.is_regular_file() || file.path().extension() != L".json") continue;
-            Json item = {{"name",path_text(file.path().stem())}, {"bucket",path_text(bucket.path().filename())},
-                {"path",path_text(file.path())}, {"source",path_text(bucket.path())}, {"synced_at",nullptr},
+            Json item = {{"name",path_text(file.path().stem())}, {"bucket",source.at("name")},
+                {"path",path_text(file.path())}, {"source",source.at("url")}, {"synced_at",source.value("synced_at",Json(nullptr))},
                 {"diagnostics",Json::array()}};
             try {
                 const auto manifest = read_json(file.path());

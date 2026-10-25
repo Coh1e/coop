@@ -23,6 +23,10 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring console_host = std::wstring(windows_directory) + L"\\System32\\conhost.exe";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(argv[1], command.data(), nullptr, nullptr, TRUE,
                         DEBUG_PROCESS | CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process)) {
@@ -33,9 +37,18 @@ int wmain(int argc, wchar_t** argv) {
     unsigned console_hosts = 0;
     DWORD exit_code = 1;
     bool done = false;
+    unsigned long timeout = 10000;
+    wchar_t configured_timeout[32]{};
+    const auto timeout_length = GetEnvironmentVariableW(L"COOP_PROCESS_GUARD_TIMEOUT_MS",configured_timeout,32);
+    if (timeout_length && timeout_length < 32) {
+        try { timeout = std::stoul(configured_timeout); } catch (...) { timeout = 10000; }
+        if (!timeout || timeout > 120000) timeout = 120000;
+    }
+    const auto deadline = GetTickCount64()+timeout;
     while (!done) {
         DEBUG_EVENT event{};
-        if (!WaitForDebugEvent(&event, 10000)) {
+        if (!WaitForDebugEvent(&event, 1000)) {
+            if (GetLastError() == ERROR_SEM_TIMEOUT && GetTickCount64() < deadline) continue;
             TerminateProcess(process.hProcess, 1);
             CloseHandle(process.hThread);
             CloseHandle(process.hProcess);

@@ -31,7 +31,7 @@ int wmain(int argc, wchar_t** argv) {
             } else if (arg == L"--json") context.json_output = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
@@ -40,6 +40,9 @@ int wmain(int argc, wchar_t** argv) {
             }
             const auto command = arguments.front();
             arguments.erase(arguments.begin());
+            context.root = coop::fs::absolute(context.root).lexically_normal();
+            if (context.global_root) context.global_root = coop::fs::absolute(*context.global_root).lexically_normal();
+            if (command == L"bucket") return coop::bucket_command(context,arguments);
             return coop::query(context, command, arguments);
         }
         std::cerr << "coop: unknown command; use --help\n";
