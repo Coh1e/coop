@@ -577,6 +577,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             adopted.push_back({{"name",shortcut.name},{"path",path_text(shortcut.path)},{"sha256",shortcut.sha256}});
         result["exposure"]["adopted_shortcuts"] = adopted;
     }
+    if ((action == Action::update || action == Action::uninstall) && plan.local.exists) {
+        Json missing = Json::array();
+        for (const auto& shortcut : plan.package.shortcuts)
+            if (!fs::is_regular_file(shortcut_link_path(context,shortcut.name))) missing.push_back(shortcut.name);
+        result["exposure"]["missing_shortcuts"] = missing;
+    }
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
     if (plan.update_candidate) {

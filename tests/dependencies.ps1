@@ -176,7 +176,7 @@ $partial = & $CoopExe --root $root uninstall ghostpkg ind --json
 if ($LASTEXITCODE -eq 0) { throw 'batch uninstall with a missing package unexpectedly succeeded' }
 $partialResult = @(Read-Json $partial)
 if ($partialResult.Count -ne 2 -or $partialResult[0].package -ne 'ghostpkg' -or $partialResult[0].status -ne 'failed' -or
-    $partialResult[1].package -ne 'ind' -or $partialResult[1].status -ne 'success') { throw 'batch uninstall did not report per-package failure and success' }
+    $partialResult[1].package -ne 'ind' -or $partialResult[1].status -ne 'success') { throw "batch uninstall did not report per-package failure and success (exit $LASTEXITCODE): $($partial -join "`n")" }
 if (Test-Path "$root/shims/ind.exe") { throw 'successful batch entry was not removed' }
 
 @{coop=$CoopExe;root=$root;fixed_wget_manifest=(Join-Path $PSScriptRoot 'corpus/main/wget.json')} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'dependencies-evidence.json') -Encoding utf8

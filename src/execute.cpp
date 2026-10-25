@@ -92,7 +92,7 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
     const auto artifact = directory/wide(installed.artifacts.front().filename);
     if (sha256_file(artifact) != installed.artifacts.front().sha256) throw std::runtime_error("Installed executable changed; refusing operation");
 }
-void verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link, bool legacy) {
+bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link, bool legacy) {
     std::string expected;
     fs::path recorded;
     if (legacy) {
@@ -111,10 +111,30 @@ void verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shor
         recorded = fs::path(wide(found->at("path").get<std::string>()));
         expected = found->at("sha256").get<std::string>();
     }
-    if (!fs::is_regular_file(link)) throw std::runtime_error("Managed shortcut is missing: "+path_text(link));
+    // A shortcut removed outside Coop is already revoked: there is nothing left to own or
+    // protect, so update/uninstall records the observation and continues. A shortcut that is
+    // still present but changed is still refused below.
+    if (!fs::is_regular_file(link)) return false;
     if (!same_identity(recorded,link)) throw std::runtime_error("Managed shortcut path changed");
     if (sha256_file(link) != expected)
         throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
+    return true;
+}
+void prune_empty_shortcut_directories(const Context& context, const std::vector<fs::path>& links) {
+    const auto base = shortcut_directory(context).lexically_normal();
+    for (const auto& link : links) {
+        auto directory = link.parent_path().lexically_normal();
+        for (;;) {
+            const auto relative = directory.lexically_relative(base);
+            if (relative.empty() || relative.is_absolute() || relative == L".") break;
+            if (relative.begin() != relative.end() && *relative.begin() == L"..") break;
+            std::error_code error;
+            if (!fs::is_directory(directory,error) || error) break;
+            if (!fs::is_empty(directory,error) || error) break;
+            if (!fs::remove(directory,error) || error) break;
+            directory = directory.parent_path();
+        }
+    }
 }
 void publish_new(const fs::path& source, const fs::path& destination) {
     DWORD error = ERROR_SUCCESS;
@@ -272,13 +292,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             owned_inputs.push_back({metadata,sha256_file(metadata)});
         }
     }
+    std::vector<std::string> absent_shortcuts;
     for (const auto& shortcut : installed.shortcuts) {
         const auto link = shortcut_link_path(context,shortcut.name);
         if (plan.action == Action::install) {
             if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
             continue;
         }
-        verify_shortcut_ownership(managed,shortcut,link,legacy_record);
+        if (!verify_shortcut_ownership(managed,shortcut,link,legacy_record)) {
+            absent_shortcuts.push_back(shortcut.name);
+            continue;
+        }
         owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
@@ -301,13 +325,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     ordinary_parents(context.root,transaction);
     fs::create_directories(transaction);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
-        {"created",Json::array()},{"moves",Json::array()}};
+        {"created",Json::array()},{"moves",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
+    const auto shortcut_was_absent = [&](const std::string& name) {
+        return std::any_of(absent_shortcuts.begin(),absent_shortcuts.end(),[&](const std::string& item) { return equal_name(item,name); });
+    };
     const auto save = [&]() { write_json(transaction/L"journal.json",journal); };
     std::vector<fs::path> owned;
     std::vector<std::pair<fs::path,fs::path>> moved;
     const auto create = [&](const fs::path& path, const auto& operation) {
         journal["created"].push_back({{"path",path_text(path)},{"owned",false}}); save();
-        operation();
+        try { operation(); }
+        catch (const std::exception& error) {
+            journal["created"].back()["error"] = error.what();
+            try { save(); } catch (...) { /* Preserve the original failure. */ }
+            throw;
+        }
         owned.push_back(path);
         journal["created"].back()["owned"] = true; save();
     };
@@ -318,7 +350,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     };
     const auto move = [&](const fs::path& from, const fs::path& to) {
         journal["moves"].push_back({{"from",path_text(from)},{"to",path_text(to)},{"moved",false}}); save();
-        publish_new(from,to);
+        try { publish_new(from,to); }
+        catch (const std::exception& error) {
+            journal["moves"].back()["error"] = error.what();
+            try { save(); } catch (...) { /* Preserve the original failure. */ }
+            throw;
+        }
         moved.emplace_back(from,to);
         journal["moves"].back()["moved"] = true; save();
     };
@@ -377,8 +414,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
                 }
                 for (std::size_t index = 0; index < installed.shortcuts.size(); ++index)
-                    move(shortcut_link_path(context,installed.shortcuts[index].name),
-                        transaction/(L"old-shortcut-"+std::to_wstring(index)+L".lnk"));
+                    if (!shortcut_was_absent(installed.shortcuts[index].name))
+                        move(shortcut_link_path(context,installed.shortcuts[index].name),
+                            transaction/(L"old-shortcut-"+std::to_wstring(index)+L".lnk"));
                 move(record_path,transaction/L"old-managed-record.json");
             }
             fs::create_directories(app);
@@ -445,12 +483,20 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
             }
             for (std::size_t index = 0; index < package.shortcuts.size(); ++index)
-                move(shortcut_link_path(context,package.shortcuts[index].name),
-                    transaction/(L"shortcut-"+std::to_wstring(index)+L".lnk"));
+                if (!shortcut_was_absent(package.shortcuts[index].name))
+                    move(shortcut_link_path(context,package.shortcuts[index].name),
+                        transaction/(L"shortcut-"+std::to_wstring(index)+L".lnk"));
             move(version,transaction/L"removed-version");
             move(record_path,transaction/L"managed-record.json");
         }
         journal["state"] = "committed"; save();
+        if (updating || plan.action == Action::uninstall) {
+            std::vector<fs::path> revoked;
+            for (const auto& shortcut : installed.shortcuts)
+                if (!shortcut_was_absent(shortcut.name)) revoked.push_back(shortcut_link_path(context,shortcut.name));
+            try { prune_empty_shortcut_directories(context,revoked); }
+            catch (...) { /* Empty shortcut folders are cosmetic; committed state remains valid. */ }
+        }
     } catch (...) {
         try {
             for (auto entry = owned.rbegin(); entry != owned.rend(); ++entry) erase_tree(*entry);
@@ -470,7 +516,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     }
     try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
-        {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence}};
+        {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
+        {"shortcuts_already_absent",absent_shortcuts}};
     if (plan.action == Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         result["data_retained"] = true;

@@ -8,11 +8,14 @@ New-Item -ItemType Directory -Path "$root/buckets/test/bucket","$root/apps/fixtu
 $program = Join-Path (Split-Path $CoopExe) 'fixture-1.exe'
 $shim = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/deps/test-fixtures/scoop-shim-kiennq.exe'))
 Copy-Item $program "$root/apps/fixture/1/fixture.exe"
+# Hardlink from a per-root copy: many test runs leave roots behind for evidence, and NTFS
+# limits one file to 1024 hardlinks, so the shared fixture must not accumulate links.
+Copy-Item -LiteralPath $shim -Destination "$root/shim-source.exe"
 $commands = [Collections.Generic.List[object]]::new()
 for ($i=0;$i -lt 128;$i++) {
     $alias = "entry-$i"
     $commands.Add(@('fixture.exe',$alias))
-    New-Item -ItemType HardLink -Path "$root/shims/$alias.exe" -Target $shim | Out-Null
+    New-Item -ItemType HardLink -Path "$root/shims/$alias.exe" -Target "$root/shim-source.exe" | Out-Null
     [IO.File]::WriteAllText("$root/shims/$alias.shim",'path = "'+[IO.Path]::GetFullPath("$root/apps/fixture/1/fixture.exe")+'"'+"`r`n")
 }
 $manifest = @{version='1';url='http://127.0.0.1:1/fixture.exe';hash=(Get-FileHash $program).Hash.ToLower();bin=$commands.ToArray()}
