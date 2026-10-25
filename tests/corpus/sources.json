@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "archives": [
+    {
+      "repository": "ScoopInstaller/Scoop",
+      "revision": "e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f",
+      "sha256": "fa96b15950f3726d2c9a35493e192eefe56d2eddba718e8121c32f7a19257a0a"
+    },
+    {
+      "repository": "ScoopInstaller/Main",
+      "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
+      "sha256": "4a9d5717bd5b076be1dfb73977f9b082b6cdbf1c50643982f44a5397ac8e68bb"
+    },
+    {
+      "repository": "ScoopInstaller/Extras",
+      "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
+      "sha256": "d59e9d00f0c5e08558bfd270324ab045391a3c96ce93e23158918ceb5144a565"
+    }
+  ]
+}
