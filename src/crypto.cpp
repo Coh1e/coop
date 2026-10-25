@@ -7,6 +7,18 @@
 
 namespace coop {
 namespace {
+// Queries hash many small records (manifests, install records, version tree stamps). Opening
+// the CNG provider per file dominated local list time, so the shared provider is opened once
+// per process. The handle lives until process exit; the operating system releases it then.
+BCRYPT_ALG_HANDLE sha256_algorithm() {
+    static const auto algorithm = [] {
+        BCRYPT_ALG_HANDLE handle = nullptr;
+        if (BCryptOpenAlgorithmProvider(&handle,BCRYPT_SHA256_ALGORITHM,nullptr,0) < 0)
+            throw std::runtime_error("Cannot open SHA256 provider");
+        return handle;
+    }();
+    return algorithm;
+}
 std::string digest_text(const unsigned char* digest, std::size_t size) {
     const char hex[] = "0123456789abcdef";
     std::string result;
@@ -19,14 +31,10 @@ std::string digest_text(const unsigned char* digest, std::size_t size) {
 }
 }
 std::string sha256_text(const std::string& value) {
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    const auto algorithm = sha256_algorithm();
     BCRYPT_HASH_HANDLE hash = nullptr;
-    if (BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0) < 0)
-        throw std::runtime_error("Cannot open SHA256 provider");
-    if (BCryptCreateHash(algorithm,&hash,nullptr,0,nullptr,0,0) < 0) {
-        BCryptCloseAlgorithmProvider(algorithm,0);
+    if (BCryptCreateHash(algorithm,&hash,nullptr,0,nullptr,0,0) < 0)
         throw std::runtime_error("Cannot create SHA256 hash");
-    }
     try {
         if (!value.empty() && BCryptHashData(hash,reinterpret_cast<PUCHAR>(const_cast<char*>(value.data())),
                 static_cast<ULONG>(value.size()),0) < 0)
@@ -35,23 +43,17 @@ std::string sha256_text(const std::string& value) {
         if (BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0) < 0)
             throw std::runtime_error("SHA256 finish failed");
         BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(algorithm,0);
         return digest_text(digest.data(),digest.size());
     } catch (...) {
         BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(algorithm,0);
         throw;
     }
 }
 std::string sha256_file(const fs::path& path) {
-    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    const auto algorithm = sha256_algorithm();
     BCRYPT_HASH_HANDLE hash = nullptr;
-    if (BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0) < 0)
-        throw std::runtime_error("Cannot open SHA256 provider");
-    if (BCryptCreateHash(algorithm,&hash,nullptr,0,nullptr,0,0) < 0) {
-        BCryptCloseAlgorithmProvider(algorithm,0);
+    if (BCryptCreateHash(algorithm,&hash,nullptr,0,nullptr,0,0) < 0)
         throw std::runtime_error("Cannot create SHA256 hash");
-    }
     try {
         std::ifstream input(path,std::ios::binary);
         if (!input) throw std::runtime_error("Cannot open file for SHA256");
@@ -67,11 +69,9 @@ std::string sha256_file(const fs::path& path) {
         if (BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0) < 0)
             throw std::runtime_error("SHA256 finish failed");
         BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(algorithm,0);
         return digest_text(digest.data(),digest.size());
     } catch (...) {
         BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(algorithm,0);
         throw;
     }
 }

@@ -2,6 +2,7 @@
 #include "package.hpp"
 #include <windows.h>
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <set>
@@ -9,6 +10,20 @@
 
 namespace coop {
 namespace {
+// Version evidence needs both the SHA256 and the parsed manifest. Reading the file once keeps
+// list cost proportional to the manifest size instead of the number of opens.
+std::string read_manifest_text(const fs::path& path) {
+    std::error_code error;
+    const auto size = fs::file_size(path,error);
+    if (error) throw std::runtime_error("Cannot read " + path_text(path) + " (filesystem error " + std::to_string(error.value()) + ")");
+    if (size > 16 * 1024 * 1024) throw std::runtime_error("JSON file exceeds 16 MiB limit");
+    std::ifstream input(path,std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read " + path_text(path));
+    std::string result(static_cast<std::size_t>(size),'\0');
+    if (!result.empty()) input.read(result.data(),static_cast<std::streamsize>(result.size()));
+    if (!result.empty() && !input) throw std::runtime_error("Cannot read " + path_text(path));
+    return result;
+}
 std::string version_text(const Json& value) {
     return value.is_string() ? value.get<std::string>() : std::string{};
 }
@@ -449,10 +464,11 @@ Json version_evidence(const fs::path& directory, const std::string& version) {
         result["reason"] = "Historical Manifest is missing; no download URL is guessed";
         return result;
     }
-    result["manifest_sha256"] = sha256_file(manifest);
+    const auto manifest_text = read_manifest_text(manifest);
+    result["manifest_sha256"] = sha256_text(manifest_text);
     if (fs::is_regular_file(install)) result["install_record_sha256"] = sha256_file(install);
     try {
-        const auto parsed = read_json(manifest);
+        const auto parsed = Json::parse(manifest_text);
         const auto manifest_version = parsed.value("version",std::string{});
         result["manifest_version"] = manifest_version;
         if (manifest_version.empty() || !equal_name(manifest_version,version)) {
@@ -571,25 +587,34 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
     }
     const bool has_managed_current = !managed_version.empty() || !managed_directory.empty();
     const auto recorded = recorded_version_evidence(context,package_name);
-    const auto actual = scan_version_evidence(app);
     const auto pending = pending_transactions(context);
     const bool recovery_protected = !pending.empty();
     const auto current = app/L"current";
     const bool current_exists = fs::is_directory(current);
     Json result = Json::array();
     std::set<std::string> actual_versions;
-    for (auto entry : actual) {
-        const auto version = entry.at("version").get<std::string>();
+    // Protected and published versions are never reported with hashes. Reading their evidence
+    // would walk every installed tree on each list, so it is deferred until a mismatch needs it.
+    std::vector<fs::path> candidates;
+    if (fs::is_directory(app)) for (const auto& entry : fs::directory_iterator(app)) {
+        if (entry.path().filename() == L"current") continue;
+        candidates.push_back(entry.path());
+    }
+    for (const auto& directory : candidates) {
+        const auto version = path_text(directory.filename());
+        if (version.empty()) continue;
         actual_versions.insert(lower_key(version));
-        const fs::path directory = app/wide(version);
         const bool protected_by_version = (!current_version.empty() && equal_name(version,current_version)) ||
             (!managed_version.empty() && equal_name(version,managed_version));
         const bool protected_by_directory = !managed_directory.empty() && same_identity(directory,managed_directory);
+        const bool protected_version = protected_by_version || protected_by_directory;
         const bool published_current = current_exists && same_identity(directory,current);
-        if (protected_by_version || protected_by_directory) {
-            const bool record_points_at_current = managed_directory.empty() ? published_current :
-                same_identity(current,managed_directory);
-            if (published_current && record_points_at_current) continue;
+        const bool record_points_at_current = managed_directory.empty() ? published_current :
+            same_identity(current,managed_directory);
+        // A published current directory is never cleanup evidence, whether or not a record names it.
+        if (published_current && (!protected_version || record_points_at_current)) continue;
+        auto entry = version_evidence(directory,version);
+        if (protected_version) {
             entry["recorded"] = true;
             entry["status"] = current_exists ? "current-mismatch" : "current-missing";
             entry["reason"] = current_exists ?
@@ -598,10 +623,9 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
             result.push_back(std::move(entry));
             continue;
         }
-        if (published_current) continue;
         entry["recorded"] = false;
         if (entry.at("status").get<std::string>() == "retained") {
-            try { entry["tree_stamp"] = version_tree_stamp(app/wide(version)); }
+            try { entry["tree_stamp"] = version_tree_stamp(directory); }
             catch (const std::exception& error) {
                 entry["status"] = "unmanageable";
                 entry["reason"] = std::string("Version contents cannot be inspected: ")+error.what();
@@ -619,7 +643,7 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
         entry["recorded"] = true;
         entry["provenance"] = record->value("provenance",std::string{});
         const fs::path recorded_directory(wide(record->at("directory").get<std::string>()));
-        if (!same_identity(recorded_directory,app/wide(version))) {
+        if (!same_identity(recorded_directory,directory)) {
             entry["status"] = "recorded-path-changed";
             entry["reason"] = "Recorded version directory no longer matches this local path";
             result.push_back(std::move(entry));

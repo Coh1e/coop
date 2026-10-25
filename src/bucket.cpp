@@ -1,3 +1,4 @@
+#include "catalog_index.hpp"
 #include "git_bucket.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -16,6 +17,16 @@ void report_source(const Json& source) {
     Json output = source;
     output.erase("files");
     std::cout << output.dump(2) << '\n';
+}
+// The search index is a cache: a bucket stays published when it cannot be written, and an
+// unchanged Git revision never rebuilds it. Queries then fall back to the snapshot files.
+void refresh_index(const Context& context, const Json& source, bool force) {
+    try {
+        if (force || !catalog_index_valid(context,source)) write_catalog_index(context,source);
+    } catch (const std::exception& error) {
+        std::cerr << "coop: bucket " << source.value("name",std::string{}) << ": search index not updated: "
+                  << error.what() << '\n';
+    }
 }
 }
 int bucket_command(const Context& context, const std::vector<std::wstring>& args) {
@@ -65,6 +76,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         if (found == registry.end()) registry.push_back(record);
         else *found = record;
         write_json(registry_path,registry);
+        refresh_index(context,record,false);
         report_source(record);
         return 0;
     }
@@ -83,6 +95,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         try {
             const auto kind = source.value("kind",std::string{});
             if (kind == "local" || (kind == "unmanaged" && !fs::exists(fs::path(wide(source.at("path").get<std::string>()))/L".git"))) {
+                refresh_index(context,source,false);
                 report_source(source);
                 continue;
             }
@@ -93,6 +106,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             candidate.at(index) = updated;
             write_json(registry_path,candidate);
             source = std::move(updated);
+            refresh_index(context,source,source.value("changed",true));
             report_source(source);
         } catch (const std::exception& error) {
             failed = true;

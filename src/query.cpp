@@ -1,3 +1,4 @@
+#include "catalog_index.hpp"
 #include "data.hpp"
 #include "persist.hpp"
 #include "recovery.hpp"
@@ -184,20 +185,15 @@ Json catalog(const Context& context) {
         const fs::path location(wide(source.at("path").get<std::string>()));
         if (!fs::is_directory(location)) continue;
         const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
-        for (const auto& file : fs::directory_iterator(directory)) {
-            if (!file.is_regular_file() || file.path().extension() != L".json") continue;
-            Json item = {{"name",path_text(file.path().stem())}, {"bucket",source.at("name")},
-                {"path",path_text(file.path())}, {"source",source.at("url")}, {"synced_at",source.value("synced_at",Json(nullptr))},
-                {"diagnostics",Json::array()}};
-            try {
-                const auto manifest = read_json(file.path());
-                if (!manifest.is_object()) throw std::runtime_error("Manifest must be a JSON object");
-                item["version"] = manifest.at("version").get<std::string>();
-                item["description"] = manifest.value("description",std::string{});
-                item["homepage"] = manifest.value("homepage",std::string{});
-            } catch (const std::exception& error) {
-                item["diagnostics"].push_back(error.what());
-            }
+        for (const auto& entry : catalog_entries(context,source)) {
+            const auto name = entry.at("name").get<std::string>();
+            Json item = {{"name",name}, {"bucket",source.at("name")},
+                {"path",path_text(directory/(wide(name)+L".json"))}, {"source",source.at("url")},
+                {"synced_at",source.value("synced_at",Json(nullptr))},
+                {"diagnostics",entry.value("diagnostics",Json::array())}};
+            if (entry.contains("version")) item["version"] = entry.at("version");
+            if (entry.contains("description")) item["description"] = entry.at("description");
+            if (entry.contains("homepage")) item["homepage"] = entry.at("homepage");
             result.push_back(std::move(item));
         }
     }

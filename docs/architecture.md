@@ -127,7 +127,7 @@ HTTP、哈希与进程的候选仍为 WinHTTP、Windows CNG、CreateProcessW；J
 
 在此最高层命令接口验证完整行为；对复杂 IR 转换、计划顺序、路径限制、网络故障和恢复协议再增加必要模块测试。现有仓库无实现和可复用测试，不能填报通过数。
 
-性能保留交接稿目标：version 尽量低于 30ms、缓存 list/info 低于 50ms、索引命中 search 低于 100ms。分别报告进程启动到退出的耗时、冷热启动/数据缓存、bucket 规模、网络阶段、磁盘与机器环境；当前均未运行。
+性能保留交接稿目标：version 尽量低于 30ms、缓存 list/info 低于 50ms、索引命中 search 低于 100ms。完整进程测量、冷热与规模数据、实际达成情况、Git 刷新成本和已证实瓶颈的优化见[本地查询与 Git 刷新性能](performance-support.md)。
 
 ## 9. 下一阶段与前置证据
 

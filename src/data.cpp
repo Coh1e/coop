@@ -85,8 +85,8 @@ Json bucket_sources(const Context& context) {
     }
     return sources;
 }
-void write_json(const fs::path& path, const Json& value) {
-    const auto bytes = value.dump(2) + "\n";
+void write_json(const fs::path& path, const Json& value, bool compact) {
+    const auto bytes = (compact ? value.dump() : value.dump(2)) + "\n";
     fs::create_directories(path.parent_path());
     const auto temporary = fs::path(path.wstring()+L".tmp-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
