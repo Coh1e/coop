@@ -141,7 +141,8 @@ int execute_plan(const Context& context, const Plan& plan) {
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
             fs::create_directories(app);
             create(version,[&]() { publish_new(stage,version); });
-            create(app/L"current",[&]() { make_junction(app/L"current",version); });
+            make_junction(transaction/L"new-current",version);
+            create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
             fs::create_directories(shims);
             std::array<wchar_t,32768> module{};
             const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
@@ -150,7 +151,9 @@ int execute_plan(const Context& context, const Plan& plan) {
                 const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                 const auto exe = shims/(wide(command.name)+L".exe");
                 publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},{"arguments",command.arguments}});
-                create(exe,[&]() { fs::copy_file(fs::path(module.data()),exe); });
+                const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
+                fs::copy_file(fs::path(module.data()),prepared);
+                create(exe,[&]() { publish_new(prepared,exe); });
             }
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
