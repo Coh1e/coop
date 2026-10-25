@@ -118,7 +118,9 @@ void verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shor
 }
 void publish_new(const fs::path& source, const fs::path& destination) {
     DWORD error = ERROR_SUCCESS;
-    for (int attempt = 0; attempt < 5; ++attempt) {
+    // Antivirus scanners and just-exited programs can hold a published file briefly. Retry
+    // within a bounded window instead of killing a user process or claiming a false success.
+    for (int attempt = 0; attempt < 15; ++attempt) {
         if (MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH)) return;
         error = GetLastError();
         if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
