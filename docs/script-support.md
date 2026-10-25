@@ -118,7 +118,7 @@ Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 
 真实软件产物未在本轮下载或运行：测试用项目固定程序代替包产物，Hook 文本、bucket 脚本资源和生命周期顺序是真实样本。真实 `notepadplusplus`/`nodejs`/`git` 包的下载、安装、更新与卸载不在本轮证据内。
 
-`tests/installers.ps1`（CTest `installers`）补充安装器阶段：真实 MSI、7z 产物和 rclone `uninstaller.script` 原文见 [Installer/Uninstaller 与特殊安装机制](installer-support.md)；该测试用测试脚本验证通用 installer 阶段的顺序、上下文、退出码和失败传播，不声称 Main/python 的 installer.script 已兼容。
+`tests/installers.ps1`（CTest `installers`）补充安装器阶段：MSI 只做预览/隔离限制拒绝，真实 7z 产物和 rclone `uninstaller.script` 原文见 [Installer/Uninstaller 与特殊安装机制](installer-support.md)；该测试用测试脚本验证通用 installer 阶段的顺序、上下文、退出码和失败传播，不声称 Main/python 的 installer.script 已兼容。
 
 ## 未运行或未承诺
 

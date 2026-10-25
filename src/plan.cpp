@@ -394,7 +394,8 @@ Json external_tools_json(const Package& package) {
     Json result = Json::array();
     for (const auto& tool : package_external_tools(package))
         result.push_back({{"name",tool.name},{"purpose",tool.purpose},{"policy",tool.policy},
-            {"available",tool.available},{"path",path_text(tool.path)}});
+            {"available",tool.available},{"enabled",tool.enabled},{"limitation",tool.limitation},
+            {"path",path_text(tool.path)}});
     return result;
 }
 Json package_json(const Package& package) {
@@ -654,7 +655,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; MSI extraction uses the detected Windows Installer (msiexec.exe) administrative install and is never downloaded or installed by Coop; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
     return result;
 }
 struct PackageOutcome {
