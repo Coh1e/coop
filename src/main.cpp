@@ -54,7 +54,7 @@ int wmain(int argc, wchar_t** argv) {
             if (context.global_root) context.global_root = coop::fs::absolute(*context.global_root).lexically_normal();
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"adopt")
-                return coop::preview(context,command,arguments,architecture);
+                return coop::package_command(context,command,arguments,architecture);
             return coop::query(context, command, arguments);
         }
         std::cerr << "coop: unknown command; use --help\n";

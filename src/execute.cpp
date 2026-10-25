@@ -42,6 +42,10 @@ void require_capabilities(const Package& package) {
         if (command.target.extension() != L".exe" || command.target != fs::path(wide(package.artifacts[0].filename)))
             throw std::runtime_error("Only direct EXE command entries are currently supported");
 }
+void publish_new(const fs::path& source, const fs::path& destination) {
+    if (!MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH))
+        throw std::runtime_error("Destination cannot be published without replacing existing data");
+}
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.action != Action::install && plan.action != Action::uninstall) return "This action is not executable yet";
@@ -107,7 +111,18 @@ int execute_plan(const Context& context, const Plan& plan) {
     Json journal = {{"state","pending"},{"package",package.name},{"action",plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()}};
     const auto save = [&]() { write_json(transaction/L"journal.json",journal); };
-    const auto created = [&](const fs::path& path) { journal["created"].push_back(path_text(path)); save(); };
+    std::vector<fs::path> owned;
+    const auto create = [&](const fs::path& path, const auto& operation) {
+        journal["created"].push_back({{"path",path_text(path)},{"owned",false}}); save();
+        operation();
+        owned.push_back(path);
+        journal["created"].back()["owned"] = true; save();
+    };
+    const auto publish_json = [&](const fs::path& destination, const Json& value) {
+        const auto temporary = transaction/(L"json-"+std::to_wstring(journal["created"].size())+L".json");
+        write_json(temporary,value);
+        create(destination,[&]() { publish_new(temporary,destination); });
+    };
     const auto move = [&](const fs::path& from, const fs::path& to) {
         journal["moves"].push_back({{"from",path_text(from)},{"to",path_text(to)}}); save();
         fs::rename(from,to);
@@ -125,8 +140,8 @@ int execute_plan(const Context& context, const Plan& plan) {
             fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json");
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
             fs::create_directories(app);
-            created(version); fs::rename(stage,version);
-            created(app/L"current"); make_junction(app/L"current",version);
+            create(version,[&]() { publish_new(stage,version); });
+            create(app/L"current",[&]() { make_junction(app/L"current",version); });
             fs::create_directories(shims);
             std::array<wchar_t,32768> module{};
             const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
@@ -134,15 +149,12 @@ int execute_plan(const Context& context, const Plan& plan) {
             for (const auto& command : package.commands) {
                 const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                 const auto exe = shims/(wide(command.name)+L".exe");
-                created(metadata);
-                write_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},{"arguments",command.arguments}});
-                created(exe);
-                fs::copy_file(fs::path(module.data()),exe);
+                publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},{"arguments",command.arguments}});
+                create(exe,[&]() { fs::copy_file(fs::path(module.data()),exe); });
             }
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
-            created(record_path);
-            write_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
+            publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                 {"bucket",package.bucket},{"directory",path_text(version)},{"manifest_sha256",package.manifest_sha256},
                 {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"}});
         } else {
@@ -161,7 +173,7 @@ int execute_plan(const Context& context, const Plan& plan) {
                 const fs::path from(wide(entry->at("from"))), to(wide(entry->at("to")));
                 if (fs::exists(to) && !fs::exists(from)) fs::rename(to,from);
             }
-            for (auto entry = journal["created"].rbegin(); entry != journal["created"].rend(); ++entry) erase_tree(fs::path(wide(entry->get<std::string>())));
+            for (auto entry = owned.rbegin(); entry != owned.rend(); ++entry) erase_tree(*entry);
             journal["state"] = "rolled-back"; save();
         } catch (...) { /* Original failure propagates; pending journal preserves recovery evidence. */ }
         throw;

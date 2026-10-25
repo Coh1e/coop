@@ -176,7 +176,7 @@ void recheck_plan(const Plan& plan) {
         (plan.local.exists && fs::canonical(plan.local.current) != plan.local.directory))
         throw std::runtime_error("Current installation changed; generate a new plan");
 }
-int preview(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
+int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
     if (args.empty() || args.size() > 2 || (args.size() == 2 && args[1] != L"--dry-run")) throw std::runtime_error("Use <package> [--dry-run]");
     const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
     const auto plan = make_plan(context,action,utf8(args[0]),architecture);
