@@ -29,13 +29,13 @@ function Invoke-Child([string]$File, [string[]]$Arguments, [hashtable]$Environme
 # PATH is changed only for these test children: the CLI cannot find git.exe.
 $isolatedPath = @{ PATH=(Join-Path $env:SystemRoot 'System32'); COOP_PROCESS_GUARD_TIMEOUT_MS='90000' }
 $clone = Invoke-Child $GuardExe @($CoopExe,'--root',$root,'bucket','add','main','https://github.com/ScoopInstaller/Main','--branch','master','--json') $isolatedPath
-if ($clone.exit -ne 0 -or $clone.output -notmatch 'Observed workload processes: 1') { throw ('No-Git HTTPS clone failed: '+$clone.error) }
+if ($clone.exit -ne 0 -or $clone.error -notmatch 'Observed workload processes: 1') { throw ('No-Git HTTPS clone failed: '+$clone.error) }
 $main = (Get-Content -LiteralPath "$root/.coop/buckets.json" -Raw | ConvertFrom-Json)[0]
 if ($main.branch -ne 'master' -or -not [IO.Path]::IsPathRooted($main.path)) { throw 'Branch or absolute snapshot path missing' }
 $query = Invoke-Child $CoopExe @('--root',$root,'info','main/jq','--json') $isolatedPath
 if ($query.exit -ne 0) { throw 'Downloaded Main cannot be queried' }
 $update = Invoke-Child $GuardExe @($CoopExe,'--root',$root,'bucket','update','main','--json') $isolatedPath
-if ($update.exit -ne 0 -or $update.output -notmatch 'Observed workload processes: 1') { throw ('No-Git HTTPS refresh failed: '+$update.error+' '+$update.output) }
+if ($update.exit -ne 0 -or $update.error -notmatch 'Observed workload processes: 1') { throw ('No-Git HTTPS refresh failed: '+$update.error+' '+$update.output) }
 $second = (Get-Content -LiteralPath "$root/.coop/buckets.json" -Raw | ConvertFrom-Json)[0]
 if ($second.revision -eq $main.revision -and $second.path -ne $main.path) { throw 'Unchanged revision was republished' }
 $gitlab = Invoke-Child $CoopExe @('--root',$root,'bucket','add','gitlab','https://gitlab.com/gitlab-examples/cpp-example.git','--json') $isolatedPath

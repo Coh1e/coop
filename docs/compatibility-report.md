@@ -33,7 +33,7 @@
 
 ## 20 份固定样本状态
 
-“可执行”只表示计划中的执行能力为真；“已运行”只指本轮真实下载或使用固定真实归档并完成所述生命周期。未运行的项保持未运行。
+“可执行”只表示计划中的执行能力为真；“已运行”只指本轮真实下载或使用固定真实归档并完成所述生命周期。未运行的项保持未运行。表中 jq/nodejs 以及 ripgrep 的安装/卸载由 `acceptance` 覆盖；ripgrep 更新与 air 生命周期由 `archive_lifecycle` 覆盖。`acceptance-evidence.json` 的 `lifecycle` 字段只记录 acceptance 测试自身实际运行的样本，因此 Main/air 在其中仍为 `not-run`，与本表的“已运行（archive_lifecycle）”并不矛盾。
 
 | 样本 | 版本 | 读取 | 计划（64bit） | 本轮生命周期 | 备注 |
 | --- | --- | --- | --- | --- | --- |
@@ -62,10 +62,10 @@
 
 | 要求 | 本轮实际证据 |
 | --- | --- |
-| 无 Git 前置 | 本地查询与本地 bucket 更新时，进程守卫只记录 Coop 一个工作负载；Git bucket 测试使用内嵌 libgit2 完成克隆、分支与增量刷新，未调用 git.exe。真实仓库获取/刷新由 `bucket` 测试覆盖。 |
+| 无 Git 前置 | 本轮实际运行 `tests/git-live.ps1`（退出 0）：子进程 PATH 仅含 `System32`，`https://github.com/ScoopInstaller/Main` 克隆成功（`c31ed805...`，882055 字节），刷新保持同一 revision 且仅 113 字节、未重新发布，GitLab HTTPS 克隆成功；进程守卫在克隆/刷新中都只观察到 Coop 一个工作负载。同一测试还验证不可达代理退出 1 且不改已发布状态、自签名证书退出 1。本地查询与本地 bucket 更新同样只记录一个工作负载；`bucket` 测试另覆盖内嵌 libgit2 的分支/固定修订/增量刷新。 |
 | 普通包无外部 7-Zip | 真实 nodejs 7z 安装的工作负载只有 `coop.exe` 和声明 `post_install` 所需的 `pwsh.exe`，没有 `7z.exe`/`7za.exe`/`7zr.exe`；`installers` 测试另用不带脚本的真实 7z 产物断言没有外部解压进程。MSI 仍明确阻塞。 |
 | 本地查询无 PowerShell | `list`/`info`/`search` 由进程守卫断言只有 Coop 进程；查询不刷新 bucket、不启动脚本。 |
-| 数据保留 | 真实 nodejs 普通卸载保留两个声明 store 与标记；`persist` 测试覆盖链接归属、拒绝重定向和 `--purge` 实际删除。 |
+| 数据保留 | 真实 nodejs 普通卸载保留两个声明 store 与标记；`persistence` 测试覆盖链接归属、拒绝重定向和 `--purge` 实际删除。 |
 | 依赖保护 | `dependencies` 测试覆盖依赖顺序、已安装依赖跳过、循环/缺失/歧义拒绝、批量逐包结果与反向依赖卸载保护；不自动连带卸载。 |
 | 平台范围 | 本轮为 Windows 11 x64；32bit air 真实执行；arm64 只有计划检查，未运行。非 Windows 不支持。 |
 | 不触碰真实用户根 | 所有 `--root` 指向 `.local/tests`；未使用真实 Scoop 根，未发布版本，未关闭父规格。 |
@@ -74,14 +74,14 @@
 
 - 新增 `tests/acceptance.ps1` 与 CTest `acceptance`：逐样本读取/计划分类、真实 jq 首条路径、真实 nodejs 7z/持久化保留；测试根在 `.local/tests/acceptance 中文 space`。
 - 固定真实 jq 1.7.1/1.8.2 归档并加入 `scripts/fetch-deps.ps1`；`tests/process_guard.cpp` 增加只对声明 Hook 子进程生效的 `COOP_PROCESS_GUARD_ALLOW_CHILDREN=1` 观测选项。
-- 补全 `coop --help` 的 `bucket`/`install`/`update`/`adopt` 与 `--arch`/`--dry-run`，并扩展 `tests/cli.cmake` 校验。
+- 补全 `coop --help` 的 `bucket`/`install`/`update`/`adopt` 与 `--arch`/`--dry-run`，并扩展 `tests/cli.cmake` 校验；修正 `tests/git-live.ps1` 从进程守卫 stderr 读取观测结果，恢复无 git.exe 的 HTTPS/刷新/代理/证书验收。
 - 新增本报告；README 增加项目内准备、构建、运行、已知限制与恢复范围；`AGENTS.md` 记录 pi 编码主力与独立验收的默认分工。
-- 本轮实际命令：`fetch-deps.ps1` 退出 0；`build.ps1 -Action build` 退出 0；直接 `acceptance.ps1` 退出 0；`ctest` 全量 27/27 退出 0；提交后 acceptance/cli 2/2 退出 0。完整日志与 `acceptance-evidence.json` 在 `.local/pi/tasks/20/evidence`，其中记录代码 SHA256、OS、PowerShell、逐样本计划、首条路径状态和进程观测。
+- 本轮实际命令：`fetch-deps.ps1` 退出 0；`build.ps1 -Action build` 退出 0；直接 `acceptance.ps1` 退出 0；`ctest` 全量 27/27 退出 0；提交后 acceptance/cli 2/2 退出 0；`git-live.ps1` 退出 0。完整日志、`git-live` 证据与 `acceptance-evidence.json` 在 `.local/pi/tasks/20/evidence`，其中记录代码 SHA256、OS、PowerShell、逐样本计划、首条路径状态和进程观测。
 
 ## 未运行与剩余问题
 
 - 未运行 neovim、cmake、oh-my-posh 的真实下载/安装；其计划可执行，但生命周期未验证。
 - 未运行 9 份“已知不支持”样本的执行路径（这是有意拒绝），也未运行 4 份被拒绝样本的实际安装。它们的脚本、MSI、InnoSetup 或 SHA512 兼容工作属于后续范围。
-- 未执行 arm64 真实程序、真实用户 Scoop 迁移/回滚、正式发布、私有或 SSH Git 来源、跨工具交替写入。
+- 未执行 arm64 真实程序、真实用户 Scoop 迁移/回滚、正式发布、私有或 SSH Git 来源、跨工具交替写入。本轮 `git-live` 只验证公开 GitHub/GitLab HTTPS；未做 Main/Extras 全量规模的网络性能测量。
 - MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、`installer.file/args` 进程声明、注册表/用户环境写入仍未实现；完整生态兼容不能由 20 个样本推断。
 - 本轮完整命令、退出码和测试根证据保存在 `.local/pi/tasks/20/evidence`（被忽略的本地任务证据），其中 `acceptance-evidence.json` 记录逐样本计划分类、首条路径状态、进程观测与工具版本。可重跑入口是 `ctest --test-dir .local/build --output-on-failure -R '^acceptance$'`。

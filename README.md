@@ -23,7 +23,7 @@ Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Sc
 
 ## 项目内准备、构建与运行
 
-需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。所有命令在仓库根目录执行，依赖、构建、测试数据和临时文件都留在项目内：
+需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。默认 CTest 的 `bucket`/`performance` 测试还用 `git.exe` 编写项目内测试仓库；它只是夹具工具，Coop 产品运行不依赖 git.exe。所有命令在仓库根目录执行，依赖、构建、测试数据和临时文件都留在项目内：
 
 ```powershell
 ./scripts/fetch-deps.ps1                 # 下载并校验固定依赖、Scoop 夹具和真实测试归档
