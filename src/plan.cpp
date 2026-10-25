@@ -7,10 +7,6 @@
 
 namespace coop {
 namespace {
-bool equal_name(const std::string& a, const std::string& b) {
-    const auto left = wide(a), right = wide(b);
-    return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_EQUAL;
-}
 const char* action_name(Action action) {
     switch (action) {
     case Action::adopt: return "adopt";
@@ -102,8 +98,18 @@ Json package_json(const Package& package) {
     return result;
 }
 }
+bool equal_name(const std::string& a, const std::string& b) {
+    const auto left = wide(a), right = wide(b);
+    return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_EQUAL;
+}
+bool same_identity(const fs::path& a, const fs::path& b) {
+    if (equal_name(path_text(a),path_text(b))) return true;
+    std::error_code error;
+    const bool equivalent = fs::equivalent(a,b,error);
+    return !error && equivalent;
+}
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
-    Plan plan{action,{},std::nullopt,{},{},{},false,{},std::nullopt};
+    Plan plan{action,{},std::nullopt,{},{},{},false,{},std::nullopt,std::nullopt,{}};
     auto name = request;
     std::string bucket, version;
     const auto at = name.find('@');
@@ -165,6 +171,32 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     const auto registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) plan.preconditions.push_back({registry,sha256_file(registry)});
     plan.diagnostics.insert(plan.diagnostics.end(),plan.package.diagnostics.begin(),plan.package.diagnostics.end());
+    if (action == Action::adopt) {
+        plan.adoption = assess_adoption(context,plan);
+        plan.diagnostics.insert(plan.diagnostics.end(),plan.adoption->diagnostics.begin(),plan.adoption->diagnostics.end());
+        if (plan.adoption->eligibility == AdoptionEligibility::eligible) {
+            plan.preconditions.push_back({plan.local.directory/wide(plan.package.artifacts.front().filename),plan.package.artifacts.front().sha256});
+            for (const auto& command : plan.adoption->commands) {
+                plan.preconditions.push_back(command.executable);
+                plan.preconditions.push_back(command.metadata);
+            }
+        }
+    }
+    if (action == Action::uninstall) for (const auto& item : installed_packages(context)) {
+        if (item.at("scope") != "user" || equal_name(item.at("name"),plan.package.name)) continue;
+        try {
+            const auto current = context.root/L"apps"/wide(item.at("name"))/L"current";
+            const auto dependent = parse_package(installed_record(current,L"manifest"),item.at("name"),item.value("bucket",std::string{}),item.value("architecture",std::string("64bit")));
+            for (auto dependency : dependent.dependencies) {
+                dependency = dependency.substr(0,dependency.find('@'));
+                if (equal_name(dependency,plan.package.name) || equal_name(dependency,plan.package.bucket+"/"+plan.package.name)) {
+                    plan.blocking_dependents.push_back(dependent.name);
+                    plan.preconditions.push_back({dependent.manifest_path,dependent.manifest_sha256});
+                    break;
+                }
+            }
+        } catch (const std::exception&) { /* Invalid records cannot establish a known dependency. */ }
+    }
     plan.execution_available = execution_blocker(context,plan).empty();
     return plan;
 }
@@ -176,15 +208,13 @@ void recheck_plan(const Plan& plan) {
         (plan.local.exists && fs::canonical(plan.local.current) != plan.local.directory))
         throw std::runtime_error("Current installation changed; generate a new plan");
 }
-int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
-    if (args.empty() || args.size() > 2 || (args.size() == 2 && args[1] != L"--dry-run")) throw std::runtime_error("Use <package> [--dry-run]");
-    const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
-    const auto plan = make_plan(context,action,utf8(args[0]),architecture);
-    if (args.size() == 1) return execute_plan(context,plan);
+static Json describe_plan(const Context& context, const Plan& plan) {
+    const auto action = plan.action;
     Json result = {{"action",action_name(action)},{"package",package_json(plan.package)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
+    result["blocking_dependents"] = plan.blocking_dependents;
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
     if (plan.update_candidate) {
@@ -196,6 +226,15 @@ int package_command(const Context& context, const std::wstring& command, const s
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
     if (plan.previous) result["previous_package"] = package_json(*plan.previous);
+    if (plan.adoption) {
+        static const char* states[] = {"eligible","already-managed","unsupported","untested","inconsistent"};
+        result["eligibility"] = states[static_cast<int>(plan.adoption->eligibility)];
+        result["backup_scope"] = "Original installation metadata and Scoop command entries; installed programs and user data are left in place";
+        if (plan.adoption->eligibility == AdoptionEligibility::eligible) {
+            result["lifecycle_checks"]["update"] = "supported-path";
+            result["lifecycle_checks"]["uninstall"] = "supported-path";
+        }
+    }
     for (const auto& item : plan.package.artifacts) result["artifacts"].push_back({{"url",item.url},{"filename",item.filename},{"sha256",item.sha256},{"extract_dir",path_text(item.extract_directory)},{"extract_to",path_text(item.extract_destination)}});
     for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package}});
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
@@ -204,8 +243,26 @@ int package_command(const Context& context, const std::wstring& command, const s
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
     result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Only the single-file EXE install/update/uninstall path has runtime coverage; other lifecycle combinations remain unverified"}});
-    if (context.json_output) std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
-    else std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
+    return result;
+}
+int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
+    if (command == L"adopt" && args.size() == 1 && args[0] == L"--dry-run") {
+        Json result = Json::array();
+        for (const auto& item : installed_packages(context)) {
+            if (item.at("scope") == "global") {
+                result.push_back({{"package",item},{"eligibility","unsupported"},{"diagnostics",{"System-level roots are read-only"}}});
+                continue;
+            }
+            try { result.push_back(describe_plan(context,make_plan(context,Action::adopt,item.at("name"),architecture))); }
+            catch (const std::exception& error) { result.push_back({{"package",item},{"eligibility","inconsistent"},{"diagnostics",{error.what()}}}); }
+        }
+        std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n'; return 0;
+    }
+    if (args.empty() || args.size() > 2 || (args.size() == 2 && args[1] != L"--dry-run")) throw std::runtime_error("Use <package> [--dry-run]");
+    const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
+    const auto plan = make_plan(context,action,utf8(args[0]),architecture);
+    if (args.size() == 1) return execute_plan(context,plan);
+    std::cout << describe_plan(context,plan).dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     return plan.diagnostics.empty() ? 0 : 1;
 }
 }

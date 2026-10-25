@@ -90,7 +90,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    std::cout << "Observed workload processes: " << started
+    std::cerr << "Observed workload processes: " << started
               << "; Windows console hosts: " << console_hosts << '\n';
     return started == 1 && exit_code == 0 ? 0 : 1;
 }

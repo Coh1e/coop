@@ -3,8 +3,10 @@
 #include <iostream>
 #include <stdexcept>
 #include <cctype>
+#include <map>
 
 namespace coop {
+static std::string lowercase(std::string value);
 static void list_scope(Json& result, const fs::path& root, const std::string& scope) {
     const auto apps = root / L"apps";
     if (!fs::exists(apps)) return;
@@ -24,11 +26,14 @@ static void list_scope(Json& result, const fs::path& root, const std::string& sc
             item["synced_at"] = nullptr;
             item["architecture"] = install.value("architecture", std::string{});
             item["directory"] = path_text(fs::canonical(current));
+            item["status"] = "installed";
             const auto managed = root/L".coop"/L"packages"/(app.path().filename().wstring()+L".json");
             if (scope == "user" && fs::exists(managed)) {
                 const auto record = read_json(managed);
                 item["management"] = "managed";
                 item["status"] = record.value("status",std::string("unknown"));
+                item["origin"] = record.value("origin",std::string("coop"));
+                item["adoption_backup"] = record.value("adoption_backup",Json(nullptr));
             }
         } catch (const std::exception& error) {
             item["diagnostics"].push_back(error.what());
@@ -40,6 +45,30 @@ Json installed_packages(const Context& context) {
     Json result = Json::array();
     list_scope(result, context.root, "user");
     if (context.global_root) list_scope(result, *context.global_root, "global");
+    std::map<std::string,std::pair<fs::file_time_type,Json>> operations;
+    const auto transactions = context.root/L".coop"/L"transactions";
+    if (fs::is_directory(transactions)) for (const auto& entry : fs::directory_iterator(transactions)) {
+        const auto path = entry.path()/L"journal.json";
+        if (!fs::is_regular_file(path)) continue;
+        try {
+            const auto journal = read_json(path);
+            const auto name = lowercase(journal.at("package").get<std::string>());
+            const auto time = fs::last_write_time(path);
+            if (!operations.contains(name) || time > operations.at(name).first) operations[name] = {time,journal};
+        } catch (const std::exception&) { /* A malformed journal does not hide queryable installations. */ }
+    }
+    for (auto& item : result) {
+        if (item.at("scope") != "user") continue;
+        const auto operation = operations.find(lowercase(item.at("name")));
+        if (operation == operations.end()) { item["last_operation"] = "none"; continue; }
+        const auto& journal = operation->second.second;
+        const auto state = journal.value("state",std::string{});
+        item["last_operation"] = state == "committed" ? "succeeded" : state == "rolled-back" ? "failed" : "pending-recovery";
+        item["operation_action"] = journal.value("action",std::string("unknown"));
+        if (state == "committed" && journal.value("action",std::string{}) == "uninstall" && !fs::is_directory(context.root/L"apps"/wide(item.at("name"))/L"current")) {
+            item["status"] = "uninstalled"; item["management"] = "none"; item["diagnostics"] = Json::array();
+        }
+    }
     std::sort(result.begin(), result.end(), [](const Json& a, const Json& b) {
         return a.at("name").get<std::string>() < b.at("name").get<std::string>();
     });
@@ -100,7 +129,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
     else {
-        std::cout << "Name\tVersion\tBucket\tManagement\tScope\tSource\tSynced\n";
+        std::cout << "Name\tVersion\tBucket\tManagement\tScope\tSource\tSynced\tStatus\tLast operation\n";
         for (const auto& item : result) {
             const auto display = [&item](const char* key) {
                 return item.contains(key) && item.at(key).is_string() ? item.at(key).get<std::string>() : std::string("unknown");
@@ -108,7 +137,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
             std::cout << item.at("name").get<std::string>() << '\t'
                       << display("version") << '\t' << display("bucket") << '\t'
                       << display("management") << '\t' << display("scope") << '\t'
-                      << display("source") << '\t' << display("synced_at") << '\n';
+                      << display("source") << '\t' << display("synced_at") << '\t' << display("status") << '\t' << display("last_operation") << '\n';
             for (const auto& error : item.at("diagnostics")) std::cerr << "coop: " << error.get<std::string>() << '\n';
         }
     }

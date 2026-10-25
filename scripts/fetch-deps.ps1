@@ -32,3 +32,18 @@ if (-not (Test-Path -LiteralPath (Join-Path $sources 'libgit2-1.9.7/CMakeLists.t
     if ($LASTEXITCODE -ne 0) { throw 'Git library source extraction failed' }
 }
 Write-Output 'Verified libgit2 v1.9.7 sources'
+$fixtures = Join-Path (Split-Path $PSScriptRoot -Parent) '.local/deps/test-fixtures'
+New-Item -ItemType Directory -Path $fixtures -Force | Out-Null
+foreach ($file in @(
+    @{Name='scoop-shim-kiennq.exe';Source='supporting/shims/kiennq/shim.exe';Hash='140e3801d8adeda639a21b14e62b93a4c7d26b7a758421f43c82be59753be49b'},
+    @{Name='Scoop-LICENSE';Source='LICENSE';Hash='92c2b8f7e3b344a307889ff5f55dc3d7fa048f846845549df0e33e44e5939476'}
+)) {
+    $target = Join-Path $fixtures $file.Name
+    if (-not (Test-Path -LiteralPath $target)) {
+        & curl.exe -fL --retry 2 ('https://raw.githubusercontent.com/ScoopInstaller/Scoop/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/'+$file.Source) -o "$target.download"
+        if ($LASTEXITCODE -ne 0 -or (Get-FileHash "$target.download").Hash.ToLower() -ne $file.Hash) { throw 'Scoop test fixture download or hash failed' }
+        Move-Item -LiteralPath "$target.download" -Destination $target
+    }
+    if ((Get-FileHash $target).Hash.ToLower() -ne $file.Hash) { throw 'Scoop test fixture hash mismatch' }
+}
+Write-Output 'Verified Scoop 0.6.0 test-only native shim and license'

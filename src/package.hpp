@@ -49,6 +49,13 @@ enum class StepKind {
 struct Step { StepKind kind; std::size_t index = 0; bool previous_package = false; };
 struct FilePrecondition { fs::path path; std::string sha256; };
 struct LocalFacts { fs::path current; fs::path directory; bool exists = false; };
+enum class AdoptionEligibility { eligible, already_managed, unsupported, untested, inconsistent };
+struct LegacyCommand { std::string name; FilePrecondition executable; FilePrecondition metadata; };
+struct AdoptionAssessment {
+    AdoptionEligibility eligibility = AdoptionEligibility::untested;
+    std::vector<LegacyCommand> commands;
+    std::vector<Diagnostic> diagnostics;
+};
 struct Plan {
     Action action;
     Package package;
@@ -59,14 +66,24 @@ struct Plan {
     bool execution_available = false;
     LocalFacts local;
     std::optional<Package> update_candidate;
+    std::optional<AdoptionAssessment> adoption;
+    std::vector<std::string> blocking_dependents;
 };
 std::string sha256_file(const fs::path& path);
+// Windows identity boundaries: names and paths are ordinal case-insensitive; existing paths are also
+// compared by filesystem identity so junctions, short names and separator differences cannot split one package.
+bool equal_name(const std::string& a, const std::string& b);
+bool same_identity(const fs::path& a, const fs::path& b);
 Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
                       const std::string& architecture);
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture);
 void recheck_plan(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);
 std::string execution_blocker(const Context& context, const Plan& plan);
+std::string package_execution_blocker(const Package& package);
+AdoptionAssessment assess_adoption(const Context& context, const Plan& plan);
+int commit_adoption(const Context& context, const Plan& plan);
+bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path);
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args,
             const std::string& architecture);
 }

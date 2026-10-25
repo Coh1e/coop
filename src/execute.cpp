@@ -48,13 +48,23 @@ void publish_new(const fs::path& source, const fs::path& destination) {
         throw std::runtime_error("Destination cannot be published without replacing existing data");
 }
 }
+std::string package_execution_blocker(const Package& package) {
+    try { require_capabilities(package); } catch (const std::exception& error) { return error.what(); }
+    return {};
+}
 std::string execution_blocker(const Context& context, const Plan& plan) {
+    if (plan.action == Action::adopt) {
+        if (!plan.adoption || (plan.adoption->eligibility != AdoptionEligibility::eligible && plan.adoption->eligibility != AdoptionEligibility::already_managed))
+            return "Package is not eligible for in-place adoption; inspect --dry-run";
+        return {};
+    }
     if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update) return "This action is not executable yet";
     try {
         require_capabilities(plan.package);
         if (plan.previous) require_capabilities(*plan.previous);
     } catch (const std::exception& error) { return error.what(); }
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
+    if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
     if (plan.action == Action::install && plan.local.exists) return "Package already exists; use adoption or update";
     if ((plan.action == Action::uninstall || plan.action == Action::update) && !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json")))
         return "Package is unadopted; update/uninstall is refused";
@@ -80,9 +90,12 @@ int execute_plan(const Context& context, const Plan& plan) {
     if (fs::exists(state/L"transactions")) for (const auto& entry : fs::directory_iterator(state/L"transactions")) {
         if (!entry.is_directory()) continue;
         const auto journal_path = entry.path()/L"journal.json";
-        if (fs::exists(journal_path) && read_json(journal_path).value("state",std::string{}) == "pending")
+        if (fs::exists(journal_path) && read_json(journal_path).value("state",std::string{}) == "pending") {
+            if (plan.action == Action::adopt && recover_adoption(context,plan,journal_path)) continue;
             throw std::runtime_error("Pending transaction requires recovery: "+path_text(journal_path));
+        }
     }
+    if (plan.action == Action::adopt) return commit_adoption(context,plan);
     Json managed;
     std::vector<FilePrecondition> owned_inputs;
     if (plan.action == Action::install) {
@@ -90,33 +103,39 @@ int execute_plan(const Context& context, const Plan& plan) {
     } else {
         if (!fs::exists(record_path)) throw std::runtime_error("Package is unadopted; update/uninstall is refused");
         managed = read_json(record_path);
-        if (managed.at("directory") != path_text(plan.local.directory) || managed.at("manifest_sha256") != installed.manifest_sha256)
+        if (!same_identity(fs::path(wide(managed.at("directory").get<std::string>())),plan.local.directory) ||
+            managed.at("manifest_sha256") != installed.manifest_sha256)
             throw std::runtime_error("Managed installation changed; refusing operation");
         if (sha256_file(plan.local.directory/wide(installed.artifacts.front().filename)) != installed.artifacts.front().sha256)
             throw std::runtime_error("Installed executable changed; refusing operation");
         owned_inputs.push_back({record_path,sha256_file(record_path)});
         owned_inputs.push_back({plan.local.directory/wide(installed.artifacts.front().filename),installed.artifacts.front().sha256});
     }
-    const auto same_alias = [](const std::string& left, const std::string& right) {
-        const auto a = wide(left), b = wide(right);
-        return CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE) == CSTR_EQUAL;
-    };
     for (const auto& command : installed.commands) {
         const auto exe = shims/(wide(command.name)+L".exe");
-        const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
+        const bool legacy = managed.is_object() && managed.value("shim_format",std::string{}) == "scoop";
+        const auto metadata = shims/(wide(command.name)+(legacy ? L".shim" : L".coop-shim.json"));
         if (plan.action == Action::install) {
             if (fs::exists(exe) || fs::exists(metadata)) throw std::runtime_error("Command entry conflicts with an existing file");
         } else {
             if (!fs::exists(exe) || !fs::exists(metadata)) throw std::runtime_error("Managed command entry is missing");
             ordinary_parents(context.root,exe);
             ordinary_parents(context.root,metadata);
-            const auto entry = read_json(metadata);
-            if (entry.value("package",std::string{}) != package.name ||
-                entry.value("target",std::string{}) != path_text(app/L"current"/command.target) ||
-                entry.value("arguments",std::string{}) != command.arguments ||
-                sha256_file(exe) != managed.at("shim_sha256").get<std::string>())
-                throw std::runtime_error("Managed command entry ownership changed");
-            owned_inputs.push_back({exe,managed.at("shim_sha256").get<std::string>()});
+            std::string executable_hash;
+            if (legacy) {
+                const auto& entry = managed.at("legacy_shims").at(command.name);
+                executable_hash = entry.at("executable_sha256");
+                if (sha256_file(metadata) != entry.at("metadata_sha256").get<std::string>()) throw std::runtime_error("Managed Scoop command metadata changed");
+            } else {
+                const auto entry = read_json(metadata);
+                executable_hash = managed.at("shim_sha256");
+                if (!equal_name(entry.value("package",std::string{}),package.name) ||
+                    !same_identity(fs::path(wide(entry.value("target",std::string{}))),app/L"current"/command.target) ||
+                    entry.value("arguments",std::string{}) != command.arguments)
+                    throw std::runtime_error("Managed command entry ownership changed");
+            }
+            if (sha256_file(exe) != executable_hash) throw std::runtime_error("Managed command launcher changed");
+            owned_inputs.push_back({exe,executable_hash});
             owned_inputs.push_back({metadata,sha256_file(metadata)});
         }
     }
@@ -128,7 +147,7 @@ int execute_plan(const Context& context, const Plan& plan) {
         }
         if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
         for (const auto& command : package.commands) {
-            if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return same_alias(old.name,command.name); })) continue;
+            if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return equal_name(old.name,command.name); })) continue;
             if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")))
                 throw std::runtime_error("New command entry conflicts with an existing file");
         }
@@ -176,7 +195,8 @@ int execute_plan(const Context& context, const Plan& plan) {
                 move(app/L"current",transaction/L"old-current");
                 for (const auto& command : installed.commands) {
                     move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".old.exe"));
-                    move(shims/(wide(command.name)+L".coop-shim.json"),transaction/(wide(command.name)+L".old-shim.json"));
+                    const auto suffix = managed.value("shim_format",std::string{}) == "scoop" ? L".shim" : L".coop-shim.json";
+                    move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
                 }
                 move(record_path,transaction/L"old-managed-record.json");
             }
@@ -199,13 +219,16 @@ int execute_plan(const Context& context, const Plan& plan) {
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
-                {"bucket",package.bucket},{"directory",path_text(version)},{"manifest_sha256",package.manifest_sha256},
-                {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"}});
+                {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
+                {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"},
+                {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
+                {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
         } else {
             move(app/L"current",transaction/L"current");
             for (const auto& command : package.commands) {
                 move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".exe"));
-                move(shims/(wide(command.name)+L".coop-shim.json"),transaction/(wide(command.name)+L".coop-shim.json"));
+                const auto suffix = managed.value("shim_format",std::string{}) == "scoop" ? L".shim" : L".coop-shim.json";
+                move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
             }
             move(version,transaction/L"removed-version");
             move(record_path,transaction/L"managed-record.json");

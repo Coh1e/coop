@@ -20,7 +20,7 @@ if ('download' -notin $plan.operations.kind -or 'verify-sha256' -notin $plan.ope
 $after = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { $_.FullName+':'+(Get-FileHash -LiteralPath $_.FullName).Hash })
 if (@(Compare-Object $before $after).Count -or (Test-Path "$root/.coop")) { throw 'preview changed state' }
 $text = & $CoopExe --root $root adopt jq --dry-run --json
-if ($LASTEXITCODE -ne 0) { throw 'adoption preview failed' }
+if ($LASTEXITCODE -eq 0 -or (($text -join "`n") | ConvertFrom-Json).eligibility -ne 'inconsistent') { throw 'incomplete installed fixture incorrectly eligible for adoption' }
 $adopt = ($text -join "`n") | ConvertFrom-Json
 if ($adopt.lifecycle_checks.update -ne 'unverified' -or $adopt.lifecycle_checks.uninstall -ne 'unverified') { throw 'adoption did not cover future lifecycle' }
 if ($adopt.preconditions.Count -lt 3 -or $adopt.local_facts.current_directory -ne [IO.Path]::GetFullPath("$root/apps/jq/current")) { throw 'installation facts not bound' }
