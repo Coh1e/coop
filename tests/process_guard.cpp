@@ -44,6 +44,11 @@ int wmain(int argc, wchar_t** argv) {
         try { timeout = std::stoul(configured_timeout); } catch (...) { timeout = 10000; }
         if (!timeout || timeout > 120000) timeout = 120000;
     }
+    // Lifecycle hooks intentionally start a real PowerShell child. This opt-in keeps the
+    // observation and the workload exit code while allowing more than one workload process.
+    wchar_t configured_allow_children[8]{};
+    const auto allow_children = GetEnvironmentVariableW(L"COOP_PROCESS_GUARD_ALLOW_CHILDREN",configured_allow_children,8) &&
+        std::wstring(configured_allow_children) == L"1";
     const auto deadline = GetTickCount64()+timeout;
     while (!done) {
         DEBUG_EVENT event{};
@@ -92,5 +97,5 @@ int wmain(int argc, wchar_t** argv) {
     CloseHandle(process.hProcess);
     std::cerr << "Observed workload processes: " << started
               << "; Windows console hosts: " << console_hosts << '\n';
-    return started == 1 && exit_code == 0 ? 0 : 1;
+    return (started == 1 || (allow_children && started > 1)) && exit_code == 0 ? 0 : 1;
 }

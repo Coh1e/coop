@@ -19,11 +19,17 @@ int wmain(int argc, wchar_t** argv) {
                      "  --help     Print help\n"
                      "  --root <path>  Select installation root\n"
                      "  --global-root <path>  Read a global installation root\n"
-                     "  --json     Print machine-readable query results\n"
+                     "  --arch 64bit|32bit|arm64  Select package architecture\n"
+                     "  --dry-run  Preview without changing state\n"
+                     "  --json     Print machine-readable results\n"
                      "\nCommands:\n  list\n  search <query>\n  info [bucket/]package\n"
+                     "  bucket list|add|remove|update ...\n"
+                     "  install <package>... [--dry-run]\n"
+                     "  update <package>... [--dry-run]\n"
+                     "  uninstall <package>... [--purge] [--dry-run]\n"
+                     "  adopt [package...] [--dry-run]\n"
                      "  cleanup [package...] [--dry-run]\n"
-                     "  recover [package...] [--dry-run]\n"
-                     "  uninstall <package> [--purge] [--dry-run]\n";
+                     "  recover [package...] [--dry-run]\n";
         return 0;
     }
     if (argc == 2 && std::wstring_view(argv[1]) == L"--version") {

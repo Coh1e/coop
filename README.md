@@ -1,8 +1,8 @@
 # Coop
 
-Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有用户级 Scoop 安装，复用其 bucket 与 Manifest 生态。
+Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Scoop 安装，复用其 bucket 与 Manifest 生态。
 
-当前已具备原生 CLI、本地查询与 bucket 管理，软件接管和生命周期仍在实现，尚不能用于真实迁移。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 用作场景参考，其用户级安装脚本不是本项目的环境准备入口。
+首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/环境暴露、持久化、依赖保护与中断恢复路径；当前只用于项目隔离测试，尚不能用于真实用户 Scoop 迁移或正式发布。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 仅作场景参考，其用户级安装脚本不是本项目的环境准备入口。
 
 - [已确认的产品范围](docs/design-scope.md)
 - [首版正式规格](https://github.com/Coh1e/coop/issues/2)
@@ -18,9 +18,21 @@ Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有
 - [Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)
 - [跨命令恢复与并发一致性](docs/recovery-support.md)
 - [本地查询与 Git 刷新性能](docs/performance-support.md)
+- [首版真实样本兼容与整体验收报告](docs/compatibility-report.md)
 - [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
 
-开发需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。首次运行 `./scripts/fetch-deps.ps1` 获取并校验固定 nlohmann/json 3.12.0 头文件、libgit2 1.9.7 源码、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 归档源码、Scoop 原生测试夹具及真实 ZIP/tar.gz/7z/MSI 测试归档（全部仅项目内）；然后运行 `./scripts/build.ps1` 配置、构建并测试。产物在被忽略的 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。
+## 项目内准备、构建与运行
+
+需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。所有命令在仓库根目录执行，依赖、构建、测试数据和临时文件都留在项目内：
+
+```powershell
+./scripts/fetch-deps.ps1                 # 下载并校验固定依赖、Scoop 夹具和真实测试归档
+./scripts/build.ps1                      # 配置、构建并运行默认测试
+ctest --test-dir .local/build --output-on-failure
+ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|bucket|plan|adopt|archive_lifecycle|hooks|installers|persistence|dependencies|recovery)$'
+```
+
+`fetch-deps.ps1` 获取 nlohmann/json 3.12.0、libgit2 1.9.7、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 源码，以及真实 jq 1.7.1/1.8.2、ripgrep、air、nodejs 7z 和 7-Zip MSI 测试归档；全部只写入被忽略的 `.local`。构建产物在 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。`tests/acceptance.ps1` 用固定 20 份真实 Manifest 和真实程序完成首版整体验收，结果写入项目内测试根。
 
 可运行 `.local/build/coop.exe --version` 或 `--help`；无效命令退出码为 2，运行失败为 1，正常命令为 0。通过 `--root <目录> list|search <查询>|info <bucket/包名>` 查询本地安装及 bucket，添加 `--json` 获取结构化输出；`--global-root` 可明确指定另一个只读系统级安装根。未指定根时查询当前用户的默认 Scoop 位置。
 
@@ -40,4 +52,15 @@ Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop
 
 目前 `adopt` 只执行无脚本、无归档的单 EXE 包，可接管已安装且声明依赖均已存在、Manifest 声明了 `persist` 且现有 junction/hardlink 归属可验证的安装；带 Hook 的安装保持 `untested`，不提升接管资格；接管不搬动原数据，更新要求持久化映射不变，普通卸载只解除链接并保留声明的持久化数据。`install|update|uninstall <包名>` 执行无安装器进程的单文件、ZIP、tar.gz 与 7z 包，包括 `extract_dir`、`extract_to`、多产物、已安装依赖、目录/文件持久化映射，以及 `bin`、`shortcuts`、`env_add_path`、`env_set` 声明：EXE/COM、BAT/CMD、PS1、JAR 入口分别用对应宿主启动并转发参数与退出码，GUI 目标使用 GUI 子系统启动器；快捷方式写入开始菜单并在管理记录中保存路径与摘要，外部删除的视为已撤销并记录、不阻塞后续更新/卸载，内容被修改的仍拒绝；声明环境应用到命令进程及其子进程，不改用户或系统环境变量。生命周期 Hook 仅在固定样本证明的子集内、按 Scoop 顺序在真实版本目录/current 中执行 `pre_install`、`installer.script`、`post_install`、`pre_uninstall` 和 `uninstaller.script`，其他脚本、外部命令、注册表/环境写入和 `post_uninstall` 在执行前诊断拒绝；失败脚本的 stdout/stderr 与退出码可见、不自动重试，外部副作用不声称回滚。全部使用原生下载、SHA256 校验、内置 libarchive 解压及原生 junction/hardlink，普通 ZIP/tar.gz/7z 不需要安装 7-Zip；MSI 管理安装不启用：计划会检测系统 Windows Installer（`msiexec.exe`）并列出工具与隔离限制，但 `msiexec /a` 会写入 `%WINDIR%\Installer` 机器缓存，执行前明确阻塞，需人类批准隔离提取方案后才可扩展。InnoSetup/NSIS、`installer.file/args` 进程声明、`reg import` 等需要项目外系统状态的机制仍在执行前明确拒绝。`uninstall <包名> --purge` 是独立的彻底删除请求：预览列出声明的持久化 store 准确范围，执行前重查管理记录、链接归属和 store 文件身份，只删除声明的 store 目标，不跟随 reparse point，也不删除 `persist/<包名>` 下未声明内容；链接被重定向、记录变化或 store 变成链接时在任何删除前失败。`cleanup [包名...]` 只删除管理记录中已记录、摘要未变、非当前且没有 pending 事务的旧版本目录；未记录、缺失 Manifest、被修改或在使用的版本保留并报告原因，不猜测历史下载地址。归档格式与持久化语义、脚本子集、真实样本、安全边界和未验证项见 [归档生命周期覆盖](docs/archive-support.md)、[持久化数据支持](docs/persistence-support.md)、[复杂命令入口、快捷方式与环境暴露](docs/exposure-support.md)、[生命周期 Hook 与真实脚本兼容](docs/script-support.md) 与 [Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)。仅管理 Coop 自己记录且证据未变化的安装；入口和持久化链接冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口和链接；保留旧程序不代表持久化数据已回滚。旧版本清理与数据彻底删除分别由 `cleanup` 和 `uninstall --purge` 显式触发，普通卸载仍保留声明数据。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入但允许查询。`coop list` 会从 pending 日志显示未完成操作及恢复方式；`coop recover [包名...] [--dry-run]` 先报告自动恢复或需要人工处理的分类与逐项动作，再回滚可安全还原的 Coop 自有路径；包名限定执行范围，未指定事务保持 pending 并标记 skipped，仍有 pending 或指定包不存在时退出非零。恢复不重跑任何脚本，脚本外部副作用仍标为未知；移入/移出端点同时存在、所有权不明或路径不安全时保持 pending 并返回非零，等待人工核对后重试。当前阶段仅用于项目隔离测试，尚不能用于真实迁移。
 
-默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、Git 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。
+## 已知限制与恢复范围
+
+- 实测平台为 Windows x64；32bit 真实 air 包已执行，arm64 只有计划与静态检查，未执行。
+- 接管只接受无脚本、无归档的直接单文件安装；归档布局、带 Hook 的安装和系统级根保持 `untested`/`unsupported`，不会为了接管搬动原程序或持久化数据。
+- MSI 管理安装在执行前阻塞，因为 `msiexec /a` 会写入 `%WINDIR%\Installer`；InnoSetup/NSIS、`installer.file/args`、`reg import`、服务/注册表/用户环境写入仍明确拒绝。脚本只执行固定样本证明的阶段与语句子集，其他脚本在下载和写入前诊断拒绝。
+- 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除声明的 store，`cleanup` 才删除已记录且摘要未变的旧版本。外部删除或修改入口、链接和 store 会被重新核对，不自动覆盖或猜测修复。
+- 异常退出留下 pending 事务时阻止新的写入但仍允许查询；`coop list` 显示恢复方式，`coop recover [包名...] [--dry-run]` 只回滚可安全还原的 Coop 自有路径，不重跑脚本，外部副作用标为未知。
+- 不自动同步 bucket、不自动发布、不修改真实用户 Scoop 根；Git 私有/SSH 来源与跨工具交替写入不在首版范围。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)。
+
+## 测试范围
+
+默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 原地接管到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、Git 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。

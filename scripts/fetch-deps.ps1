@@ -64,6 +64,8 @@ foreach ($file in @(
 Write-Output 'Verified Scoop 0.6.0 test-only native shim and license'
 
 $testArchives = @(
+    @{Name='jq-1.7.1-windows-amd64.exe'; Url='https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe'; Hash='7451fbbf37feffb9bf262bd97c54f0da558c63f0748e64152dd87b0a07b6d6ab'},
+    @{Name='jq-1.8.2-windows-amd64.exe'; Url='https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-windows-amd64.exe'; Hash='a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627'},
     @{Name='ripgrep-14.1.1-x86_64-pc-windows-msvc.zip'; Url='https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip'; Hash='d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1'},
     @{Name='ripgrep-15.2.0-x86_64-pc-windows-msvc.zip'; Url='https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip'; Hash='71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5'},
     @{Name='air_1.67.3_windows_amd64.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.3/air_1.67.3_windows_amd64.tar.gz'; Hash='150ab78cf4a48f46ca845660b41a913b0bae94572c061ea5dbe75cd745849a5a'},
