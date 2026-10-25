@@ -81,8 +81,10 @@ struct Plan {
     std::vector<std::string> unverified_dependents;
     std::vector<DependencyItem> dependency_order;
     std::vector<std::string> planned_dependencies;
+    bool purge = false;
 };
 std::string sha256_file(const fs::path& path);
+std::string sha256_text(const std::string& value);
 // Windows identity boundaries: names and paths are ordinal case-insensitive; existing paths are also
 // compared by filesystem identity so junctions, short names and separator differences cannot split one package.
 bool equal_name(const std::string& a, const std::string& b);

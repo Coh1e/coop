@@ -6,6 +6,43 @@
 #include <stdexcept>
 
 namespace coop {
+namespace {
+std::string digest_text(const unsigned char* digest, std::size_t size) {
+    const char hex[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(size*2);
+    for (std::size_t index = 0; index < size; ++index) {
+        result += hex[digest[index] >> 4];
+        result += hex[digest[index] & 15];
+    }
+    return result;
+}
+}
+std::string sha256_text(const std::string& value) {
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    BCRYPT_HASH_HANDLE hash = nullptr;
+    if (BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0) < 0)
+        throw std::runtime_error("Cannot open SHA256 provider");
+    if (BCryptCreateHash(algorithm,&hash,nullptr,0,nullptr,0,0) < 0) {
+        BCryptCloseAlgorithmProvider(algorithm,0);
+        throw std::runtime_error("Cannot create SHA256 hash");
+    }
+    try {
+        if (!value.empty() && BCryptHashData(hash,reinterpret_cast<PUCHAR>(const_cast<char*>(value.data())),
+                static_cast<ULONG>(value.size()),0) < 0)
+            throw std::runtime_error("SHA256 data failed");
+        std::array<unsigned char,32> digest{};
+        if (BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0) < 0)
+            throw std::runtime_error("SHA256 finish failed");
+        BCryptDestroyHash(hash);
+        BCryptCloseAlgorithmProvider(algorithm,0);
+        return digest_text(digest.data(),digest.size());
+    } catch (...) {
+        BCryptDestroyHash(hash);
+        BCryptCloseAlgorithmProvider(algorithm,0);
+        throw;
+    }
+}
 std::string sha256_file(const fs::path& path) {
     BCRYPT_ALG_HANDLE algorithm = nullptr;
     BCRYPT_HASH_HANDLE hash = nullptr;
@@ -29,13 +66,9 @@ std::string sha256_file(const fs::path& path) {
         std::array<unsigned char,32> digest{};
         if (BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0) < 0)
             throw std::runtime_error("SHA256 finish failed");
-        const char hex[] = "0123456789abcdef";
-        std::string result;
-        result.reserve(64);
-        for (const auto byte : digest) { result += hex[byte >> 4]; result += hex[byte & 15]; }
         BCryptDestroyHash(hash);
         BCryptCloseAlgorithmProvider(algorithm,0);
-        return result;
+        return digest_text(digest.data(),digest.size());
     } catch (...) {
         BCryptDestroyHash(hash);
         BCryptCloseAlgorithmProvider(algorithm,0);

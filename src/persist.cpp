@@ -110,9 +110,11 @@ struct FileIdentity {
     bool operator==(const FileIdentity&) const = default;
 };
 
-FileIdentity file_identity(const fs::path& path, const char* field) {
+FileIdentity file_identity(const fs::path& path, const char* field, bool directory = false) {
+    DWORD flags = FILE_FLAG_OPEN_REPARSE_POINT;
+    if (directory) flags |= FILE_FLAG_BACKUP_SEMANTICS;
     HANDLE handle = CreateFileW(path.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
-        nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+        nullptr,OPEN_EXISTING,flags,nullptr);
     if (handle == INVALID_HANDLE_VALUE)
         throw std::runtime_error(std::string(field)+" cannot be opened (Windows error "+std::to_string(GetLastError())+")");
     BY_HANDLE_FILE_INFORMATION information{};
@@ -123,6 +125,10 @@ FileIdentity file_identity(const fs::path& path, const char* field) {
     if (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
         throw std::runtime_error(std::string(field)+" is an unsupported reparse point");
     return {information.dwVolumeSerialNumber,information.nFileIndexHigh,information.nFileIndexLow};
+}
+
+std::string identity_text(const FileIdentity& identity) {
+    return std::to_string(identity.volume)+":"+std::to_string(identity.high)+":"+std::to_string(identity.low);
 }
 
 std::string normalized_path_text(const fs::path& path) {
@@ -275,6 +281,47 @@ bool same_persistence(const Package& a, const Package& b) {
         }
         if (!found) return false;
     }
+    return true;
+}
+Json purge_scope(const Context& context, const Package& package, const fs::path& version_directory,
+                 const Json& recorded_persistence) {
+    require_unique(package);
+    if (!recorded_persistence.is_array())
+        throw std::runtime_error("Managed persistence ownership record is missing");
+    Json result = Json::array();
+    for (const auto& mapping : package.persistence) {
+        const auto resolved = resolve_entry(context,package,mapping,version_directory);
+        const auto recorded = std::find_if(recorded_persistence.begin(),recorded_persistence.end(),[&](const Json& item) {
+            return item.is_object() && equal_name(item.value("store",std::string{}),path_text(resolved.store)) &&
+                equal_name(item.value("target",std::string{}),path_text(resolved.mapping.target));
+        });
+        if (recorded == recorded_persistence.end())
+            throw std::runtime_error("Managed persistence ownership record is missing for: "+path_text(resolved.store));
+        if (recorded->value("ownership",std::string{}) != "verified")
+            throw std::runtime_error("Managed persistence ownership was not verified for: "+path_text(resolved.store));
+        const auto identity = file_identity(resolved.store,"Persisted store target",resolved.directory);
+        result.push_back({{"source",path_text(resolved.mapping.source)},{"target",path_text(resolved.mapping.target)},
+            {"store",path_text(resolved.store)},{"link",path_text(resolved.link)},
+            {"type",resolved.directory ? "junction" : "hardlink"},{"identity",identity_text(identity)}});
+    }
+    return result;
+}
+bool verify_purge_target(const Context& context, const std::string& package_name, const Json& entry) {
+    validate_component(package_name);
+    const fs::path store(wide(entry.at("store").get<std::string>()));
+    const auto base = context.root/L"persist"/wide(package_name);
+    const auto relative = store.lexically_relative(base);
+    if (relative.empty() || relative.is_absolute() || *relative.begin() == L"..")
+        throw std::runtime_error("Purge target is outside the package store: "+path_text(store));
+    require_ordinary(context.root,store,false);
+    const auto attributes = GetFileAttributesW(store.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) return false;
+    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT)
+        throw std::runtime_error("Persisted store became a reparse point; refusing to follow or delete it: "+path_text(store));
+    const bool directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    const auto identity = file_identity(store,"Persisted store target",directory);
+    if (identity_text(identity) != entry.value("identity",std::string{}))
+        throw std::runtime_error("Persisted store changed after the purge scope was verified: "+path_text(store));
     return true;
 }
 std::vector<std::string> retained_versions(const Context& context, const std::string& package_name,

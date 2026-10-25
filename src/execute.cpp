@@ -3,6 +3,7 @@
 #include "native.hpp"
 #include "archive.hpp"
 #include "persist.hpp"
+#include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
 #include <windows.h>
@@ -185,6 +186,17 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         try { verify_persistence(context,plan.action == Action::update ? *plan.previous : plan.package,plan.local.directory); }
         catch (const std::exception& error) { return std::string("Managed persistence state cannot be verified: ")+error.what(); }
     }
+    if (plan.purge) {
+        if (plan.action != Action::uninstall) return "--purge is only supported by uninstall";
+        const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
+        if (!fs::is_regular_file(record)) return "Package is unadopted; purge is refused";
+        try {
+            const auto managed = read_json(record);
+            purge_scope(context,plan.package,plan.local.directory,managed.value("persistence",Json::array()));
+        } catch (const std::exception& error) {
+            return std::string("Purge scope cannot be verified: ")+error.what();
+        }
+    }
     if (plan.action == Action::install || plan.action == Action::update) {
         for (const auto& dependency : plan.package.dependencies) {
             const auto name = dependency_package_name(dependency);
@@ -204,23 +216,50 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
+    if (plan.purge && plan.action == Action::uninstall && !context.json_output) {
+        try {
+            const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
+            const auto managed = read_json(record);
+            const auto scope = purge_scope(context,plan.package,plan.local.directory,
+                managed.value("persistence",Json::array()));
+            std::cout << "Purge scope (declared persistent data only):\n";
+            for (const auto& entry : scope) std::cout << "  " << entry.at("store").get<std::string>() << '\n';
+        } catch (const std::exception&) {
+            // The execution blocker reports the same verification failure without deleting data.
+        }
+    }
     const auto result = execute_plan_result(context,plan);
     if (plan.action == Action::adopt) {
         std::cout << result.dump(2) << '\n';
         return 0;
     }
+    const bool partial = result.value("status",std::string{}) == "partial";
     if (context.json_output) {
         std::cout << result.dump(2) << '\n';
-        return 0;
+        return partial ? 1 : 0;
     }
     if (result.value("status",std::string{}) == "up-to-date") {
         std::cout << plan.package.name << ": up-to-date\n";
         return 0;
     }
+    if (partial) {
+        std::cout << plan.package.name << ": partial\n";
+        std::cerr << "coop: " << result.value("reason",std::string("Operation did not fully complete")) << '\n';
+        for (const auto& entry : result.value("purge",Json::object()).value("failed",Json::array()))
+            std::cerr << "coop: " << entry.value("store",std::string{}) << ": " << entry.value("reason",std::string{}) << '\n';
+        return 1;
+    }
     std::cout << plan.package.name << ": success\n";
-    const Json persistence = result.contains("persistence") ? result.at("persistence") : Json::array();
-    if (persistence.is_array() && !persistence.empty())
-        std::cout << "Persistent data retained; old program versions and stored data are reported separately\n";
+    if (plan.purge) {
+        for (const auto& entry : result.value("purge",Json::object()).value("deleted",Json::array()))
+            std::cout << "Deleted persisted data: " << entry.get<std::string>() << '\n';
+        for (const auto& entry : result.value("purge",Json::object()).value("already_absent",Json::array()))
+            std::cout << "Persisted data already absent: " << entry.get<std::string>() << '\n';
+    } else {
+        const Json persistence = result.contains("persistence") ? result.at("persistence") : Json::array();
+        if (persistence.is_array() && !persistence.empty())
+            std::cout << "Persistent data retained; old program versions and stored data are reported separately\n";
+    }
     return 0;
 }
 Json execute_plan_result(const Context& context, const Plan& plan) {
@@ -251,6 +290,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     if (plan.action == Action::adopt) return commit_adoption_result(context,plan);
     Json managed;
     Json persistence = Json::array();
+    Json version_history = Json::array();
+    Json purge_entries = Json::array();
     std::vector<FilePrecondition> owned_inputs;
     if (plan.action == Action::install) {
         if (plan.local.exists || fs::exists(version) || fs::exists(record_path)) throw std::runtime_error("Package already exists; use adoption or update");
@@ -262,6 +303,25 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             throw std::runtime_error("Managed installation changed; refusing operation");
         verify_installed_files(managed,plan.local.directory,installed);
         persistence = verify_persistence(context,installed,plan.local.directory);
+        if (plan.purge) purge_entries = purge_scope(context,installed,plan.local.directory,
+            managed.value("persistence",Json::array()));
+        version_history = managed.value("versions",Json::array());
+        if (!version_history.is_array()) version_history = Json::array();
+        if (plan.action == Action::update) {
+            if (version_history.empty()) version_history = scan_version_evidence(app);
+            const bool recorded = std::any_of(version_history.begin(),version_history.end(),[&](const Json& entry) {
+                return entry.is_object() && equal_name(entry.value("version",std::string{}),installed.version);
+            });
+            if (!recorded) {
+                const auto install_record = installed_record(plan.local.directory,L"install");
+                version_history.push_back({{"version",installed.version},
+                    {"directory",path_text(fs::canonical(plan.local.directory))},
+                    {"manifest_sha256",installed.manifest_sha256},
+                    {"install_record_sha256",fs::is_regular_file(install_record) ? sha256_file(install_record) : std::string{}},
+                    {"tree_stamp",version_tree_stamp(plan.local.directory)},
+                    {"provenance","previous-current"}});
+            }
+        }
         owned_inputs.push_back({record_path,sha256_file(record_path)});
         for (const auto& command : installed.commands) {
             const auto target = plan.local.directory/command.target;
@@ -534,11 +594,20 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             run_scripts(package,ScriptPhase::after_install,app/L"current",version,updating ? "update" : "install",false);
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
+            version_history.erase(std::remove_if(version_history.begin(),version_history.end(),[&](const Json& entry) {
+                return entry.is_object() && equal_name(entry.value("version",std::string{}),package.version);
+            }),version_history.end());
+            const auto installed_record_path = installed_record(version,L"install");
+            version_history.push_back({{"version",package.version},{"directory",path_text(fs::canonical(version))},
+                {"manifest_sha256",package.manifest_sha256},
+                {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
+                {"tree_stamp",version_tree_stamp(version)},
+                {"provenance",updating ? "coop-update" : "coop-install"}});
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                 {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
                 {"status","ready"},{"command_targets",command_targets},{"commands",command_records},{"shortcuts",shortcut_records},
                 {"environment",environment},{"path_entries",path_entries},
-                {"dependencies",package.dependencies},{"persistence",persistence},
+                {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
                 {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
                 {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
         } else {
@@ -558,6 +627,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             move(version,transaction/L"removed-version");
             journal["stage"] = "running-post-uninstall-hooks"; save();
             run_scripts(package,ScriptPhase::after_uninstall,plan.local.directory,plan.local.directory,"uninstall",false);
+            Json kept_versions = Json::array();
+            for (const auto& entry : recorded_version_evidence(context,package.name))
+                if (!equal_name(entry.value("version",std::string{}),package.version)) kept_versions.push_back(entry);
+            if (!kept_versions.empty()) {
+                const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
+                ordinary_parents(context.root,retained_path);
+                fs::create_directories(retained_path.parent_path());
+                publish_json(retained_path,{{"package",package.name},
+                    {"scope","Old versions kept after uninstall; persistent data is separate"},{"versions",kept_versions}});
+            }
             move(record_path,transaction/L"managed-record.json");
         }
         journal["state"] = "committed"; save();
@@ -591,7 +670,37 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs}};
     if (plan.action == Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
-        result["data_retained"] = true;
+        if (!plan.purge) {
+            result["purge"] = {{"requested",false},{"status","not-requested"},{"scope",Json::array()}};
+            result["data_retained"] = true;
+        } else {
+            Json purge = {{"requested",true},{"scope",purge_entries},{"deleted",Json::array()},
+                {"already_absent",Json::array()},{"failed",Json::array()}};
+            for (const auto& entry : purge_entries) {
+                const auto store = entry.at("store").get<std::string>();
+                try {
+                    if (!verify_purge_target(context,package.name,entry)) purge["already_absent"].push_back(store);
+                    else {
+                        erase_tree(fs::path(wide(store)));
+                        purge["deleted"].push_back(store);
+                    }
+                } catch (const std::exception& error) {
+                    purge["failed"].push_back({{"store",store},{"reason",error.what()}});
+                }
+            }
+            if (!purge.at("failed").empty()) {
+                purge["status"] = "partial";
+                purge["reason"] = "Declared persistent data was not completely deleted: "+
+                    purge.at("failed").front().at("store").get<std::string>();
+                result["status"] = "partial";
+                result["reason"] = purge.at("reason");
+                result["data_retained"] = true;
+            } else {
+                purge["status"] = purge_entries.empty() ? "nothing-to-delete" : "deleted";
+                result["data_retained"] = false;
+            }
+            result["purge"] = std::move(purge);
+        }
     } else if (updating) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         result["data_rollback"] = "none";

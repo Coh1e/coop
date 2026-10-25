@@ -19,7 +19,9 @@ int wmain(int argc, wchar_t** argv) {
                      "  --root <path>  Select installation root\n"
                      "  --global-root <path>  Read a global installation root\n"
                      "  --json     Print machine-readable query results\n"
-                     "\nCommands:\n  list\n  search <query>\n  info [bucket/]package\n";
+                     "\nCommands:\n  list\n  search <query>\n  info [bucket/]package\n"
+                     "  cleanup [package...] [--dry-run]\n"
+                     "  uninstall <package> [--purge] [--dry-run]\n";
         return 0;
     }
     if (argc == 2 && std::wstring_view(argv[1]) == L"--version") {
@@ -42,7 +44,7 @@ int wmain(int argc, wchar_t** argv) {
             } else if (arg == L"--json") context.json_output = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"adopt")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"adopt" || arguments[0] == L"cleanup")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
@@ -54,7 +56,7 @@ int wmain(int argc, wchar_t** argv) {
             context.root = coop::fs::absolute(context.root).lexically_normal();
             if (context.global_root) context.global_root = coop::fs::absolute(*context.global_root).lexically_normal();
             if (command == L"bucket") return coop::bucket_command(context,arguments);
-            if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"adopt")
+            if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"adopt" || command == L"cleanup")
                 return coop::package_command(context,command,arguments,architecture);
             return coop::query(context, command, arguments);
         }

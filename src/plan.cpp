@@ -1,6 +1,7 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "persist.hpp"
+#include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
 #include "archive.hpp"
@@ -587,6 +588,23 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["persistence"] = persistence_plan_json(context,plan.package,persistence_directory);
     if (action == Action::update || action == Action::uninstall)
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
+    Json purge = {{"requested",plan.purge},{"status",plan.purge ? "planned" : "not-requested"},{"scope",Json::array()}};
+    if (plan.purge && action != Action::uninstall) {
+        purge["status"] = "blocked";
+        purge["reason"] = "--purge is only supported by uninstall";
+    } else if (plan.purge) {
+        try {
+            const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
+            if (!fs::is_regular_file(record)) throw std::runtime_error("Package is unadopted; purge is refused");
+            const auto managed = read_json(record);
+            purge["scope"] = purge_scope(context,plan.package,plan.local.directory,
+                managed.value("persistence",Json::array()));
+        } catch (const std::exception& error) {
+            purge["status"] = "blocked";
+            purge["reason"] = error.what();
+        }
+    }
+    result["purge"] = std::move(purge);
     result["blocking_dependents"] = plan.blocking_dependents;
     result["unverified_dependents"] = plan.unverified_dependents;
     result["dependency_order"] = Json::array();
@@ -783,14 +801,21 @@ Plan prepared_simple_plan(const Context& context, Action action, const std::stri
     }
     return plan;
 }
-PackageOutcome simple_preview(const Context& context, Action action, const std::string& request, const std::string& architecture) {
+PackageOutcome simple_preview(const Context& context, Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
-        const auto plan = prepared_simple_plan(context,action,request,architecture);
+        auto plan = prepared_simple_plan(context,action,request,architecture);
+        plan.purge = purge;
+        plan.execution_available = execution_blocker(context,plan).empty();
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
         outcome.reason = first_diagnostic(plan.diagnostics);
         outcome.value = describe_plan(context,plan);
+        if (purge && outcome.value.value("purge",Json::object()).value("status",std::string{}) == "blocked") {
+            outcome.failed = true;
+            outcome.status = "blocked";
+            outcome.reason = outcome.value.at("purge").value("reason",std::string{"Persistent data purge cannot be verified"});
+        }
     } catch (const std::exception& error) {
         outcome.failed = true;
         outcome.status = "blocked";
@@ -799,10 +824,11 @@ PackageOutcome simple_preview(const Context& context, Action action, const std::
     }
     return outcome;
 }
-PackageOutcome simple_execute(const Context& context, Action action, const std::string& request, const std::string& architecture) {
+PackageOutcome simple_execute(const Context& context, Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
-        const auto plan = prepared_simple_plan(context,action,request,architecture);
+        auto plan = prepared_simple_plan(context,action,request,architecture);
+        plan.purge = purge;
         const auto blocker = execution_blocker(context,plan);
         if (!blocker.empty()) {
             outcome.failed = true;
@@ -812,7 +838,11 @@ PackageOutcome simple_execute(const Context& context, Action action, const std::
             return outcome;
         }
         auto result = execute_plan_result(context,plan);
-        outcome.status = (action == Action::adopt && result.value("status",std::string{}) == "already-managed") ? "skipped" : "success";
+        const auto partial = result.value("status",std::string{}) == "partial";
+        outcome.failed = partial;
+        outcome.status = (action == Action::adopt && result.value("status",std::string{}) == "already-managed") ? "skipped" :
+            partial ? "partial" : "success";
+        if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
         outcome.value = result;
     } catch (const std::exception& error) {
         outcome.failed = true;
@@ -862,23 +892,24 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
     }
     return failed ? 1 : 0;
 }
-int simple_single(const Context& context, Action action, const std::string& request, const std::string& architecture, bool dry_run) {
+int simple_single(const Context& context, Action action, const std::string& request, const std::string& architecture, bool dry_run, bool purge = false) {
     if (dry_run) {
-        const auto outcome = simple_preview(context,action,request,architecture);
+        const auto outcome = simple_preview(context,action,request,architecture,purge);
         print_json(outcome.value);
         return outcome.failed ? 1 : 0;
     }
-    const auto plan = prepared_simple_plan(context,action,request,architecture);
+    auto plan = prepared_simple_plan(context,action,request,architecture);
+    plan.purge = purge;
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) throw std::runtime_error(blocker);
     return execute_plan(context,plan);
 }
-int simple_batch(const Context& context, Action action, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run) {
+int simple_batch(const Context& context, Action action, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run, bool purge = false) {
     Json results = Json::array();
     bool failed = false;
     for (const auto& name : names) {
         const auto request = utf8(name);
-        const auto outcome = dry_run ? simple_preview(context,action,request,architecture) : simple_execute(context,action,request,architecture);
+        const auto outcome = dry_run ? simple_preview(context,action,request,architecture,purge) : simple_execute(context,action,request,architecture,purge);
         Json item = {{"package",request},{"action",action_name(action)},{"status",outcome.status}};
         if (!outcome.reason.empty()) item["reason"] = outcome.reason;
         item[dry_run ? "plan" : "result"] = outcome.value;
@@ -908,20 +939,30 @@ int package_command(const Context& context, const std::wstring& command, const s
         return 0;
     }
     bool dry_run = false;
+    bool purge = false;
     std::vector<std::wstring> names;
     for (const auto& arg : args) {
         if (arg == L"--dry-run") {
             if (dry_run) throw std::runtime_error("--dry-run was specified more than once");
             dry_run = true;
+        } else if (arg == L"--purge") {
+            if (purge) throw std::runtime_error("--purge was specified more than once");
+            purge = true;
         } else if (arg.starts_with(L"--")) throw std::runtime_error("Unknown package option");
         else names.push_back(arg);
     }
+    if (command == L"cleanup") {
+        if (purge) throw std::runtime_error("--purge is only supported by uninstall");
+        return cleanup_command(context,names,dry_run);
+    }
+    if (purge && command != L"uninstall") throw std::runtime_error("--purge is only supported by uninstall");
     if (names.empty()) throw std::runtime_error("Use one or more packages [--dry-run]");
+    if (purge && names.size() > 1) throw std::runtime_error("--purge accepts one package at a time");
     const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
     if (action == Action::install) return names.size() > 1
         ? install_batch(context,names,architecture,dry_run)
         : install_single(context,utf8(names.front()),architecture,dry_run);
-    if (names.size() > 1) return simple_batch(context,action,names,architecture,dry_run);
-    return simple_single(context,action,utf8(names.front()),architecture,dry_run);
+    if (names.size() > 1) return simple_batch(context,action,names,architecture,dry_run,purge);
+    return simple_single(context,action,utf8(names.front()),architecture,dry_run,purge);
 }
 }

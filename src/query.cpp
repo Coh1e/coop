@@ -1,5 +1,6 @@
 #include "data.hpp"
 #include "persist.hpp"
+#include "versions.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -54,7 +55,6 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
                 listed.name = item.at("name").get<std::string>();
                 listed.persistence = listed_persistence(manifest);
                 item["persistence"] = persistence_plan_json(context,listed,fs::canonical(current));
-                item["older_versions"] = retained_versions(context,listed.name,manifest.at("version").get<std::string>());
             }
             const auto managed = root/L".coop"/L"packages"/(app.path().filename().wstring()+L".json");
             if (scope == "user" && fs::exists(managed)) {
@@ -66,6 +66,11 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
             }
         } catch (const std::exception& error) {
             item["diagnostics"].push_back(error.what());
+        }
+        if (scope == "user") {
+            const auto current_version = item.at("version").is_string() ? item.at("version").get<std::string>() : std::string{};
+            item["older_versions"] = retained_versions(context,item.at("name").get<std::string>(),current_version);
+            item["old_versions"] = version_cleanup_inventory(context,item.at("name").get<std::string>(),current_version);
         }
         result.push_back(std::move(item));
     }

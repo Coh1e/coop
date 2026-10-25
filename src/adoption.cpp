@@ -1,6 +1,7 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "persist.hpp"
+#include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
 #include <windows.h>
@@ -230,6 +231,7 @@ Json commit_adoption_result(const Context& context, const Plan& plan) {
             {"path_entries",expanded_path_entries(context,package,plan.local.current)},
             {"exposure_scope","Existing user environment values and shortcuts remain external evidence; uninstall removes only command entries and shortcuts whose original contents were verified during adoption"},
             {"dependencies",package.dependencies},{"persistence",persistence},
+            {"versions",scan_version_evidence(context.root/L"apps"/wide(package.name))},
             {"adoption_backup",path_text(backup)}};
         write_json(transaction/L"record.json",managed);
         record_hash = sha256_file(transaction/L"record.json");
