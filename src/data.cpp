@@ -95,9 +95,23 @@ void write_json(const fs::path& path, const Json& value) {
     const bool success = WriteFile(file,bytes.data(),static_cast<DWORD>(bytes.size()),&written,nullptr) &&
         written == bytes.size() && FlushFileBuffers(file);
     CloseHandle(file);
-    if (!success || !MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {
+    if (!success) {
         DeleteFileW(temporary.c_str());
-        throw std::runtime_error("Cannot commit state file");
+        throw std::runtime_error("Cannot write state file");
+    }
+    // Antivirus scanners and indexing services can hold a freshly written state file briefly.
+    // Retry within a bounded window instead of failing an otherwise valid transaction.
+    DWORD error = ERROR_SUCCESS;
+    bool moved = false;
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        if (MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) { moved = true; break; }
+        error = GetLastError();
+        if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
+        Sleep(50);
+    }
+    if (!moved) {
+        DeleteFileW(temporary.c_str());
+        throw std::runtime_error("Cannot commit state file (Windows error "+std::to_string(error)+")");
     }
 }
 }
