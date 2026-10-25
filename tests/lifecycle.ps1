@@ -44,3 +44,4 @@ if ($LASTEXITCODE -eq 0 -or (Get-Content "$root/shims/fixture.exe") -ne 'another
 $journals = @(Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
 if ('pending' -in $journals.state -or 'rolled-back' -notin $journals.state -or 'committed' -notin $journals.state) { throw 'journal state inaccurate' }
 Write-Output "PASS native single EXE install/entry/uninstall: $root"
+exit 0
