@@ -65,6 +65,8 @@ Package parse_package(const fs::path& path, const std::string& name, const std::
                       const std::string& architecture);
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture);
 void recheck_plan(const Plan& plan);
+int execute_plan(const Context& context, const Plan& plan);
+std::string execution_blocker(const Context& context, const Plan& plan);
 int preview(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args,
             const std::string& architecture);
 }

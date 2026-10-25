@@ -2,9 +2,14 @@
 #include <string_view>
 #include "app.hpp"
 #include "package.hpp"
+#include "native.hpp"
 #include <windows.h>
 
 int wmain(int argc, wchar_t** argv) {
+    try {
+        int result = 0;
+        if (coop::run_shim(argc,argv,result)) return result;
+    } catch (const std::exception& error) { std::cerr << "coop: " << error.what() << '\n'; return 1; }
     if (argc == 1 || (argc == 2 && std::wstring_view(argv[1]) == L"--help")) {
         std::cout << "Usage: coop <command> [options]\n"
                      "\nOptions:\n"

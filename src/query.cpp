@@ -24,6 +24,12 @@ static void list_scope(Json& result, const fs::path& root, const std::string& sc
             item["synced_at"] = nullptr;
             item["architecture"] = install.value("architecture", std::string{});
             item["directory"] = path_text(fs::canonical(current));
+            const auto managed = root/L".coop"/L"packages"/(app.path().filename().wstring()+L".json");
+            if (scope == "user" && fs::exists(managed)) {
+                const auto record = read_json(managed);
+                item["management"] = "managed";
+                item["status"] = record.value("status",std::string("unknown"));
+            }
         } catch (const std::exception& error) {
             item["diagnostics"].push_back(error.what());
         }

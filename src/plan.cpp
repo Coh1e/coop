@@ -165,6 +165,7 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     const auto registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) plan.preconditions.push_back({registry,sha256_file(registry)});
     plan.diagnostics.insert(plan.diagnostics.end(),plan.package.diagnostics.begin(),plan.package.diagnostics.end());
+    plan.execution_available = execution_blocker(context,plan).empty();
     return plan;
 }
 void recheck_plan(const Plan& plan) {
@@ -176,9 +177,10 @@ void recheck_plan(const Plan& plan) {
         throw std::runtime_error("Current installation changed; generate a new plan");
 }
 int preview(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
-    if (args.size() != 2 || args[1] != L"--dry-run") throw std::runtime_error("Use <package> --dry-run to preview; execution is not available yet");
+    if (args.empty() || args.size() > 2 || (args.size() == 2 && args[1] != L"--dry-run")) throw std::runtime_error("Use <package> [--dry-run]");
     const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
     const auto plan = make_plan(context,action,utf8(args[0]),architecture);
+    if (args.size() == 1) return execute_plan(context,plan);
     Json result = {{"action",action_name(action)},{"package",package_json(plan.package)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
@@ -199,7 +201,9 @@ int preview(const Context& context, const std::wstring& command, const std::vect
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
     static const char* categories[] = {"syntax","adapter","ir","environment","capability","verification"};
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","execution-unverified"},{"message","Lifecycle execution is not implemented or validated yet"}});
+    const auto blocker = execution_blocker(context,plan);
+    if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Only the single-file EXE install/uninstall path has runtime coverage; other lifecycle combinations remain unverified"}});
     if (context.json_output) std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     else std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     return plan.diagnostics.empty() ? 0 : 1;

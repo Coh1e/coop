@@ -22,10 +22,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_FIND_USE_PACKAGE_REGISTRY OFF)
 set(CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY OFF)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7" "${PROJECT_BINARY_DIR}/git2" EXCLUDE_FROM_ALL)
-add_executable(coop src/main.cpp src/data.cpp src/query.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/scoop_adapter.cpp src/plan.cpp)
+add_executable(coop src/main.cpp src/data.cpp src/query.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/scoop_adapter.cpp src/plan.cpp src/native.cpp src/execute.cpp)
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/include")
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/include")
-target_link_libraries(coop PRIVATE libgit2package bcrypt)
+target_link_libraries(coop PRIVATE libgit2package bcrypt winhttp shlwapi)
 configure_file("${PROJECT_SOURCE_DIR}/.local/deps/include/nlohmann/LICENSE.MIT"
   "${PROJECT_BINARY_DIR}/licenses/nlohmann-json.txt" COPYONLY)
 configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/COPYING"
@@ -65,4 +65,6 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/bucket 中文")
   add_test(NAME plan COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/plan.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/plan 中文")
+  add_test(NAME lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/lifecycle.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/lifecycle 中文")
 endif()
