@@ -166,6 +166,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
         {"pending_transactions",pending}};
     if (has_current_problem(inventory)) {
         result["status"] = "blocked";
+        result["removable"] = Json::array();
         result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
         outcome.failed = true;
         outcome.value = std::move(result);
@@ -201,6 +202,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     result["unmanageable"] = unmanageable;
     if (has_current_problem(inventory)) {
         result["status"] = "blocked";
+        result["removable"] = Json::array();
         result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
         outcome.failed = true;
         outcome.value = std::move(result);
