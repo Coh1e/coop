@@ -5,6 +5,7 @@
 #include <array>
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
 
 namespace coop {
 namespace {
@@ -48,11 +49,14 @@ void publish_new(const fs::path& source, const fs::path& destination) {
 }
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
-    if (plan.action != Action::install && plan.action != Action::uninstall) return "This action is not executable yet";
-    try { require_capabilities(plan.package); } catch (const std::exception& error) { return error.what(); }
+    if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update) return "This action is not executable yet";
+    try {
+        require_capabilities(plan.package);
+        if (plan.previous) require_capabilities(*plan.previous);
+    } catch (const std::exception& error) { return error.what(); }
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
     if (plan.action == Action::install && plan.local.exists) return "Package already exists; use adoption or update";
-    if (plan.action == Action::uninstall && !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json")))
+    if ((plan.action == Action::uninstall || plan.action == Action::update) && !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json")))
         return "Package is unadopted; update/uninstall is refused";
     return {};
 }
@@ -60,6 +64,8 @@ int execute_plan(const Context& context, const Plan& plan) {
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) throw std::runtime_error(blocker);
     const auto& package = plan.package;
+    const bool updating = plan.action == Action::update;
+    const auto& installed = updating ? plan.previous.value() : package;
     const auto state = context.root/L".coop";
     const auto record_path = state/L"packages"/(wide(package.name)+L".json");
     const auto app = context.root/L"apps"/wide(package.name);
@@ -78,17 +84,24 @@ int execute_plan(const Context& context, const Plan& plan) {
             throw std::runtime_error("Pending transaction requires recovery: "+path_text(journal_path));
     }
     Json managed;
+    std::vector<FilePrecondition> owned_inputs;
     if (plan.action == Action::install) {
         if (plan.local.exists || fs::exists(version) || fs::exists(record_path)) throw std::runtime_error("Package already exists; use adoption or update");
     } else {
         if (!fs::exists(record_path)) throw std::runtime_error("Package is unadopted; update/uninstall is refused");
         managed = read_json(record_path);
-        if (managed.at("directory") != path_text(plan.local.directory) || managed.at("manifest_sha256") != package.manifest_sha256)
-            throw std::runtime_error("Managed installation changed; refusing uninstall");
-        if (sha256_file(version/wide(package.artifacts.front().filename)) != package.artifacts.front().sha256)
-            throw std::runtime_error("Installed executable changed; refusing uninstall");
+        if (managed.at("directory") != path_text(plan.local.directory) || managed.at("manifest_sha256") != installed.manifest_sha256)
+            throw std::runtime_error("Managed installation changed; refusing operation");
+        if (sha256_file(plan.local.directory/wide(installed.artifacts.front().filename)) != installed.artifacts.front().sha256)
+            throw std::runtime_error("Installed executable changed; refusing operation");
+        owned_inputs.push_back({record_path,sha256_file(record_path)});
+        owned_inputs.push_back({plan.local.directory/wide(installed.artifacts.front().filename),installed.artifacts.front().sha256});
     }
-    for (const auto& command : package.commands) {
+    const auto same_alias = [](const std::string& left, const std::string& right) {
+        const auto a = wide(left), b = wide(right);
+        return CompareStringOrdinal(a.c_str(),-1,b.c_str(),-1,TRUE) == CSTR_EQUAL;
+    };
+    for (const auto& command : installed.commands) {
         const auto exe = shims/(wide(command.name)+L".exe");
         const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
         if (plan.action == Action::install) {
@@ -103,15 +116,31 @@ int execute_plan(const Context& context, const Plan& plan) {
                 entry.value("arguments",std::string{}) != command.arguments ||
                 sha256_file(exe) != managed.at("shim_sha256").get<std::string>())
                 throw std::runtime_error("Managed command entry ownership changed");
+            owned_inputs.push_back({exe,managed.at("shim_sha256").get<std::string>()});
+            owned_inputs.push_back({metadata,sha256_file(metadata)});
+        }
+    }
+    if (updating) {
+        if (package.version == installed.version && package.manifest_sha256 == installed.manifest_sha256) {
+            if (context.json_output) std::cout << Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}}.dump() << '\n';
+            else std::cout << package.name << ": up-to-date\n";
+            return 0;
+        }
+        if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
+        for (const auto& command : package.commands) {
+            if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return same_alias(old.name,command.name); })) continue;
+            if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")))
+                throw std::runtime_error("New command entry conflicts with an existing file");
         }
     }
     const auto transaction = state/L"transactions"/(std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     ordinary_parents(context.root,transaction);
     fs::create_directories(transaction);
-    Json journal = {{"state","pending"},{"package",package.name},{"action",plan.action == Action::install ? "install" : "uninstall"},
+    Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()}};
     const auto save = [&]() { write_json(transaction/L"journal.json",journal); };
     std::vector<fs::path> owned;
+    std::vector<std::pair<fs::path,fs::path>> moved;
     const auto create = [&](const fs::path& path, const auto& operation) {
         journal["created"].push_back({{"path",path_text(path)},{"owned",false}}); save();
         operation();
@@ -124,21 +153,33 @@ int execute_plan(const Context& context, const Plan& plan) {
         create(destination,[&]() { publish_new(temporary,destination); });
     };
     const auto move = [&](const fs::path& from, const fs::path& to) {
-        journal["moves"].push_back({{"from",path_text(from)},{"to",path_text(to)}}); save();
-        fs::rename(from,to);
+        journal["moves"].push_back({{"from",path_text(from)},{"to",path_text(to)},{"moved",false}}); save();
+        publish_new(from,to);
+        moved.emplace_back(from,to);
+        journal["moves"].back()["moved"] = true; save();
     };
     save();
     bool committed = false;
     try {
-        if (plan.action == Action::install) {
+        if (plan.action == Action::install || updating) {
             const auto stage = transaction/L"payload";
             fs::create_directories(stage);
             const auto& artifact = package.artifacts.front();
             download_file(artifact.url,stage/wide(artifact.filename));
             if (sha256_file(stage/wide(artifact.filename)) != artifact.sha256) throw std::runtime_error("Artifact SHA256 mismatch");
             recheck_plan(plan);
+            for (const auto& input : owned_inputs)
+                if (sha256_file(input.path) != input.sha256) throw std::runtime_error("Managed input changed during preparation; regenerate the plan");
             fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json");
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
+            if (updating) {
+                move(app/L"current",transaction/L"old-current");
+                for (const auto& command : installed.commands) {
+                    move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".old.exe"));
+                    move(shims/(wide(command.name)+L".coop-shim.json"),transaction/(wide(command.name)+L".old-shim.json"));
+                }
+                move(record_path,transaction/L"old-managed-record.json");
+            }
             fs::create_directories(app);
             create(version,[&]() { publish_new(stage,version); });
             make_junction(transaction/L"new-current",version);
@@ -172,11 +213,13 @@ int execute_plan(const Context& context, const Plan& plan) {
         journal["state"] = "committed"; save(); committed = true;
     } catch (...) {
         try {
-            for (auto entry = journal["moves"].rbegin(); entry != journal["moves"].rend(); ++entry) {
-                const fs::path from(wide(entry->at("from"))), to(wide(entry->at("to")));
-                if (fs::exists(to) && !fs::exists(from)) fs::rename(to,from);
-            }
             for (auto entry = owned.rbegin(); entry != owned.rend(); ++entry) erase_tree(*entry);
+            for (auto entry = moved.rbegin(); entry != moved.rend(); ++entry) {
+                const auto& [from,to] = *entry;
+                if (GetFileAttributesW(to.c_str()) == INVALID_FILE_ATTRIBUTES || GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES)
+                    throw std::runtime_error("Rollback conflict requires recovery");
+                publish_new(to,from);
+            }
             journal["state"] = "rolled-back"; save();
         } catch (...) { /* Original failure propagates; pending journal preserves recovery evidence. */ }
         throw;

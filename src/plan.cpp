@@ -203,7 +203,7 @@ int package_command(const Context& context, const std::wstring& command, const s
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Only the single-file EXE install/uninstall path has runtime coverage; other lifecycle combinations remain unverified"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Only the single-file EXE install/update/uninstall path has runtime coverage; other lifecycle combinations remain unverified"}});
     if (context.json_output) std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     else std::cout << result.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     return plan.diagnostics.empty() ? 0 : 1;
