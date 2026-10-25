@@ -8,7 +8,7 @@ New-Item -ItemType Directory -Path $sessionRoot -Force | Out-Null
 Copy-Item $CoopExe "$sessionRoot/artifact.exe"
 $bytes = [IO.File]::ReadAllBytes("$sessionRoot/artifact.exe")
 $hash = (Get-FileHash "$sessionRoot/artifact.exe" -Algorithm SHA256).Hash.ToLower()
-foreach ($case in @('version','exe','metadata','record')) {
+foreach ($case in @('version','exe','metadata','record','manifest')) {
     $root = "$sessionRoot/$case"
     New-Item -ItemType Directory -Path "$root/buckets/test/bucket" -Force | Out-Null
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
@@ -29,21 +29,34 @@ foreach ($case in @('version','exe','metadata','record')) {
         $errorOutput = $process.StandardError.ReadToEndAsync()
         if (-not $connection.Wait(15000)) { throw 'downloader did not reach controlled server' }
         $client = $connection.GetAwaiter().GetResult()
+        $stream = $client.GetStream()
+        $stream.ReadTimeout = 10000
+        $request = ''
+        while (-not $request.EndsWith("`r`n`r`n")) {
+            $value = $stream.ReadByte()
+            if ($value -lt 0 -or $request.Length -gt 16384) { throw 'incomplete local HTTP request' }
+            $request += [char]$value
+        }
         $foreign = switch ($case) {
             'version' { "$root/apps/fixture/1/foreign.txt" }
             'exe' { "$root/shims/fixture.exe" }
             'metadata' { "$root/shims/fixture.coop-shim.json" }
             'record' { "$root/.coop/packages/fixture.json" }
+            'manifest' { "$root/buckets/test/bucket/fixture.json" }
         }
         New-Item -ItemType Directory -Path (Split-Path $foreign) -Force | Out-Null
         [IO.File]::WriteAllText($foreign,'foreign data must survive')
-        $stream = $client.GetStream()
         $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
         $stream.Write($header)
         $stream.Write($bytes)
-        $client.Dispose(); $client = $null
+        $stream.Flush()
+        $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
         if (-not $process.WaitForExit(15000)) { throw 'conflict install did not finish' }
-        @{exit=$process.ExitCode;output=$output.GetAwaiter().GetResult();error=$errorOutput.GetAwaiter().GetResult()} | ConvertTo-Json | Set-Content "$root/result.json" -Encoding utf8
+        $result = @{exit=$process.ExitCode;output=$output.GetAwaiter().GetResult();error=$errorOutput.GetAwaiter().GetResult()}
+        $result | ConvertTo-Json | Set-Content "$root/result.json" -Encoding utf8
+        if ($case -eq 'manifest') {
+            if ($result.error -notlike '*Plan input changed*') { throw 'Manifest test did not reach input recheck' }
+        } elseif ($result.error -notlike '*Destination cannot be published without replacing existing data*') { throw "Conflict $case did not reach atomic publication: $($result.error)" }
         if ($process.ExitCode -eq 0 -or -not (Test-Path $foreign) -or [IO.File]::ReadAllText($foreign) -ne 'foreign data must survive') { throw "Concurrent $case conflict was overwritten or removed" }
         if (Test-Path "$root/apps/fixture/current") { throw 'failed install left current published' }
     } finally {
@@ -52,4 +65,4 @@ foreach ($case in @('version','exe','metadata','record')) {
         if ($process) { if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }; $process.Dispose() }
     }
 }
-Write-Output "PASS concurrent version/EXE/metadata/record conflicts preserved: $sessionRoot"
+Write-Output "PASS concurrent version/EXE/metadata/record conflicts and changed Manifest: $sessionRoot"
