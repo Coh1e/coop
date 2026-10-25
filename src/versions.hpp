@@ -14,4 +14,5 @@ Json recorded_version_evidence(const Context& context, const std::string& packag
 Json version_cleanup_inventory(const Context& context, const std::string& package_name,
                                const std::string& current_version);
 int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run);
+Json cleanup_recovery_status(const Context& context, const fs::path& journal_path, bool execute);
 }

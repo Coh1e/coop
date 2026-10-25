@@ -63,7 +63,7 @@
 
 - store 路径中的 reparse point、版本目录中已有的真实 source 冲突、链接创建/权限失败都明确失败，不静默覆盖。
 - 更新或卸载的写阶段失败沿用事务日志恢复已移动的当前版本、入口和记录；失败后 store 数据保持不变，新版本 staging 链接被删除。
-- 中断后的 pending 事务仍阻止后续写入；通用安装/接管中断路径由 `tests/lifecycle-interrupt.ps1` 与 `tests/adopt-interrupt.ps1` 验证，本票的 persist 路径额外验证写阶段失败回滚。
+- 中断后的 pending 事务仍阻止后续写入；`coop recover` 按日志分类并还原 Coop 自有路径，不重跑脚本。通用安装/接管/发布阶段恢复由 `tests/recovery.ps1`、`tests/lifecycle-interrupt.ps1` 与 `tests/adopt-interrupt.ps1` 验证，本票的 persist 路径额外验证写阶段失败回滚。
 
 ## 3. 验证结果
 

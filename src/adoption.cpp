@@ -255,34 +255,78 @@ Json commit_adoption_result(const Context& context, const Plan& plan) {
     return Json{{"package",package.name},{"version",package.version},{"status","adopted"},{"backup",path_text(backup)},
         {"persistence",verify_persistence(context,package,plan.local.directory)}};
 }
+Json adoption_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {
+    Json result = {{"journal",path_text(journal_path)},{"mode","manual"},{"status","manual"},
+        {"reason","Adoption recovery cannot be verified"}};
+    try {
+        const auto journal = read_json(journal_path);
+        if (!journal.is_object()) throw std::runtime_error("Adoption journal is not an object");
+        const auto package_name = journal.value("package",std::string{});
+        result["action"] = journal.value("action",std::string{});
+        result["package"] = package_name;
+        if (journal.value("state",std::string{}) != "pending") {
+            result["mode"] = "none";
+            result["status"] = "not-pending";
+            result["reason"] = "Adoption journal is already resolved";
+            return result;
+        }
+        if (journal.value("action",std::string{}) != "adopt" || package_name.empty())
+            throw std::runtime_error("Adoption journal has no package identity");
+        const auto state = context.root/L".coop";
+        const auto record = state/L"packages"/(wide(package_name)+L".json");
+        const auto backup = state/L"backups"/wide(package_name)/journal_path.parent_path().filename();
+        if (!journal.contains("record") || !journal.at("record").is_string() ||
+            !journal.contains("backup") || !journal.at("backup").is_string() ||
+            !same_identity(fs::path(wide(journal.at("record").get<std::string>())),record) ||
+            !same_identity(fs::path(wide(journal.at("backup").get<std::string>())),backup))
+            throw std::runtime_error("Pending adoption journal has inconsistent owned paths");
+        for (const auto& path : {journal_path,record,backup}) {
+            auto current = state;
+            for (const auto& part : path.lexically_relative(state)) {
+                validate_component(path_text(part)); current /= part;
+                const auto attributes = GetFileAttributesW(current.c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+                    throw std::runtime_error("Pending adoption state path contains a reparse point");
+            }
+        }
+        std::string resolution;
+        if (fs::exists(record)) {
+            if (!journal.contains("record_sha256") || !journal.at("record_sha256").is_string() ||
+                !journal.contains("backup_sha256") || !journal.at("backup_sha256").is_string() ||
+                sha256_file(record) != journal.at("record_sha256").get<std::string>() ||
+                sha256_file(backup/L"evidence.json") != journal.at("backup_sha256").get<std::string>())
+                throw std::runtime_error("Pending adoption commit cannot be verified");
+            resolution = "committed";
+        } else {
+            // Adoption only copies evidence and publishes this one management record.
+            // Without that record, preserving the partial backup completes the rollback.
+            resolution = "rolled-back";
+        }
+        result["mode"] = "automatic";
+        result["status"] = execute ? resolution : "recoverable";
+        result["reason"] = resolution == "committed" ?
+            "The adoption management record was published before the interruption" :
+            "No adoption management record was published; the partial backup is retained as evidence";
+        if (execute) {
+            auto resolved = journal;
+            resolved["state"] = resolution;
+            resolved["recovered"] = true;
+            write_json(journal_path,resolved);
+        }
+        return result;
+    } catch (const std::exception& error) {
+        result["mode"] = "manual";
+        result["status"] = "manual";
+        result["reason"] = error.what();
+        return result;
+    }
+}
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path) {
     const auto journal = read_json(journal_path);
     if (journal.value("action",std::string{}) != "adopt" || !equal_name(journal.value("package",std::string{}),plan.package.name)) return false;
-    const auto state = context.root/L".coop";
-    const auto record = state/L"packages"/(wide(plan.package.name)+L".json");
-    const auto backup = state/L"backups"/wide(plan.package.name)/journal_path.parent_path().filename();
-    if (!same_identity(fs::path(wide(journal.at("record").get<std::string>())),record) ||
-        !same_identity(fs::path(wide(journal.at("backup").get<std::string>())),backup))
-        throw std::runtime_error("Pending adoption journal has inconsistent owned paths");
-    for (const auto& path : {journal_path,record,backup}) {
-        auto current = state;
-        for (const auto& part : path.lexically_relative(state)) {
-            validate_component(path_text(part)); current /= part;
-            const auto attributes = GetFileAttributesW(current.c_str());
-            if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) throw std::runtime_error("Pending adoption state path contains a reparse point");
-        }
-    }
-    auto resolved = journal;
-    if (fs::exists(record)) {
-        if (!journal.contains("record_sha256") || sha256_file(record) != journal.at("record_sha256").get<std::string>() ||
-            sha256_file(backup/L"evidence.json") != journal.at("backup_sha256").get<std::string>()) throw std::runtime_error("Pending adoption commit cannot be verified");
-        resolved["state"] = "committed";
-    } else {
-        // Adoption only copies evidence and publishes this one management record.
-        // Without that record, preserving the partial backup completes the rollback.
-        resolved["state"] = "rolled-back";
-    }
-    write_json(journal_path,resolved);
+    const auto status = adoption_recovery_status(context,journal_path,true);
+    if (status.value("mode",std::string{}) != "automatic" || status.value("status",std::string{}) == "manual")
+        throw std::runtime_error(status.value("reason",std::string{"Pending adoption cannot be recovered"}));
     return true;
 }
 }

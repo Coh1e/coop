@@ -102,6 +102,11 @@ std::string package_execution_blocker(const Package& package);
 AdoptionAssessment assess_adoption(const Context& context, const Plan& plan);
 Json commit_adoption_result(const Context& context, const Plan& plan);
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path);
+Json adoption_recovery_status(const Context& context, const fs::path& journal_path, bool execute);
+// Recovery of a package transaction is only automatic when every journaled path is still
+// owned by Coop and can be reverted without guessing. Scripts recorded by the journal are
+// never re-run; their external effects remain unknown.
+Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute);
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args,
             const std::string& architecture);
 }

@@ -1,14 +1,41 @@
 #include "data.hpp"
 #include "persist.hpp"
+#include "recovery.hpp"
 #include "versions.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <cctype>
 #include <map>
+#include <set>
 
 namespace coop {
 static std::string lowercase(std::string value);
+// While an update or uninstall is pending, the old management record may already have been
+// moved into the transaction. Readers then use that last committed record instead of the
+// partially published current link, so query output never presents an intermediate version as
+// the installed fact.
+static Json previous_record(const Context& context, const std::string& name, const Json& recovery) {
+    const auto action = recovery.value("action",std::string{});
+    if (action != "update" && action != "uninstall") return Json();
+    const auto journal_path = fs::path(wide(recovery.value("journal",std::string{})));
+    if (!fs::is_regular_file(journal_path)) return Json();
+    try {
+        const auto journal = read_json(journal_path);
+        for (const auto& move : journal.value("moves",Json::array())) {
+            if (!move.is_object() || !move.contains("to") || !move.at("to").is_string()) continue;
+            const fs::path candidate(wide(move.at("to").get<std::string>()));
+            const auto filename = candidate.filename().wstring();
+            if (filename != L"old-managed-record.json" && filename != L"managed-record.json") continue;
+            if (!fs::is_regular_file(candidate)) continue;
+            const auto record = read_json(candidate);
+            if (record.is_object()) return record;
+        }
+    } catch (const std::exception&) { /* The current published record remains the fallback. */ }
+    (void)context;
+    (void)name;
+    return Json();
+}
 static std::vector<Persistence> listed_persistence(const Json& manifest) {
     std::vector<Persistence> result;
     if (!manifest.contains("persist") || manifest.at("persist").is_null()) return result;
@@ -88,20 +115,62 @@ Json installed_packages(const Context& context) {
             const auto journal = read_json(path);
             const auto name = lowercase(journal.at("package").get<std::string>());
             const auto time = fs::last_write_time(path);
-            if (!operations.contains(name) || time > operations.at(name).first) operations[name] = {time,journal};
+            const auto found = operations.find(name);
+            if (found == operations.end()) operations[name] = {time,journal};
+            else {
+                const bool pending = journal.value("state",std::string{}) == "pending";
+                const bool previous_pending = found->second.second.value("state",std::string{}) == "pending";
+                if (pending != previous_pending ? pending : time > found->second.first) operations[name] = {time,journal};
+            }
         } catch (const std::exception&) { /* A malformed journal does not hide queryable installations. */ }
     }
+    std::map<std::string,Json> recoveries;
+    for (const auto& entry : pending_recovery_report(context,false))
+        if (entry.is_object() && entry.contains("package") && entry.at("package").is_string()) {
+            const auto name = entry.at("package").get<std::string>();
+            if (!name.empty()) recoveries[lowercase(name)] = entry;
+        }
+    std::set<std::string> listed;
     for (auto& item : result) {
         if (item.at("scope") != "user") continue;
-        const auto operation = operations.find(lowercase(item.at("name")));
-        if (operation == operations.end()) { item["last_operation"] = "none"; continue; }
-        const auto& journal = operation->second.second;
-        const auto state = journal.value("state",std::string{});
-        item["last_operation"] = state == "committed" ? "succeeded" : state == "rolled-back" ? "failed" : "pending-recovery";
-        item["operation_action"] = journal.value("action",std::string("unknown"));
-        if (state == "committed" && journal.value("action",std::string{}) == "uninstall" && !fs::is_directory(context.root/L"apps"/wide(item.at("name"))/L"current")) {
-            item["status"] = "uninstalled"; item["management"] = "none"; item["diagnostics"] = Json::array();
+        const auto key = lowercase(item.at("name").get<std::string>());
+        listed.insert(key);
+        const auto operation = operations.find(key);
+        if (operation == operations.end()) item["last_operation"] = "none";
+        else {
+            const auto& journal = operation->second.second;
+            const auto state = journal.value("state",std::string{});
+            item["last_operation"] = state == "committed" ? "succeeded" : state == "rolled-back" ? "failed" : "pending-recovery";
+            item["operation_action"] = journal.value("action",std::string("unknown"));
+            if (state == "committed" && journal.value("action",std::string{}) == "uninstall" && !fs::is_directory(context.root/L"apps"/wide(item.at("name"))/L"current")) {
+                item["status"] = "uninstalled"; item["management"] = "none"; item["diagnostics"] = Json::array();
+            }
         }
+        const auto recovery = recoveries.find(key);
+        if (recovery != recoveries.end()) {
+            item["last_operation"] = "pending-recovery";
+            item["operation_action"] = recovery->second.value("action",std::string("unknown"));
+            const auto old = previous_record(context,item.at("name").get<std::string>(),recovery->second);
+            if (old.is_object()) {
+                for (const auto* field : {"version","bucket","source","architecture","directory","origin","status"})
+                    if (old.contains(field)) item[field] = old.at(field);
+                item["management"] = "managed";
+                item["diagnostics"] = Json::array();
+            } else if (recovery->second.value("action",std::string{}) == "install") {
+                item["version"] = Json(nullptr);
+                item["management"] = "none";
+                item["status"] = "pending-recovery";
+                item["diagnostics"] = Json::array();
+            }
+            item["recovery"] = recovery->second;
+        }
+    }
+    for (const auto& [key,recovery] : recoveries) {
+        if (listed.contains(key)) continue;
+        result.push_back({{"name",recovery.value("package",std::string{})},{"version",Json(nullptr)},
+            {"scope","user"},{"management","none"},{"status","pending-recovery"},
+            {"diagnostics",Json::array()},{"last_operation","pending-recovery"},
+            {"operation_action",recovery.value("action",std::string("unknown"))},{"recovery",recovery}});
     }
     std::sort(result.begin(), result.end(), [](const Json& a, const Json& b) {
         return a.at("name").get<std::string>() < b.at("name").get<std::string>();

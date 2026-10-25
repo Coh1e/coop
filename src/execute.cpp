@@ -12,6 +12,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
+#include <iterator>
 
 namespace coop {
 namespace {
@@ -159,6 +160,61 @@ void publish_new(const fs::path& source, const fs::path& destination) {
         Sleep(200);
     }
     throw std::runtime_error("Destination cannot be published (Windows error "+std::to_string(error)+"); close the program and retry");
+}
+bool path_is_under(const fs::path& path, const fs::path& base) {
+    const auto normalized = path.lexically_normal();
+    const auto normalized_base = base.lexically_normal();
+    auto entry = normalized.begin();
+    for (auto base_entry = normalized_base.begin(); base_entry != normalized_base.end(); ++base_entry,++entry) {
+        if (entry == normalized.end() ||
+            CompareStringOrdinal(entry->c_str(),-1,base_entry->c_str(),-1,TRUE) != CSTR_EQUAL) return false;
+    }
+    return entry != normalized.end();
+}
+// Journal paths are absolute. Recovery accepts only Coop's root and the isolated shortcut
+// directory, rejects parent reparse points, and permits a reparse point only as the final
+// managed junction (for example apps/<package>/current).
+bool recovery_path_allowed(const Context& context, const fs::path& path) {
+    if (path.empty() || !path.is_absolute()) return false;
+    // Journal paths are only trusted inside the managed subtrees that the execution protocol
+    // writes. Requiring the expected depth prevents a corrupt journal from naming "apps" or a
+    // whole package directory as a created path and deleting more than one transaction owns.
+    const std::vector<std::pair<fs::path,std::size_t>> roots = {
+        {context.root/L"apps",2},
+        {context.root/L"shims",1},
+        {context.root/L".coop"/L"packages",1},
+        {context.root/L".coop"/L"transactions",2},
+        {context.root/L".coop"/L"retained",1},
+        {shortcut_directory(context),1}};
+    fs::path base;
+    std::size_t minimum = 0;
+    std::size_t best = 0;
+    for (const auto& [root,depth] : roots) {
+        if (!path_is_under(path,root)) continue;
+        const auto normalized_root = root.lexically_normal();
+        const auto size = static_cast<std::size_t>(std::distance(normalized_root.begin(),normalized_root.end()));
+        if (base.empty() || size > best) { base = root; best = size; minimum = depth; }
+    }
+    if (base.empty()) return false;
+    const auto normalized = path.lexically_normal();
+    const auto normalized_base = base.lexically_normal();
+    auto entry = normalized.begin();
+    for (auto base_entry = normalized_base.begin(); base_entry != normalized_base.end(); ++base_entry) ++entry;
+    if (static_cast<std::size_t>(std::distance(entry,normalized.end())) < minimum) return false;
+    auto current = base;
+    for (; entry != normalized.end(); ++entry) {
+        validate_component(path_text(*entry));
+        current /= *entry;
+        const auto attributes = GetFileAttributesW(current.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+            std::next(entry) != normalized.end()) return false;
+    }
+    return true;
+}
+bool same_path_text(const fs::path& a, const fs::path& b) {
+    const auto left = a.lexically_normal().wstring();
+    const auto right = b.lexically_normal().wstring();
+    return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_EQUAL;
 }
 }
 std::string package_execution_blocker(const Package& package) {
@@ -708,5 +764,115 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         result["retained_versions"] = Json::array();
     }
     return result;
+}
+Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {
+    Json result = {{"journal",path_text(journal_path)},{"mode","manual"},{"status","manual"},
+        {"reason","Recovery evidence cannot be verified"},{"actions",Json::array()}};
+    bool mutating = false;
+    try {
+        const auto journal = read_json(journal_path);
+        if (!journal.is_object()) throw std::runtime_error("Transaction journal is not an object");
+        const auto action = journal.value("action",std::string{});
+        const auto package = journal.value("package",std::string{});
+        result["action"] = action;
+        result["package"] = package;
+        if (journal.value("state",std::string{}) != "pending") {
+            result["mode"] = "none";
+            result["status"] = "not-pending";
+            result["reason"] = "Transaction journal is already resolved";
+            return result;
+        }
+        if (action != "install" && action != "update" && action != "uninstall")
+            throw std::runtime_error("Transaction action is not a recoverable package operation: "+action);
+        if (package.empty()) throw std::runtime_error("Transaction journal does not name a package");
+        const auto created = journal.contains("created") && journal.at("created").is_array() ? journal.at("created") : Json::array();
+        const auto moves = journal.contains("moves") && journal.at("moves").is_array() ? journal.at("moves") : Json::array();
+        const auto scripts = journal.contains("scripts") && journal.at("scripts").is_array() ? journal.at("scripts") : Json::array();
+        const bool scripts_started = !scripts.empty();
+        result["scripts_started"] = scripts_started;
+        if (scripts_started) result["external_side_effects"] =
+            "unknown; recovered state does not roll back effects outside Coop's managed paths, and journaled scripts are not re-run";
+        Json actions = Json::array();
+        std::vector<fs::path> removals;
+        std::vector<std::pair<fs::path,fs::path>> restores;
+        for (const auto& entry : created) {
+            if (!entry.is_object() || !entry.contains("path") || !entry.at("path").is_string())
+                throw std::runtime_error("Transaction journal has an unreadable created-path record");
+            const fs::path path(wide(entry.at("path").get<std::string>()));
+            if (!recovery_path_allowed(context,path))
+                throw std::runtime_error("Created path is outside Coop's managed locations or crosses a reparse point: "+path_text(path));
+            const bool exists = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+            const bool owned = entry.value("owned",false);
+            if (exists && !owned)
+                throw std::runtime_error("Creation ownership was not confirmed for "+path_text(path)+"; refusing to delete it");
+            if (exists) {
+                removals.push_back(path);
+                actions.push_back({{"kind","remove"},{"path",path_text(path)}});
+            } else {
+                actions.push_back({{"kind","already-absent"},{"path",path_text(path)}});
+            }
+        }
+        for (const auto& entry : moves) {
+            if (!entry.is_object() || !entry.contains("from") || !entry.at("from").is_string() ||
+                !entry.contains("to") || !entry.at("to").is_string())
+                throw std::runtime_error("Transaction journal has an unreadable move record");
+            const fs::path from(wide(entry.at("from").get<std::string>()));
+            const fs::path to(wide(entry.at("to").get<std::string>()));
+            if (!recovery_path_allowed(context,from) || !recovery_path_allowed(context,to))
+                throw std::runtime_error("Moved path is outside Coop's managed locations or crosses a reparse point");
+            bool from_exists = GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES;
+            const bool to_exists = GetFileAttributesW(to.c_str()) != INVALID_FILE_ATTRIBUTES;
+            // A created destination at the original path (for example a newly published current
+            // junction) is removed before moves are restored, exactly as in-process rollback does.
+            for (const auto& removal : removals) if (same_path_text(removal,from)) { from_exists = false; break; }
+            if (to_exists && !from_exists) {
+                restores.emplace_back(from,to);
+                actions.push_back({{"kind","restore"},{"from",path_text(from)},{"to",path_text(to)}});
+            } else if (!to_exists && from_exists) {
+                actions.push_back({{"kind","already-restored"},{"from",path_text(from)}});
+            } else if (!to_exists && !from_exists) {
+                throw std::runtime_error("Both endpoints of a journaled move are missing: "+path_text(from));
+            } else {
+                throw std::runtime_error("Both endpoints of a journaled move exist; recovery would overwrite data: "+path_text(from));
+            }
+        }
+        result["actions"] = std::move(actions);
+        result["mode"] = "automatic";
+        result["status"] = execute ? "pending" : "recoverable";
+        result["reason"] = restores.empty() && removals.empty() ?
+            "No published state was changed; the interrupted preparation can be discarded" :
+            "Journaled Coop-owned paths and moves can be reverted without guessing";
+        if (!execute) return result;
+        mutating = true;
+        for (auto entry = removals.rbegin(); entry != removals.rend(); ++entry) erase_tree(*entry);
+        for (auto entry = restores.rbegin(); entry != restores.rend(); ++entry) publish_new(entry->second,entry->first);
+        auto resolved = read_json(journal_path);
+        resolved["state"] = "rolled-back";
+        resolved["recovered"] = true;
+        if (scripts_started) resolved["recovery_external_side_effects"] =
+            "unknown; journaled scripts were not re-run and their effects outside Coop's managed paths were not rolled back";
+        write_json(journal_path,resolved);
+        if (scripts_started) {
+            // Script logs are recovery evidence and must not be treated as ordinary cache.
+            result["transaction_evidence_retained"] = path_text(journal_path.parent_path());
+        } else {
+            try {
+                for (const auto& entry : fs::directory_iterator(journal_path.parent_path()))
+                    if (entry.path().filename() != L"journal.json") erase_tree(entry.path());
+            } catch (const std::exception& error) {
+                result["cleanup_warning"] = std::string("Recovered state is valid, but transaction staging could not be removed: ")+error.what();
+            }
+        }
+        result["status"] = scripts_started ? "recovered-with-unknown-script-effects" : "recovered";
+        result["reason"] = scripts_started ?
+            "Interrupted Coop state was reverted; script side effects outside managed paths remain unknown" :
+            "Interrupted Coop state was reverted";
+        return result;
+    } catch (const std::exception& error) {
+        result["mode"] = "manual";
+        result["status"] = mutating ? "failed" : "manual";
+        result["reason"] = error.what();
+        return result;
+    }
 }
 }

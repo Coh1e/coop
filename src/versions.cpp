@@ -14,9 +14,14 @@ std::string version_text(const Json& value) {
 }
 
 bool is_under(const fs::path& path, const fs::path& base) {
-    const auto relative = path.lexically_relative(base);
-    if (relative.empty() || relative.is_absolute() || relative == L".") return false;
-    return *relative.begin() != L"..";
+    const auto normalized = path.lexically_normal();
+    const auto normalized_base = base.lexically_normal();
+    auto entry = normalized.begin();
+    for (auto base_entry = normalized_base.begin(); base_entry != normalized_base.end(); ++base_entry,++entry) {
+        if (entry == normalized.end() ||
+            CompareStringOrdinal(entry->c_str(),-1,base_entry->c_str(),-1,TRUE) != CSTR_EQUAL) return false;
+    }
+    return entry != normalized.end();
 }
 
 Json pending_transactions(const Context& context) {
@@ -98,22 +103,11 @@ void recover_cleanup_transactions(const Context& context) {
         if (!entry.is_directory()) continue;
         const auto journal_path = entry.path()/L"journal.json";
         if (!fs::is_regular_file(journal_path)) continue;
-        auto journal = read_json(journal_path);
+        const auto journal = read_json(journal_path);
         if (journal.value("state",std::string{}) != "pending" || journal.value("action",std::string{}) != "cleanup") continue;
-        for (auto& candidate : journal.at("candidates")) {
-            const fs::path from(wide(candidate.at("from").get<std::string>()));
-            const fs::path trash(wide(candidate.at("trash").get<std::string>()));
-            if (GetFileAttributesW(trash.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                try { erase_tree(trash); }
-                catch (const std::exception&) {
-                    if (GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES ||
-                        !MoveFileExW(trash.c_str(),from.c_str(),MOVEFILE_WRITE_THROUGH))
-                        throw std::runtime_error("Interrupted cleanup cannot be completed: "+path_text(trash));
-                }
-            }
-        }
-        journal["state"] = "committed";
-        save_journal(journal_path,journal);
+        const auto status = cleanup_recovery_status(context,journal_path,true);
+        if (status.value("mode",std::string{}) != "automatic")
+            throw std::runtime_error(status.value("reason",std::string{"Interrupted cleanup cannot be completed"}));
     }
 }
 
@@ -355,6 +349,73 @@ std::vector<std::string> known_packages(const Context& context) {
     }
     return std::vector<std::string>(names.begin(),names.end());
 }
+}
+Json cleanup_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {
+    Json result = {{"journal",path_text(journal_path)},{"mode","manual"},{"status","manual"},
+        {"reason","Cleanup recovery cannot be verified"},{"actions",Json::array()}};
+    try {
+        auto journal = read_json(journal_path);
+        if (!journal.is_object()) throw std::runtime_error("Cleanup journal is not an object");
+        result["action"] = journal.value("action",std::string{});
+        result["package"] = journal.value("package",std::string{});
+        if (journal.value("state",std::string{}) != "pending") {
+            result["mode"] = "none";
+            result["status"] = "not-pending";
+            result["reason"] = "Cleanup journal is already resolved";
+            return result;
+        }
+        if (journal.value("action",std::string{}) != "cleanup")
+            throw std::runtime_error("Cleanup journal has an unexpected action");
+        const auto transaction = journal_path.parent_path();
+        const auto apps = context.root/L"apps";
+        Json actions = Json::array();
+        if (journal.contains("candidates") && !journal.at("candidates").is_array())
+            throw std::runtime_error("Cleanup journal has unreadable candidate records");
+        const auto candidates = journal.contains("candidates") ? journal.at("candidates") : Json::array();
+        for (const auto& candidate : candidates) {
+            if (!candidate.is_object() || !candidate.contains("from") || !candidate.at("from").is_string() ||
+                !candidate.contains("trash") || !candidate.at("trash").is_string())
+                throw std::runtime_error("Cleanup journal has an unreadable candidate record");
+            const fs::path from(wide(candidate.at("from").get<std::string>()));
+            const fs::path trash(wide(candidate.at("trash").get<std::string>()));
+            if (!is_under(from,apps) || !is_under(trash,transaction))
+                throw std::runtime_error("Cleanup journal points outside the version and transaction directories");
+            if (GetFileAttributesW(trash.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                actions.push_back({{"kind","already-absent"},{"path",path_text(trash)}});
+                continue;
+            }
+            if (GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES)
+                throw std::runtime_error("Both the cleanup trash and its original version path exist; recovery would overwrite data");
+            if (!execute) {
+                actions.push_back({{"kind","remove-or-restore"},{"from",path_text(from)},{"trash",path_text(trash)}});
+                continue;
+            }
+            try {
+                erase_tree(trash);
+                actions.push_back({{"kind","removed"},{"path",path_text(trash)}});
+            } catch (const std::exception&) {
+                if (GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES ||
+                    !MoveFileExW(trash.c_str(),from.c_str(),MOVEFILE_WRITE_THROUGH))
+                    throw std::runtime_error("Interrupted cleanup cannot be completed: "+path_text(trash));
+                actions.push_back({{"kind","restored"},{"from",path_text(from)}});
+            }
+        }
+        result["actions"] = std::move(actions);
+        result["mode"] = "automatic";
+        result["status"] = execute ? "committed" : "recoverable";
+        result["reason"] = "Cleanup moves are idempotent: a still-held version is put back where it came from";
+        if (execute) {
+            journal["state"] = "committed";
+            journal["recovered"] = true;
+            save_journal(journal_path,journal);
+        }
+        return result;
+    } catch (const std::exception& error) {
+        result["mode"] = "manual";
+        result["status"] = "manual";
+        result["reason"] = error.what();
+        return result;
+    }
 }
 Json version_evidence(const fs::path& directory, const std::string& version) {
     Json result = {{"version",version},{"directory",path_text(directory)},{"status","unmanageable"},
