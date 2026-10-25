@@ -371,9 +371,43 @@ try {
         throw "Scoped automatic recovery claimed success while manual state remained: $scopedManual"
     }
 
+    # J: query accepts a moved last-committed record only from Coop's transaction subtree and
+    # only when the record names the package being listed.
+    $rootJ = [IO.Path]::GetFullPath("$sessionRoot/query-record")
+    $appJ = [IO.Path]::GetFullPath("$rootJ/apps/victim/1")
+    $txJ = [IO.Path]::GetFullPath("$rootJ/.coop/transactions/tx-query")
+    New-Item -ItemType Directory -Path $appJ,$txJ -Force | Out-Null
+    $outsideRecord = [IO.Path]::GetFullPath("$rootJ/old-managed-record.json")
+    @{name='victim';version='888';directory=$appJ;status='ready';bucket='test';architecture='64bit';origin='coop'} |
+        ConvertTo-Json | Set-Content -LiteralPath $outsideRecord -Encoding utf8
+    @{state='pending';action='update';package='victim';created=@();scripts=@();
+      moves=@(@{from=[IO.Path]::GetFullPath("$rootJ/.coop/packages/victim.json");to=$outsideRecord;moved=$true})} |
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$txJ/journal.json" -Encoding utf8
+    $outsideList = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    if ($LASTEXITCODE -ne 0 -or $outsideList.Count -ne 1 -or $outsideList[0].version -eq '888') {
+        throw "Query trusted a record outside Coop's transaction subtree: $outsideList"
+    }
+    $insideRecord = [IO.Path]::GetFullPath("$txJ/old-managed-record.json")
+    @{name='foreign';version='999';directory=$appJ;status='ready';bucket='test';architecture='64bit';origin='coop'} |
+        ConvertTo-Json | Set-Content -LiteralPath $insideRecord -Encoding utf8
+    @{state='pending';action='update';package='victim';created=@();scripts=@();
+      moves=@(@{from=[IO.Path]::GetFullPath("$rootJ/.coop/packages/victim.json");to=$insideRecord;moved=$true})} |
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$txJ/journal.json" -Encoding utf8
+    $foreignList = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    if ($LASTEXITCODE -ne 0 -or $foreignList.Count -ne 1 -or $foreignList[0].version -eq '999') {
+        throw "Query used a transaction record for a different package: $foreignList"
+    }
+    @{name='victim';version='777';directory=$appJ;status='ready';bucket='test';architecture='64bit';origin='coop'} |
+        ConvertTo-Json | Set-Content -LiteralPath $insideRecord -Encoding utf8
+    $lastCommitted = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    if ($LASTEXITCODE -ne 0 -or $lastCommitted.Count -ne 1 -or $lastCommitted[0].version -ne '777' -or
+        $lastCommitted[0].management -ne 'managed') {
+        throw "Query did not use a valid last committed record: $lastCommitted"
+    }
+
     @{root=$root; fresh_root=$rootB; publication_root=$rootC; script_root=$rootD; manual_root=$rootE;
       adopt_journal_root=$rootF; cleanup_journal_root=$rootG; scoped_root=$rootH; scoped_manual_root=$rootI;
-      interrupted_update_journal=$journalPath; recovery_mode='automatic-and-manual';
+      query_record_root=$rootJ; interrupted_update_journal=$journalPath; recovery_mode='automatic-and-manual';
       actual_process_interruptions=2; simulated_publication_stage=$true} |
         ConvertTo-Json | Set-Content -LiteralPath (Join-Path $sessionRoot 'recovery-evidence.json') -Encoding utf8
     Write-Output "PASS interruption, concurrent writer, published-state query, automatic/manual recovery: $sessionRoot/recovery-evidence.json"
