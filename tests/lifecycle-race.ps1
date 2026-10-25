@@ -56,7 +56,7 @@ foreach ($case in @('version','exe','metadata','record','manifest')) {
         $result | ConvertTo-Json | Set-Content "$root/result.json" -Encoding utf8
         if ($case -eq 'manifest') {
             if ($result.error -notlike '*Plan input changed*') { throw 'Manifest test did not reach input recheck' }
-        } elseif ($result.error -notlike '*Destination cannot be published without replacing existing data*') { throw "Conflict $case did not reach atomic publication: $($result.error)" }
+        } elseif ($result.error -notlike '*Destination cannot be published*') { throw "Conflict $case did not reach atomic publication: $($result.error)" }
         if ($process.ExitCode -eq 0 -or -not (Test-Path $foreign) -or [IO.File]::ReadAllText($foreign) -ne 'foreign data must survive') { throw "Concurrent $case conflict was overwritten or removed" }
         if (Test-Path "$root/apps/fixture/current") { throw 'failed install left current published' }
     } finally {

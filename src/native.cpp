@@ -6,6 +6,7 @@
 #include <shlwapi.h>
 #include <fstream>
 #include <array>
+#include <cctype>
 #include <stdexcept>
 #include <cstring>
 
@@ -28,14 +29,38 @@ std::wstring quote(const std::wstring& argument) {
     result.append(slashes*2,L'\\');
     return result+L'\"';
 }
+int hex_value(char value) {
+    if (value >= '0' && value <= '9') return value-'0';
+    if (value >= 'a' && value <= 'f') return value-'a'+10;
+    if (value >= 'A' && value <= 'F') return value-'A'+10;
+    return -1;
+}
+fs::path local_file_path(const std::string& url) {
+    auto encoded = url.substr(7);
+    if (encoded.starts_with("localhost/")) encoded.erase(0,9);
+    if (encoded.empty() || encoded.front() != '/' || encoded.starts_with("//"))
+        throw std::runtime_error("Unsupported local artifact URL");
+    std::string decoded;
+    decoded.reserve(encoded.size());
+    for (std::size_t i = 0; i < encoded.size(); ++i) {
+        if (encoded[i] != '%') { decoded += encoded[i]; continue; }
+        if (i+2 >= encoded.size()) throw std::runtime_error("Invalid local artifact URL escape");
+        const int high = hex_value(encoded[i+1]), low = hex_value(encoded[i+2]);
+        if (high < 0 || low < 0) throw std::runtime_error("Invalid local artifact URL escape");
+        const char value = static_cast<char>(high*16+low);
+        if (!value) throw std::runtime_error("Invalid local artifact URL path");
+        decoded += value;
+        i += 2;
+    }
+    if (decoded.size() >= 3 && decoded[0] == '/' && std::isalpha(static_cast<unsigned char>(decoded[1])) && decoded[2] == ':')
+        decoded.erase(0,1);
+    return fs::path(wide(decoded));
+}
 }
 void download_file(const std::string& url, const fs::path& destination) {
     const auto address = wide(url);
     if (url.starts_with("file://")) {
-        std::array<wchar_t,32768> path{};
-        DWORD length = static_cast<DWORD>(path.size());
-        if (FAILED(PathCreateFromUrlW(address.c_str(),path.data(),&length,0))) throw std::runtime_error("Invalid local artifact URL");
-        fs::copy_file(fs::path(path.data()),destination);
+        fs::copy_file(local_file_path(url),destination);
         return;
     }
     URL_COMPONENTS components{};

@@ -40,6 +40,16 @@ const char* step_name(StepKind kind) {
     }
     return "unknown";
 }
+const char* archive_name(ArchiveKind kind) {
+    switch (kind) {
+    case ArchiveKind::none: return "none";
+    case ArchiveKind::zip: return "zip";
+    case ArchiveKind::seven_zip: return "7z";
+    case ArchiveKind::tar: return "tar";
+    case ArchiveKind::msi: return "msi";
+    }
+    return "unknown";
+}
 void add_scripts(Plan& plan, const Package& package, ScriptPhase phase, bool previous = false) {
     for (std::size_t i = 0; i < package.scripts.size(); ++i)
         if (package.scripts[i].phase == phase) plan.steps.push_back({StepKind::script,i,previous});
@@ -235,14 +245,14 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             result["lifecycle_checks"]["uninstall"] = "supported-path";
         }
     }
-    for (const auto& item : plan.package.artifacts) result["artifacts"].push_back({{"url",item.url},{"filename",item.filename},{"sha256",item.sha256},{"extract_dir",path_text(item.extract_directory)},{"extract_to",path_text(item.extract_destination)}});
+    for (const auto& item : plan.package.artifacts) result["artifacts"].push_back({{"archive",archive_name(item.archive)},{"url",item.url},{"filename",item.filename},{"sha256",item.sha256},{"extract_dir",path_text(item.extract_directory)},{"extract_to",path_text(item.extract_destination)}});
     for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package}});
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
     static const char* categories[] = {"syntax","adapter","ir","environment","capability","verification"};
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Only the single-file EXE install/update/uninstall path has runtime coverage; other lifecycle combinations remain unverified"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file EXE and ZIP/tar archive packages without scripts, dependencies, persistence, shortcuts or environment changes; other combinations remain unverified"}});
     return result;
 }
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {

@@ -1,8 +1,10 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "native.hpp"
+#include "archive.hpp"
 #include <windows.h>
 #include <array>
+#include <cctype>
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -35,17 +37,67 @@ void erase_tree(const fs::path& path) {
 }
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
-    if (package.artifacts.size() != 1 || package.artifacts[0].archive != ArchiveKind::none ||
-        !package.scripts.empty() || !package.dependencies.empty() || !package.persistence.empty() ||
+    if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
+    if (!package.scripts.empty() || !package.dependencies.empty() || !package.persistence.empty() ||
         !package.shortcuts.empty() || !package.path_entries.empty() || !package.environment.empty() || package.installer || package.uninstaller)
-        throw std::runtime_error("Execution currently requires a single file without archives, scripts, dependencies, persistence or environment changes");
+        throw std::runtime_error("Execution currently requires archives or files without scripts, dependencies, persistence, shortcuts or environment changes");
+    const auto lower_name = [](std::string value) {
+        for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        return value;
+    };
+    for (const auto& artifact : package.artifacts) {
+        switch (artifact.archive) {
+        case ArchiveKind::none:
+        case ArchiveKind::zip:
+            break;
+        case ArchiveKind::tar: {
+            const auto name = lower_name(artifact.filename);
+            const bool supported = name.ends_with(".tar") || name.ends_with(".tar.gz") || name.ends_with(".tgz") ||
+                name.ends_with(".tar.xz") || name.ends_with(".txz");
+            if (!supported) throw std::runtime_error("This tar compression is not supported; only .tar, .tar.gz, .tgz, .tar.xz and .txz are enabled");
+            break;
+        }
+        case ArchiveKind::seven_zip:
+            throw std::runtime_error("7z archive lifecycle is not enabled; ZIP and tar archives are supported");
+        case ArchiveKind::msi:
+            throw std::runtime_error("MSI extraction requires external tooling and is not supported natively");
+        }
+    }
     for (const auto& command : package.commands)
-        if (command.target.extension() != L".exe" || command.target != fs::path(wide(package.artifacts[0].filename)))
-            throw std::runtime_error("Only direct EXE command entries are currently supported");
+        if (command.target.extension() != L".exe") throw std::runtime_error("Only direct EXE command entries are currently supported");
+}
+fs::path record_relative_path(const std::string& value) {
+    fs::path path(wide(value));
+    if (path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory())
+        throw std::runtime_error("Managed command target is not a package-relative path");
+    for (const auto& part : path) validate_component(path_text(part));
+    return path.lexically_normal();
+}
+void verify_installed_files(const Json& managed, const fs::path& directory, const Package& installed) {
+    if (managed.contains("command_targets") && managed.at("command_targets").is_array()) {
+        for (const auto& command : installed.commands) {
+            const auto entry = std::find_if(managed.at("command_targets").begin(),managed.at("command_targets").end(),[&](const Json& item) {
+                return item.is_object() && equal_name(item.value("path",std::string{}),path_text(command.target));
+            });
+            if (entry == managed.at("command_targets").end()) throw std::runtime_error("Managed command target record is missing");
+            const auto target = directory/record_relative_path(entry->at("path").get<std::string>());
+            if (!fs::is_regular_file(target)) throw std::runtime_error("Managed command target is missing");
+            if (sha256_file(target) != entry->at("sha256").get<std::string>()) throw std::runtime_error("Managed command target changed; refusing operation");
+        }
+        return;
+    }
+    const auto artifact = directory/wide(installed.artifacts.front().filename);
+    if (sha256_file(artifact) != installed.artifacts.front().sha256) throw std::runtime_error("Installed executable changed; refusing operation");
 }
 void publish_new(const fs::path& source, const fs::path& destination) {
-    if (!MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH))
-        throw std::runtime_error("Destination cannot be published without replacing existing data");
+    DWORD error = ERROR_SUCCESS;
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        if (MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH)) return;
+        error = GetLastError();
+        if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
+        Sleep(200);
+    }
+    throw std::runtime_error("Destination cannot be published (Windows error "+std::to_string(error)+"); close the program and retry");
 }
 }
 std::string package_execution_blocker(const Package& package) {
@@ -106,10 +158,12 @@ int execute_plan(const Context& context, const Plan& plan) {
         if (!same_identity(fs::path(wide(managed.at("directory").get<std::string>())),plan.local.directory) ||
             managed.at("manifest_sha256") != installed.manifest_sha256)
             throw std::runtime_error("Managed installation changed; refusing operation");
-        if (sha256_file(plan.local.directory/wide(installed.artifacts.front().filename)) != installed.artifacts.front().sha256)
-            throw std::runtime_error("Installed executable changed; refusing operation");
+        verify_installed_files(managed,plan.local.directory,installed);
         owned_inputs.push_back({record_path,sha256_file(record_path)});
-        owned_inputs.push_back({plan.local.directory/wide(installed.artifacts.front().filename),installed.artifacts.front().sha256});
+        for (const auto& command : installed.commands) {
+            const auto target = plan.local.directory/command.target;
+            owned_inputs.push_back({target,sha256_file(target)});
+        }
     }
     for (const auto& command : installed.commands) {
         const auto exe = shims/(wide(command.name)+L".exe");
@@ -182,15 +236,48 @@ int execute_plan(const Context& context, const Plan& plan) {
     try {
         if (plan.action == Action::install || updating) {
             const auto stage = transaction/L"payload";
+            const auto downloads = transaction/L"downloads";
             fs::create_directories(stage);
-            const auto& artifact = package.artifacts.front();
-            download_file(artifact.url,stage/wide(artifact.filename));
-            if (sha256_file(stage/wide(artifact.filename)) != artifact.sha256) throw std::runtime_error("Artifact SHA256 mismatch");
+            fs::create_directories(downloads);
+            journal["stage"] = "downloading"; save();
+            std::vector<fs::path> downloaded_files;
+            for (std::size_t i = 0; i < package.artifacts.size(); ++i) {
+                const auto& artifact = package.artifacts[i];
+                const auto downloaded = downloads/(std::to_wstring(i)+L"-"+wide(artifact.filename));
+                download_file(artifact.url,downloaded);
+                if (sha256_file(downloaded) != artifact.sha256) throw std::runtime_error("Artifact SHA256 mismatch: "+artifact.filename);
+                downloaded_files.push_back(downloaded);
+            }
             recheck_plan(plan);
             for (const auto& input : owned_inputs)
                 if (sha256_file(input.path) != input.sha256) throw std::runtime_error("Managed input changed during preparation; regenerate the plan");
-            fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json");
+            journal["stage"] = "extracting"; save();
+            for (std::size_t i = 0; i < package.artifacts.size(); ++i) {
+                const auto& artifact = package.artifacts[i];
+                if (artifact.archive == ArchiveKind::none) {
+                    const auto target = stage/wide(artifact.filename);
+                    if (!fs::copy_file(downloaded_files[i],target,fs::copy_options::none))
+                        throw std::runtime_error("Artifact path collides with another package file");
+                } else {
+                    const auto raw = transaction/(L"extract-"+std::to_wstring(i));
+                    extract_archive(downloaded_files[i],raw);
+                    const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
+                    // Fixed Scoop 0.6.0 only applies extract_dir to non-tar archives.
+                    const auto extract_directory = artifact.archive == ArchiveKind::tar ? fs::path{} : artifact.extract_directory;
+                    merge_archive_tree(raw,extract_directory,destination);
+                    erase_tree(raw);
+                }
+            }
+            journal["stage"] = "publishing"; save();
+            fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json",fs::copy_options::overwrite_existing);
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
+            Json command_targets = Json::array();
+            for (const auto& command : package.commands) {
+                const auto target = stage/command.target;
+                ordinary_parents(stage,target);
+                if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
+                command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
+            }
             if (updating) {
                 move(app/L"current",transaction/L"old-current");
                 for (const auto& command : installed.commands) {
@@ -220,7 +307,7 @@ int execute_plan(const Context& context, const Plan& plan) {
             fs::create_directories(record_path.parent_path());
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                 {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
-                {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"},
+                {"shim_sha256",sha256_file(fs::path(module.data()))},{"status","ready"},{"command_targets",command_targets},
                 {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
                 {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
         } else {
@@ -252,6 +339,7 @@ int execute_plan(const Context& context, const Plan& plan) {
             erase_tree(transaction/L"current");
             erase_tree(transaction/L"removed-version");
         }
+        try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
         if (context.json_output) std::cout << Json{{"package",package.name},{"version",package.version},{"status","success"},{"journal",path_text(transaction/L"journal.json")}}.dump(2) << '\n';
         else std::cout << package.name << ": success\n";
     }

@@ -1,6 +1,7 @@
 #include "package.hpp"
 #include "data.hpp"
 #include <windows.h>
+#include <algorithm>
 #include <fstream>
 #include <set>
 #include <array>
@@ -56,6 +57,9 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         }
         if (!plan.package.diagnostics.empty()) {
             reject(AdoptionEligibility::inconsistent,DiagnosticKind::validation,"invalid-installation-manifest","Installed Manifest has invalid or unsupported fields"); return result;
+        }
+        if (std::any_of(plan.package.artifacts.begin(),plan.package.artifacts.end(),[](const Artifact& artifact) { return artifact.archive != ArchiveKind::none; })) {
+            reject(AdoptionEligibility::untested,DiagnosticKind::verification,"archive-adoption-unverified","Adoption of archived package layouts is not verified; only direct single-file installations are eligible"); return result;
         }
         const auto current_blocker = package_execution_blocker(plan.package);
         if (!current_blocker.empty()) {

@@ -10,9 +10,10 @@ Coop 是设计中的 C++20 Windows 原生软件包管理器，优先接管现有
 - [Git 库选择方向](docs/adr/0001-use-embedded-git-library.md)
 - [Scoop Git 调用审计](docs/research/scoop-git-command-audit.md)
 - [goop 实现对照](docs/research/git-free-buckets.md)
+- [归档生命周期覆盖](docs/archive-support.md)
 - [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
 
-开发需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。首次运行 `./scripts/fetch-deps.ps1` 获取并校验固定 nlohmann/json 3.12.0 头文件、libgit2 1.9.7 源码及 Scoop 原生测试夹具（全部仅项目内）；然后运行 `./scripts/build.ps1` 配置、构建并测试。产物在被忽略的 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。
+开发需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。首次运行 `./scripts/fetch-deps.ps1` 获取并校验固定 nlohmann/json 3.12.0 头文件、libgit2 1.9.7 源码、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 归档源码、Scoop 原生测试夹具及真实 ZIP/tar.gz 测试归档（全部仅项目内）；然后运行 `./scripts/build.ps1` 配置、构建并测试。产物在被忽略的 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。
 
 可运行 `.local/build/coop.exe --version` 或 `--help`；无效命令退出码为 2，运行失败为 1，正常命令为 0。通过 `--root <目录> list|search <查询>|info <bucket/包名>` 查询本地安装及 bucket，添加 `--json` 获取结构化输出；`--global-root` 可明确指定另一个只读系统级安装根。未指定根时查询当前用户的默认 Scoop 位置。
 
@@ -26,6 +27,6 @@ Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop
 
 `list` 分开显示管理权（`managed`/`unadopted`）、安装状态和上次操作状态，更新失败不会被报告为未安装或已成功。Windows 文件名不区分大小写，包名与安装目录的身份比较同样不区分大小写。
 
-目前 `adopt` 与 `install|update|uninstall <包名>` 可执行无脚本、无依赖、无归档的单 EXE 包，使用原生下载、SHA256 校验及命令启动器。仅管理 Coop 自己记录且证据未变化的安装；入口冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口；保留程序不代表用户数据已回滚。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入，恢复命令仍在实现。当前阶段仅用于项目隔离测试，尚不能用于真实迁移。
+目前 `adopt` 只执行无脚本、无依赖、无归档的单 EXE 包；`install|update|uninstall <包名>` 还可执行无脚本、无依赖、无持久化/快捷方式/环境声明的普通 ZIP 与 tar.gz 包，包括 `extract_dir`、`extract_to`、多产物和真实命令入口，使用原生下载、SHA256 校验和内置 libarchive 解压，不需要安装 7-Zip。7z、MSI、InnoSetup/NSIS 等特殊安装器与脚本/持久化组合在执行前明确拒绝，不静默下载外部工具；归档格式、真实样本、安全边界和未验证项见 [归档生命周期覆盖](docs/archive-support.md)。仅管理 Coop 自己记录且证据未变化的安装；入口冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口；保留程序不代表用户数据已回滚。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入，恢复命令仍在实现。当前阶段仅用于项目隔离测试，尚不能用于真实迁移。
 
-默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、本地Git增量、故障、中断和并发验证。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。
+默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、真实ZIP/tar.gz归档生命周期、归档安全拒绝、本地Git增量、故障、中断和并发验证。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。

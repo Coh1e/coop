@@ -28,7 +28,7 @@ foreach ($name in @('scripted','unknown','corrupt','future')) {
     New-Item -ItemType Junction -Path "$root/apps/$name/current" -Target "$root/apps/$name/1" | Out-Null
     Copy-Item $(if ($name -eq 'unknown') { $fixture1 } else { $scoopShim }) "$root/shims/$name.exe"
     [IO.File]::WriteAllText("$root/shims/$name.shim",'path = "'+[IO.Path]::GetFullPath("$root/apps/$name/1/$name.exe")+'"'+"`r`n")
-    if ($name -eq 'future') { $manifest.version = '2'; $manifest.url = 'https://invalid.example/program.zip'; $manifest.hash = '0'*64 }
+    if ($name -eq 'future') { $manifest.version = '2'; $manifest.url = 'https://invalid.example/program.zip'; $manifest.hash = '0'*64; $manifest.innosetup = $true }
     $manifest | ConvertTo-Json | Set-Content "$root/buckets/test/bucket/$name.json" -Encoding utf8
 }
 $globalRoot = "$root/system-read-only"
