@@ -118,12 +118,17 @@ void make_junction(const fs::path& link, const fs::path& target) {
     std::memcpy(buffer.data()+14,&print_length,sizeof(print_length));
     std::memcpy(buffer.data()+16,substitute.c_str(),substitute_length);
     std::memcpy(buffer.data()+16+print_offset,print.c_str(),print_length);
-    if (!CreateDirectoryW(link.c_str(),nullptr)) throw std::runtime_error("Cannot create current link directory");
+    if (!CreateDirectoryW(link.c_str(),nullptr))
+        throw std::runtime_error("Cannot create current link directory (Windows error "+std::to_string(GetLastError())+")");
     const auto handle = CreateFileW(link.c_str(),GENERIC_WRITE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_BACKUP_SEMANTICS,nullptr);
     DWORD returned = 0;
     const bool success = handle != INVALID_HANDLE_VALUE && DeviceIoControl(handle,FSCTL_SET_REPARSE_POINT,buffer.data(),static_cast<DWORD>(buffer.size()),nullptr,0,&returned,nullptr);
+    const DWORD error = success ? ERROR_SUCCESS : GetLastError();
     if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
-    if (!success) { RemoveDirectoryW(link.c_str()); throw std::runtime_error("Cannot create native junction"); }
+    if (!success) {
+        RemoveDirectoryW(link.c_str());
+        throw std::runtime_error("Cannot create native junction (Windows error "+std::to_string(error)+")");
+    }
 }
 bool run_shim(int argc, wchar_t** argv, int& result) {
     std::array<wchar_t,32768> module{};

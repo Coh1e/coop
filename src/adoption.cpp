@@ -1,5 +1,6 @@
 #include "package.hpp"
 #include "data.hpp"
+#include "persist.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <fstream>
@@ -72,11 +73,16 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (!future_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"future-update-unsupported",future_blocker); return result;
         }
+        if (!same_persistence(plan.package,*plan.update_candidate)) {
+            reject(AdoptionEligibility::untested,DiagnosticKind::verification,"persist-update-change-unverified",
+                "Future update changes the persist mapping; data migration is not verified"); return result;
+        }
         const auto expected = context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version);
         if (!fs::exists(expected) || !fs::equivalent(expected,plan.local.directory)) throw std::runtime_error("Current does not identify its recorded version directory");
         const auto artifact = expected/wide(plan.package.artifacts.front().filename);
         if (sha256_file(artifact) != plan.package.artifacts.front().sha256) throw std::runtime_error("Installed executable SHA256 differs from original Manifest");
         verify_program(artifact,plan.package.architecture);
+        verify_persistence(context,plan.package,plan.local.directory);
         static const std::set<std::string> known_shims = {
             "140e3801d8adeda639a21b14e62b93a4c7d26b7a758421f43c82be59753be49b",
             "70d4690b8ac3b3f715f537cdea6e07a39fda4bc0347bf6b958e4f3ff2f0e04d4",
@@ -145,7 +151,7 @@ int commit_adoption(const Context& context, const Plan& plan) {
     try {
         fs::create_directories(backup);
         Json evidence = {{"current",path_text(plan.local.current)},{"directory",path_text(plan.local.directory)},
-            {"scope","Installation metadata and command entries only; installed program and user data are unchanged"},{"inputs",Json::array()}};
+            {"scope","Installation metadata and command entries only; installed program, declared persist links and user data are unchanged"},{"inputs",Json::array()}};
         const auto program = plan.local.directory/wide(package.artifacts.front().filename);
         std::size_t index = 0;
         for (const auto& input : plan.preconditions) {
@@ -161,12 +167,14 @@ int commit_adoption(const Context& context, const Plan& plan) {
         }
         write_json(backup/L"evidence.json",evidence);
         recheck_plan(plan);
+        const auto persistence = verify_persistence(context,package,plan.local.directory);
         Json legacy = Json::object();
         for (const auto& command : plan.adoption->commands) legacy[command.name] = {
             {"executable_sha256",command.executable.sha256},{"metadata_sha256",command.metadata.sha256}};
         const Json managed = {{"name",package.name},{"version",package.version},{"architecture",package.architecture},{"bucket",package.bucket},
             {"directory",path_text(plan.local.directory)},{"manifest_sha256",package.manifest_sha256},{"status","ready"},
-            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"adoption_backup",path_text(backup)}};
+            {"origin","scoop"},{"shim_format","scoop"},{"legacy_shims",legacy},{"persistence",persistence},
+            {"adoption_backup",path_text(backup)}};
         write_json(transaction/L"record.json",managed);
         record_hash = sha256_file(transaction/L"record.json");
         journal["record_sha256"] = record_hash;
@@ -186,7 +194,8 @@ int commit_adoption(const Context& context, const Plan& plan) {
         } catch (...) { /* Preserve pending evidence if controlled rollback cannot complete. */ }
         throw;
     }
-    std::cout << Json{{"package",package.name},{"version",package.version},{"status","adopted"},{"backup",path_text(backup)}}.dump(2) << '\n';
+    std::cout << Json{{"package",package.name},{"version",package.version},{"status","adopted"},{"backup",path_text(backup)},
+        {"persistence",verify_persistence(context,package,plan.local.directory)}}.dump(2) << '\n';
     return 0;
 }
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path) {

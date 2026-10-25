@@ -1,5 +1,6 @@
 #include "package.hpp"
 #include "data.hpp"
+#include "persist.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -158,6 +159,9 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         plan.package = parse_package(fs::path(wide(item.at("path"))),item.at("name"),item.at("bucket"),target_architecture);
         if (!version.empty() && plan.package.version != version)
             plan.diagnostics.push_back({DiagnosticKind::environment,"version-unavailable","Requested version is absent locally; no URL will be guessed"});
+        if (action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
+            plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
+                "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
         add_install(plan);
     } else {
         plan.package = read_installed();
@@ -224,6 +228,11 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
+    const auto persistence_directory = (action == Action::install || action == Action::update)
+        ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version) : plan.local.directory;
+    result["persistence"] = persistence_plan_json(context,plan.package,persistence_directory);
+    if (action == Action::update || action == Action::uninstall)
+        result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
     result["blocking_dependents"] = plan.blocking_dependents;
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
@@ -252,7 +261,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file EXE and ZIP/tar archive packages without scripts, dependencies, persistence, shortcuts or environment changes; other combinations remain unverified"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file EXE and ZIP/tar archive packages without scripts, dependencies, shortcuts or environment changes; declared persist mappings use directory junctions or file hardlinks and are verified, while persist mapping changes remain unverified"}});
     return result;
 }
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {

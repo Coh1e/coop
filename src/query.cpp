@@ -1,4 +1,5 @@
 #include "data.hpp"
+#include "persist.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -7,7 +8,28 @@
 
 namespace coop {
 static std::string lowercase(std::string value);
-static void list_scope(Json& result, const fs::path& root, const std::string& scope) {
+static std::vector<Persistence> listed_persistence(const Json& manifest) {
+    std::vector<Persistence> result;
+    if (!manifest.contains("persist") || manifest.at("persist").is_null()) return result;
+    const auto add_single = [&](const Json& value) {
+        const auto path = fs::path(wide(value.get<std::string>()));
+        result.push_back({path,path});
+    };
+    const auto add_pair = [&](const Json& value) {
+        const auto source = fs::path(wide(value.at(0).get<std::string>()));
+        const auto target = value.size() == 2 ? fs::path(wide(value.at(1).get<std::string>())) : source;
+        result.push_back({source,target});
+    };
+    const auto& persist = manifest.at("persist");
+    if (persist.is_string()) add_single(persist);
+    else if (persist.is_array()) for (const auto& entry : persist) {
+        if (entry.is_string()) add_single(entry);
+        else if (entry.is_array() && !entry.empty() && entry.size() <= 2 &&
+                 std::all_of(entry.begin(),entry.end(),[](const Json& item) { return item.is_string(); })) add_pair(entry);
+    }
+    return result;
+}
+static void list_scope(Json& result, const Context& context, const fs::path& root, const std::string& scope) {
     const auto apps = root / L"apps";
     if (!fs::exists(apps)) return;
     for (const auto& app : fs::directory_iterator(apps)) {
@@ -27,6 +49,13 @@ static void list_scope(Json& result, const fs::path& root, const std::string& sc
             item["architecture"] = install.value("architecture", std::string{});
             item["directory"] = path_text(fs::canonical(current));
             item["status"] = "installed";
+            if (scope == "user") {
+                Package listed;
+                listed.name = item.at("name").get<std::string>();
+                listed.persistence = listed_persistence(manifest);
+                item["persistence"] = persistence_plan_json(context,listed,fs::canonical(current));
+                item["older_versions"] = retained_versions(context,listed.name,manifest.at("version").get<std::string>());
+            }
             const auto managed = root/L".coop"/L"packages"/(app.path().filename().wstring()+L".json");
             if (scope == "user" && fs::exists(managed)) {
                 const auto record = read_json(managed);
@@ -43,8 +72,8 @@ static void list_scope(Json& result, const fs::path& root, const std::string& sc
 }
 Json installed_packages(const Context& context) {
     Json result = Json::array();
-    list_scope(result, context.root, "user");
-    if (context.global_root) list_scope(result, *context.global_root, "global");
+    list_scope(result,context,context.root, "user");
+    if (context.global_root) list_scope(result,context,*context.global_root, "global");
     std::map<std::string,std::pair<fs::file_time_type,Json>> operations;
     const auto transactions = context.root/L".coop"/L"transactions";
     if (fs::is_directory(transactions)) for (const auto& entry : fs::directory_iterator(transactions)) {

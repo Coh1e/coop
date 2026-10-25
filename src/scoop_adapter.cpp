@@ -163,10 +163,17 @@ Package parse_package(const fs::path& path, const std::string& name, const std::
         if (!persist.is_null()) {
             const auto items = persist.is_string() ? Json::array({persist}) : persist;
             if (!items.is_array()) throw std::runtime_error("persist must be a string or array");
+            std::set<std::string> persist_sources, persist_targets;
             for (const auto& item : items) {
                 const auto parts = strings(item,"persist entry");
                 if (parts.empty() || parts.size() > 2) throw std::runtime_error("Invalid persist mapping");
-                package.persistence.push_back({relative_path(parts[0]),relative_path(parts.size() == 2 ? parts[1] : parts[0])});
+                const auto source = relative_path(parts[0]);
+                const auto target = relative_path(parts.size() == 2 ? parts[1] : parts[0]);
+                if (!persist_sources.insert(lower(path_text(source))).second)
+                    package.diagnostics.push_back({DiagnosticKind::validation,"duplicate-persist-source","Duplicate persist source: "+path_text(source)});
+                if (!persist_targets.insert(lower(path_text(target))).second)
+                    package.diagnostics.push_back({DiagnosticKind::validation,"duplicate-persist-target","Duplicate persist target: "+path_text(target)});
+                package.persistence.push_back({source,target});
             }
         }
         package.dependencies = strings(pick("depends"),"depends");
