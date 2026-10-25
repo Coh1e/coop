@@ -20,6 +20,8 @@ static void list_scope(Json& result, const fs::path& root, const std::string& sc
             if (!manifest.is_object() || !install.is_object()) throw std::runtime_error("Installation records must be objects");
             item["version"] = manifest.at("version").get<std::string>();
             item["bucket"] = install.value("bucket", std::string{});
+            item["source"] = install.value("url", install.value("bucket",std::string("unknown")));
+            item["synced_at"] = nullptr;
             item["architecture"] = install.value("architecture", std::string{});
             item["directory"] = path_text(fs::canonical(current));
         } catch (const std::exception& error) {
@@ -92,11 +94,15 @@ int query(const Context& context, const std::wstring& command, const std::vector
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
     else {
+        std::cout << "Name\tVersion\tBucket\tManagement\tScope\tSource\tSynced\n";
         for (const auto& item : result) {
+            const auto display = [&item](const char* key) {
+                return item.contains(key) && item.at(key).is_string() ? item.at(key).get<std::string>() : std::string("unknown");
+            };
             std::cout << item.at("name").get<std::string>() << '\t'
-                      << item.value("version",Json("unknown")).dump() << '\t'
-                      << item.value("management",item.value("bucket",std::string{})) << '\t'
-                      << item.value("scope",std::string{}) << '\n';
+                      << display("version") << '\t' << display("bucket") << '\t'
+                      << display("management") << '\t' << display("scope") << '\t'
+                      << display("source") << '\t' << display("synced_at") << '\n';
             for (const auto& error : item.at("diagnostics")) std::cerr << "coop: " << error.get<std::string>() << '\n';
         }
     }

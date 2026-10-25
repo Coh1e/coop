@@ -73,3 +73,5 @@ Copy-Item "$PSScriptRoot/corpus/main/jq.json" "$system/apps/system-jq/current/sc
 $items = (& $CoopExe --root $TestRoot --global-root $system list --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or ($items | Where-Object name -eq system-jq).scope -ne 'global') { throw 'global read-only installation missing' }
 Write-Output 'PASS: new/legacy state, invalid records, 20 real manifests, qualified lookup, no data changes'
+$human = (& $CoopExe --root $TestRoot list) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $human -notmatch 'Source' -or $human -notmatch 'Synced' -or $human -notmatch 'main' -or $human -notmatch 'unknown') { throw 'default output omits provenance or sync status' }
