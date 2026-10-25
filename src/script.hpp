@@ -38,13 +38,15 @@ struct ScriptRun {
     fs::path hook_path;
     fs::path stdout_path;
     fs::path stderr_path;
-    std::string stdout_text;
-    std::string stderr_text;
+    std::size_t stdout_bytes = 0;
+    std::size_t stderr_bytes = 0;
+    std::string stdout_tail;
+    std::string stderr_tail;
 };
 // Runs one hook script in a child PowerShell process. stdout and stderr are drained on separate
-// threads so a chatty script cannot block the lifecycle. A non-zero exit code is reported to the
-// caller; the script is never retried automatically and its external effects are not claimed as
-// reversible.
+// threads into the per-hook log files (every byte) while a bounded tail is kept for JSON records.
+// A non-zero exit code is reported to the caller; the script is never retried automatically and
+// its external effects are not claimed as reversible.
 ScriptRun run_package_script(const Context& context, const Package& package, std::size_t index,
     const fs::path& directory, const fs::path& original_directory, const fs::path& persist_directory,
     const fs::path& transaction, const std::string& command_name);

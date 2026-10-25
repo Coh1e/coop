@@ -15,7 +15,7 @@
 namespace coop {
 namespace {
 constexpr std::size_t max_script_bytes = 1024*1024;
-constexpr std::size_t max_captured_bytes = 4*1024*1024;
+constexpr std::size_t max_tail_bytes = 8192;
 
 std::string lower_text(std::string value) {
     for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
@@ -667,13 +667,13 @@ std::string bootstrap(const Package& package, const fs::path& directory, const f
         "$ProgressPreference = 'SilentlyContinue'\n"
         "try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }\n"
         "function ensure([string] $path) {\n"
-        "    if (-not (Test-Path -LiteralPath $path)) { New-Item -ItemType Directory -Path $path -Force | Out-Null }\n"
-        "    (Resolve-Path -LiteralPath $path).Path\n"
+        "    if (!(Test-Path -Path $path)) { New-Item -Path $path -ItemType Directory | Out-Null }\n"
+        "    Convert-Path -Path $path\n"
         "}\n"
-        "function info([string] $message) { Write-Host $message }\n"
-        // Warnings keep Scoop's visible text but go to the child's stderr so a lifecycle hook's
-        // two output channels stay distinguishable for people and for automation.
-        "function warn([string] $message) { [Console]::Error.WriteLine('WARNING: ' + $message) }\n";
+        "function info([string] $message) { Write-Host ('INFO  ' + $message) }\n"
+        // Warnings keep the pinned Scoop text prefix but go to the child's stderr instead of a
+        // coloured host, so the two output channels stay distinguishable for automation.
+        "function warn([string] $message) { [Console]::Error.WriteLine('WARN  ' + $message) }\n";
     const auto emit = [&](const char* name, const std::string& value) {
         text += "$"+std::string(name)+" = "+ps_literal(value)+"\n";
     };
@@ -700,24 +700,39 @@ struct FileHandle {
     HANDLE release() { const auto result = value; value = INVALID_HANDLE_VALUE; return result; }
     void reset() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); value = INVALID_HANDLE_VALUE; }
 };
-void drain(HANDLE pipe, std::string& captured, bool echo, FILE* target) {
+void drain(HANDLE pipe, std::size_t& total, std::string& tail, FILE* log, bool echo, FILE* target) {
     std::array<char,65536> buffer{};
     for (;;) {
         DWORD count = 0;
         if (!ReadFile(pipe,buffer.data(),static_cast<DWORD>(buffer.size()),&count,nullptr) || count == 0) break;
-        if (captured.size() < max_captured_bytes) captured.append(buffer.data(),count);
+        total += count;
+        if (log) std::fwrite(buffer.data(),1,count,log);
+        if (tail.size()+count > max_tail_bytes) {
+            if (count >= max_tail_bytes) tail.assign(buffer.data()+count-max_tail_bytes,max_tail_bytes);
+            else {
+                tail.erase(0,tail.size()+count-max_tail_bytes);
+                tail.append(buffer.data(),count);
+            }
+        } else tail.append(buffer.data(),count);
         if (echo && target) {
             std::fwrite(buffer.data(),1,count,target);
             std::fflush(target);
         }
     }
+    if (log) std::fflush(log);
 }
-void write_text_file(const fs::path& path, const std::string& text) {
-    std::ofstream output(path,std::ios::binary|std::ios::trunc);
-    if (!output) throw std::runtime_error("Cannot write hook script log");
-    output.write(text.data(),static_cast<std::streamsize>(text.size()));
-    if (!output) throw std::runtime_error("Cannot finish hook script log");
-}
+struct LogFile {
+    FILE* value = nullptr;
+    LogFile() = default;
+    ~LogFile() { close(); }
+    LogFile(const LogFile&) = delete;
+    LogFile& operator=(const LogFile&) = delete;
+    void open(const fs::path& path) {
+        if (_wfopen_s(&value,path.c_str(),L"wb") != 0 || !value)
+            throw std::runtime_error("Cannot write the hook script log");
+    }
+    void close() { if (value) { std::fclose(value); value = nullptr; } }
+};
 void write_script_file(const fs::path& path, const std::string& text) {
     std::ofstream output(path,std::ios::binary|std::ios::trunc);
     if (!output) throw std::runtime_error("Cannot write hook script");
@@ -888,16 +903,21 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     out_write.reset();
     err_write.reset();
     const bool echo = !context.json_output;
-    std::thread stdout_thread(drain,out_read.release(),std::ref(result.stdout_text),echo,stdout);
-    std::thread stderr_thread(drain,err_read.release(),std::ref(result.stderr_text),echo,stderr);
+    LogFile stdout_log, stderr_log;
+    stdout_log.open(result.stdout_path);
+    stderr_log.open(result.stderr_path);
+    std::thread stdout_thread(drain,out_read.release(),std::ref(result.stdout_bytes),std::ref(result.stdout_tail),stdout_log.value,echo,stdout);
+    std::thread stderr_thread(drain,err_read.release(),std::ref(result.stderr_bytes),std::ref(result.stderr_tail),stderr_log.value,echo,stderr);
     WaitForSingleObject(process_handle.value,INFINITE);
     DWORD exit_code = 1;
     GetExitCodeProcess(process_handle.value,&exit_code);
     stdout_thread.join();
     stderr_thread.join();
+    const bool log_failed = std::ferror(stdout_log.value) != 0 || std::ferror(stderr_log.value) != 0;
+    stdout_log.close();
+    stderr_log.close();
     result.exit_code = static_cast<int>(exit_code);
-    write_text_file(result.stdout_path,result.stdout_text);
-    write_text_file(result.stderr_path,result.stderr_text);
+    if (log_failed) throw std::runtime_error("Cannot finish the hook script output log");
     return result;
 }
 }

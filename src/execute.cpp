@@ -78,9 +78,6 @@ void require_capabilities(const Package& package) {
             throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target)+
                 "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR");
 }
-std::string tail_text(const std::string& value, std::size_t limit) {
-    return value.size() <= limit ? value : value.substr(value.size()-limit);
-}
 fs::path record_relative_path(const std::string& value) {
     fs::path path(wide(value));
     if (path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory())
@@ -396,10 +393,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             record["hook"] = path_text(run.hook_path);
             record["stdout_log"] = path_text(run.stdout_path);
             record["stderr_log"] = path_text(run.stderr_path);
-            record["stdout_bytes"] = run.stdout_text.size();
-            record["stderr_bytes"] = run.stderr_text.size();
-            record["stdout_tail"] = script_json_text(tail_text(run.stdout_text,4096));
-            record["stderr_tail"] = script_json_text(tail_text(run.stderr_text,4096));
+            record["stdout_bytes"] = run.stdout_bytes;
+            record["stderr_bytes"] = run.stderr_bytes;
+            record["stdout_tail"] = script_json_text(run.stdout_tail);
+            record["stderr_tail"] = script_json_text(run.stderr_tail);
             save();
             script_runs.push_back(record);
             if (run.exit_code != 0)

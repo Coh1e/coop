@@ -208,6 +208,35 @@ $orderUninstall = Invoke-Coop 'uninstall-order' @('--root',$root,'uninstall','or
 Check ($orderUninstall.exit -eq 0) "order uninstall failed: $($orderUninstall.error)"
 Check ((Test-Path -LiteralPath "$root/persist/order/etc/gitconfig") -and -not (Test-Path -LiteralPath "$root/apps/order/current")) 'uninstall did not retain persistent data'
 
+# --- 4b. Plain uninstall runs the real pre_uninstall before removing state. --
+$unhookZip = New-PayloadZip 'unhook-1' @{'app.exe'=$null;'etc/gitconfig'='config before uninstall'}
+[IO.File]::WriteAllBytes((Join-Path "$root/build/unhook-1" 'app.exe'),[IO.File]::ReadAllBytes($fixture1))
+Remove-Item -LiteralPath $unhookZip -Force
+[IO.Compression.ZipFile]::CreateFromDirectory("$root/build/unhook-1",$unhookZip)
+Write-Manifest 'main' 'unhook' @{version='1';url=([Uri]$unhookZip).AbsoluteUri;hash=(File-Hash $unhookZip);bin='app.exe';
+    pre_uninstall=$gitPreUninstall}
+$unhookInstall = Invoke-Coop 'install-unhook' @('--root',$root,'install','main/unhook','--json')
+Check ($unhookInstall.exit -eq 0) "plain uninstall fixture install failed: $($unhookInstall.error)"
+Check (-not (Test-Path -LiteralPath "$root/persist/unhook/etc/gitconfig")) 'pre_uninstall ran during install'
+$unhookPreview = Invoke-Guard 'preview-uninstall-unhook' @('--root',$root,'uninstall','unhook','--dry-run','--json')
+Check ($unhookPreview.exit -eq 0 -and $unhookPreview.error -match 'Observed workload processes: 1') 'uninstall preview executed PowerShell'
+$unhookRun = Invoke-Coop 'uninstall-unhook' @('--root',$root,'uninstall','unhook','--json')
+Check ($unhookRun.exit -eq 0) "plain uninstall hook failed: $($unhookRun.error)"
+$unhook = Parse-Json 'uninstall-unhook' $unhookRun
+Check (@($unhook.scripts).Count -eq 1) 'plain uninstall did not record the pre_uninstall hook'
+Check ($unhook.scripts[0].phase -eq 'pre_uninstall' -and $unhook.scripts[0].command -eq 'uninstall' -and
+    $unhook.scripts[0].previous_package -eq $false) 'plain uninstall hook record is wrong'
+Check ([IO.Path]::GetFullPath($unhook.scripts[0].directory) -eq [IO.Path]::GetFullPath("$root/apps/unhook/1")) 'plain uninstall pre_uninstall did not run in the version directory'
+Check ($unhook.data_retained -eq $true) 'plain uninstall did not report retained data'
+Check ((Get-Content -LiteralPath "$root/persist/unhook/etc/gitconfig" -Raw) -eq 'config before uninstall') 'plain uninstall pre_uninstall did not save config to $persist_dir'
+Check (-not (Test-Path -LiteralPath "$root/apps/unhook/current") -and -not (Test-Path -LiteralPath "$root/apps/unhook/1") -and
+    -not (Test-Path -LiteralPath "$root/shims/app.exe") -and -not (Test-Path -LiteralPath "$root/.coop/packages/unhook.json")) 'plain uninstall left package state'
+$unhookJournal = Last-Journal 'unhook'
+Check ($unhookJournal.action -eq 'uninstall' -and $unhookJournal.state -eq 'committed' -and
+    @($unhookJournal.scripts).Count -eq 1 -and $unhookJournal.scripts[0].phase -eq 'pre_uninstall' -and
+    $unhookJournal.scripts[0].command -eq 'uninstall') 'plain uninstall journal does not record the hook'
+Check ((Get-Content -LiteralPath $unhookJournal.scripts[0].stdout_log -Raw) -match 'Saving system-level config') 'plain uninstall hook stdout log is missing'
+
 # --- 5. A supported hook that fails aborts once and rolls back. --------------
 $brokenZip = New-PayloadZip 'broken' @{'broken.exe'=$null}
 [IO.File]::WriteAllBytes((Join-Path "$root/build/broken" 'broken.exe'),[IO.File]::ReadAllBytes($fixture1))

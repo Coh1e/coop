@@ -31,11 +31,11 @@ Coop 只执行样本实际证明的脚本阶段和语句子集，且只对固定
 | `$cmd` | `install`、`update` 或 `uninstall`；更新旧版本时保持 `update`，与 Scoop 的 `uninstaller.script` 语义一致 |
 | `$_` | 仅用于 `ForEach-Object` 的当前项 |
 
-辅助函数只有样本证明的三个：
+辅助函数只有样本证明的三个，文本前缀与固定 Scoop 的 `lib/core.ps1` 一致：
 
-- `ensure <目录>`：目录不存在时创建，返回解析后的路径。
-- `info <文本>`：写入子进程 stdout。
-- `warn <文本>`：写入子进程 stderr（保留 `WARNING:` 前缀）。Scoop 在控制台用颜色显示警告；Coop 把警告放到 stderr，便于区分两个输出通道。
+- `ensure <目录>`：目录不存在时创建，返回 `Convert-Path` 解析后的路径。
+- `info <文本>`：写入子进程 stdout，文本为 `INFO  <文本>`。
+- `warn <文本>`：写入子进程 stderr，文本为 `WARN  <文本>`。固定 Scoop 用彩色 `Write-Host` 输出；Coop 把警告放到 stderr，便于区分两个输出通道。
 
 ## 语句与命令子集
 
@@ -61,6 +61,14 @@ Coop 只执行样本实际证明的脚本阶段和语句子集，且只对固定
 - 参数名也受白名单限制，未列出的参数同样产生诊断，而不是被忽略。
 - 单脚本上限 1 MiB；空脚本视为能力缺失。
 
+### 与固定 Scoop 的已知差异
+
+这些差异是刻意保留的兼容边界，脚本若依赖原行为则不属于已证明子集：
+
+- **错误偏好**：Coop 在 Hook 子进程中设置 `$ErrorActionPreference = 'Stop'`，固定 Scoop 使用调用作用域的默认 `Continue`。因此 Scoop 会容忍的非终止错误在 Coop 中会终止脚本、使操作失败并回滚；这是为了避免“脚本报错但安装被记为成功”。
+- **辅助函数输出**：`info`/`warn` 保留固定 Scoop 的 `INFO  ` / `WARN  ` 文本前缀，但不使用彩色 `Write-Host`；`warn` 写入 stderr，`info` 写入 stdout。按颜色或主机流判断输出的脚本不在子集内。
+- **路径限制**：固定 Scoop 允许脚本访问任意用户路径；Coop 只接受受限根下的路径并拒绝父目录组件，见下节。
+
 ### 上下文与辅助函数边界
 
 静态检查跟踪变量赋值：由 `Join-Path`/`Split-Path` 从受限根派生的变量仍视为受限路径，`ForEach-Object` 块使用独立作用域。字符串中出现的 `$env:*` 作为路径使用时会产生“必须位于受限根”的诊断；作为普通文本（例如替换内容）不构成路径逃逸。
@@ -81,7 +89,7 @@ Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 
 - 带脚本的预览不会启动 PowerShell：`install|update|uninstall|adopt --dry-run` 只读取 Manifest 并输出脚本原文、阶段、识别的命令/辅助函数、`compatible` 与诊断；预览的 `execution_available` 为 `false` 时表示执行会被拒绝。
 - 缺少能力时在实际执行前诊断：不支持的阶段、命令、参数、变量、路径或缺少 PowerShell 运行时都会阻止下载、事务和管理记录写入。缺少 PowerShell 可执行文件或 `COOP_POWERSHELL` 指向不存在的路径时，预览与执行都会报告同一能力缺口。
-- `stdout` 与 `stderr` 用两个线程并发读取，避免大量输出时子进程阻塞；原始输出保存在事务目录的 `scripts/<序号>-<阶段>.stdout.log` / `.stderr.log`，JSON 结果与事务日志只保存安全的摘要尾部（无效 UTF-8 字节替换为 `?`，原始字节仍在日志中）。
+- `stdout` 与 `stderr` 用两个线程并发读取，避免大量输出时子进程阻塞；每一字节都写入事务目录的 `scripts/<序号>-<阶段>.stdout.log` / `.stderr.log`，不因输出大小截断。JSON 结果与事务日志记录每流的总字节数，并保存最后约 8 KiB 的摘要尾部（无效 UTF-8 字节替换为 `?`，原始字节仍在日志中）。日志写入失败会使操作失败。
 - 脚本退出码非零时整个包操作失败并按事务回滚已创建/移动的包状态；事务日志记录该 Hook 的 `status=failed`、退出码、解释器、日志路径和“外部副作用未知、未自动回滚”的声明。失败脚本不会自动重试。
 - 脚本的外部副作用（例如写入受限根之外的注册表、服务或用户目录）无法从 Coop 事务中撤销；这类副作用只能在脚本子集内避免，Coop 不声称完全撤销。
 - 运行时可执行文件优先 `pwsh.exe`，其次系统自带 Windows PowerShell。`COOP_POWERSHELL` 仅作为当前子进程的环境参数，用于项目内隔离测试或固定解释器；Coop 不做全局安装或系统环境修改。
@@ -96,10 +104,11 @@ Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 | 预览 | 带 Hook 的预览不启动 PowerShell、不写安装状态，列出两条脚本操作与兼容性 |
 | 真实安装 Hook | `Extras/notepadplusplus` 的 `pre_install`/`post_install` 原文运行：pre 阶段在真实版本目录生成配置、post 阶段读取 bucket `.reg` 资源并替换 `$dir`、复制插件；`$npp` 替换结果、用户注册表作用域和命令入口均核对 |
 | 真实更新 Hook | 同一包升级后持久化数据保留、旧版本保留、新版本入口运行，新的 `post_install` 在持久化链接后执行 |
-| 真实卸载 Hook | `Main/git` 的 `pre_uninstall` 原文在卸载时把系统配置保存到 `$persist_dir`，普通卸载后数据仍在 |
+| 真实卸载 Hook | 另装一个带 `Main/git` `pre_uninstall` 原文的包并直接 `uninstall`：Hook 以 `command=uninstall` 在版本目录运行，把 `etc/gitconfig` 保存到 `$persist_dir`；卸载后 shim、current、版本目录与管理记录被移除，`data_retained=true`，事务日志记录该 Hook |
+| 卸载预览 | `uninstall --dry-run` 在 `process_guard` 下只观察主进程，不执行 Hook、不创建事务或修改安装 |
 | 跨阶段顺序 | 旧版本 `pre_uninstall` 的真实产物被新版本 `pre_install` 读取；新版本 `post_install` 读取 `$persist_dir`；事务日志顺序为 `pre_uninstall→pre_install→post_install` |
 | 失败传播 | 运行期失败的受支持脚本只执行一次，退出码 1 传播，安装回滚，日志记录失败与 stderr |
-| 并发输出 | 约 400 KiB stdout 与约 136 KiB stderr 同时输出时安装成功，日志和 JSON 尾部均包含最后一行 |
+| 并发输出 | 约 400 KiB stdout 与约 136 KiB stderr 同时输出时安装成功，完整日志字节数和最后一行尾部均核对 |
 | 能力诊断 | 真实 `post_uninstall`、`Main/azure-cli` `pre_uninstall`、父目录路径、`$env:*` 路径与缺少 PowerShell 运行时都在执行前诊断，不启动 PowerShell、不写事务 |
 | 接管资格 | 带 Hook 的已安装包仍为 `untested`，不写管理记录；接管该类需要后续真实包证据 |
 
@@ -114,4 +123,4 @@ Coop 按固定 Scoop 顺序执行，不把所有脚本都放到 staging：
 - 接管带 Hook 的现有安装并继续更新；该类保持 `untested`，不提升接管资格。
 - Windows PowerShell 5.1 解释器路径只实现为回退候选，本轮未单独运行；`pwsh` 路径已实际验证。
 - 卡死脚本的超时/取消；Coop 等待脚本结束，与 Scoop 一致，不做静默强杀。
-- 无效 UTF-8 输出在 JSON 中的可读性只保证替换为 `?`，不保证保留原始编码语义；原始字节保存在日志文件。
+- 无效 UTF-8 输出在 JSON 中的可读性只保证替换为 `?`，不保证保留原始编码语义；原始字节完整保存在日志文件（受磁盘空间限制）。
