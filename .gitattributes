@@ -1,3 +1,4 @@
 # Preserve the exact upstream bytes used by the corpus SHA256 index.
 tests/corpus/**/*.json -text
 tests/corpus/**/LICENSE -text
+tests/corpus/extras-scripts/**/*.reg -text

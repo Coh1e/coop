@@ -2,6 +2,7 @@
 #include "data.hpp"
 #include "persist.hpp"
 #include "exposure.hpp"
+#include "script.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -398,8 +399,23 @@ Json package_json(const Package& package) {
     for (const auto& item : package.persistence) result["persistence"].push_back({{"source",path_text(item.source)},{"target",path_text(item.target)}});
     for (const auto& item : package.environment) result["environment"].push_back({{"name",item.name},{"value",item.value}});
     for (const auto& item : package.path_entries) result["path_entries"].push_back(path_text(item));
-    static const char* phases[] = {"pre_install","installer","post_install","pre_uninstall","uninstaller","post_uninstall"};
-    for (const auto& item : package.scripts) result["scripts"].push_back({{"phase",phases[static_cast<int>(item.phase)]},{"text",item.text},{"side_effects","arbitrary trusted script; external effects cannot be predicted or universally rolled back"}});
+    const auto scripts = check_package_scripts(package);
+    for (std::size_t index = 0; index < package.scripts.size(); ++index) {
+        const auto& script = package.scripts[index];
+        const auto& report = scripts.scripts[index];
+        Json entry = {{"phase",script_phase_name(script.phase)},{"text",script.text},
+            {"compatible",report.compatible},{"commands",report.commands},{"helpers",report.helpers},
+            {"diagnostics",Json::array()},
+            {"side_effects","trusted Manifest script text; effects outside the managed package and persist roots cannot be predicted or rolled back, and a failed hook is never re-run automatically"}};
+        for (const auto& diagnostic : report.diagnostics) entry["diagnostics"].push_back({{"code",diagnostic.code},{"message",diagnostic.message}});
+        result["scripts"].push_back(std::move(entry));
+    }
+    result["script_support"] = {{"phases",Json::array({"pre_install","post_install","pre_uninstall"})},
+        {"context",Json::array({"$app","$bucket","$version","$architecture","$fname","$dir","$original_dir","$persist_dir","$bucketsdir","$global","$cmd","$_"})},
+        {"helpers",Json::array({"ensure","info","warn"})},
+        {"commands",Json::array({"Test-Path","Get-Content","Set-Content","New-Item","Copy-Item","Remove-Item","Join-Path","Split-Path","Out-Null","ForEach-Object"})},
+        {"host","real PowerShell child process with the proven context; not an embedded PowerShell interpreter"},
+        {"scope","path arguments must resolve under $dir, $original_dir, $persist_dir or $bucketsdir; no external commands, environment writes or arbitrary .NET calls are enabled"}};
     result["dependencies"] = package.dependencies;
     const auto process_json = [](const InstallerProcess& process) {
         return Json{{"file",path_text(process.file)},{"arguments",process.arguments},{"keep",process.keep},
@@ -593,6 +609,17 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
+    const auto package_scripts = check_package_scripts(plan.package);
+    if (!package_scripts.compatible()) {
+        result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
+        result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
+    } else if (!plan.package.scripts.empty()) {
+        result["lifecycle_checks"]["hooks"] = "supported-path; verified with real upstream hook text in tests/hooks.ps1";
+    }
+    if (plan.previous && !check_package_scripts(*plan.previous).compatible())
+        result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
+    if (plan.update_candidate && !check_package_scripts(*plan.update_candidate).compatible())
+        result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
             return !launcher_kind(command.target);
         })) {
@@ -616,7 +643,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP and tar archive packages without scripts, installers or uninstallers; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP and tar archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; lifecycle hooks run in the fixed Scoop order only for pre_install, post_install and pre_uninstall scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
     return result;
 }
 struct PackageOutcome {

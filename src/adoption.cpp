@@ -2,6 +2,7 @@
 #include "data.hpp"
 #include "persist.hpp"
 #include "exposure.hpp"
+#include "script.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <fstream>
@@ -60,6 +61,19 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (!plan.package.diagnostics.empty()) {
             reject(AdoptionEligibility::inconsistent,DiagnosticKind::validation,"invalid-installation-manifest","Installed Manifest has invalid or unsupported fields"); return result;
         }
+        if (!plan.package.scripts.empty()) {
+            const auto hooks = check_package_scripts(plan.package);
+            if (!hooks.compatible()) {
+                const auto messages = hooks.messages();
+                reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"script-adoption-unsupported",
+                    "Installed lifecycle hook is outside the proven PowerShell subset: "+(messages.empty() ? std::string("unknown script capability") : messages.front())); return result;
+            }
+            // Executing supported hooks is verified for fresh installs, updates and uninstalls in
+            // tests/hooks.ps1, but taking over a live installation and continuing to update it has
+            // not been demonstrated with real package evidence. Do not promote this class yet.
+            reject(AdoptionEligibility::untested,DiagnosticKind::verification,"script-adoption-unverified",
+                "In-place adoption of a package with lifecycle hooks is not verified; supported hooks can run for install, update and uninstall, but taking over this class needs real-package evidence first"); return result;
+        }
         if (std::any_of(plan.package.artifacts.begin(),plan.package.artifacts.end(),[](const Artifact& artifact) { return artifact.archive != ArchiveKind::none; })) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"archive-adoption-unverified","Adoption of archived package layouts is not verified; only direct single-file installations are eligible"); return result;
         }
@@ -77,6 +91,10 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         const auto future_blocker = package_execution_blocker(*plan.update_candidate);
         if (!future_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"future-update-unsupported",future_blocker); return result;
+        }
+        if (!plan.update_candidate->scripts.empty()) {
+            reject(AdoptionEligibility::untested,DiagnosticKind::verification,"future-update-scripts-unverified",
+                "The future update of this package runs lifecycle hooks; adopted-installation hook execution is not verified"); return result;
         }
         if (!same_persistence(plan.package,*plan.update_candidate)) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"persist-update-change-unverified",

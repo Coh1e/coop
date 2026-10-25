@@ -23,3 +23,7 @@ Coop 管理 Windows 软件包，并接管已有 Scoop 安装。以下术语用�
 **快捷方式归属（Shortcut Ownership）**：Coop 创建或接管时核对过目标、参数与摘要的开始菜单快捷方式记录。更新或卸载只处理归属仍一致的快捷方式，外部修改会阻止操作。
 
 **环境暴露（Environment Exposure）**：Manifest `env_set`/`env_add_path` 声明的值，在启动包的命令入口时应用到该进程及其子进程。首版不写用户或系统环境变量，也不认领外部环境值。
+
+**生命周期 Hook（Lifecycle Hook）**：Manifest 的 `pre_install`、`post_install`、`pre_uninstall`、`post_uninstall`、`installer.script`、`uninstaller.script` 脚本。Coop 按固定 Scoop 顺序执行其中样本证明的阶段，并为脚本提供受限的 Scoop 上下文与辅助函数。
+
+**证明脚本子集（Proven Script Subset）**：由固定样本实际出现并验证的 PowerShell 语句、命令、参数、上下文变量和辅助函数组成的兼容边界。子集之外的内容在接管或执行前成为能力诊断，不靠“可能可用”继续执行。

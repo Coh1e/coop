@@ -14,3 +14,5 @@
 下载源放在项目内被忽略的本地研究目录。统计只看 Manifest 根字段和架构对象，排除 checkver/autoupdate；每个字段每份 Manifest 最多计一次，覆盖全部架构而非当前平台的有效行为。`no_install_script_field` 仅说明没有选定脚本字段，不能解释为无需外部工具或能够安装。URL 原始格式与 `#/` 重命名后的本地格式分开统计。
 
 语义依据和运行状态详见 [Scoop 行为研究](../../docs/research/scoop-behavior-and-corpus.md)。
+
+`extras-scripts/` 保存 `Extras/notepadplusplus` 的 `post_install` 所需的两个真实 bucket 脚本资源（固定修订与哈希见该目录 README）；测试只读取并改写副本，不执行注册表导入。生命周期 Hook 的脚本原文由 `tests/hooks.ps1` 直接从本目录 Manifest 读取，不手工改写。

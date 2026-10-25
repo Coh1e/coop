@@ -4,6 +4,7 @@
 #include "archive.hpp"
 #include "persist.hpp"
 #include "exposure.hpp"
+#include "script.hpp"
 #include <windows.h>
 #include <array>
 #include <cctype>
@@ -40,8 +41,16 @@ void erase_tree(const fs::path& path) {
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
-    if (!package.scripts.empty() || package.installer || package.uninstaller)
-        throw std::runtime_error("Execution currently requires archives or files without scripts, installers or uninstallers; declared persist mappings, dependencies, command entries, shortcuts and environment declarations are supported");
+    if (package.installer || package.uninstaller)
+        throw std::runtime_error("Installer and uninstaller processes are not enabled; lifecycle hook scripts inside the proven subset are supported");
+    const auto scripts = check_package_scripts(package);
+    if (!scripts.compatible()) {
+        const auto messages = scripts.messages();
+        throw std::runtime_error("Lifecycle hook script is outside the proven PowerShell subset: "+
+            (messages.empty() ? std::string("unknown script capability") : messages.front()));
+    }
+    if (!package.scripts.empty() && !powershell_interpreter())
+        throw std::runtime_error("A PowerShell runtime (pwsh.exe or Windows PowerShell) is required for lifecycle hook scripts");
     const auto lower_name = [](std::string value) {
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
@@ -68,6 +77,9 @@ void require_capabilities(const Package& package) {
         if (!launcher_kind(command.target))
             throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target)+
                 "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR");
+}
+std::string tail_text(const std::string& value, std::size_t limit) {
+    return value.size() <= limit ? value : value.substr(value.size()-limit);
 }
 fs::path record_relative_path(const std::string& value) {
     fs::path path(wide(value));
@@ -325,7 +337,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     ordinary_parents(context.root,transaction);
     fs::create_directories(transaction);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
-        {"created",Json::array()},{"moves",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
+        {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
     const auto shortcut_was_absent = [&](const std::string& name) {
         return std::any_of(absent_shortcuts.begin(),absent_shortcuts.end(),[&](const std::string& item) { return equal_name(item,name); });
     };
@@ -358,6 +370,43 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         }
         moved.emplace_back(from,to);
         journal["moves"].back()["moved"] = true; save();
+    };
+    Json script_runs = Json::array();
+    const auto run_scripts = [&](const Package& hooks, ScriptPhase phase, const fs::path& directory,
+                                 const fs::path& original_directory, const char* command, bool previous) {
+        for (std::size_t index = 0; index < hooks.scripts.size(); ++index) {
+            if (hooks.scripts[index].phase != phase) continue;
+            journal["scripts"].push_back({{"phase",script_phase_name(phase)},{"index",index},{"package",hooks.name},
+                {"previous_package",previous},{"directory",path_text(directory)},{"command",command},{"status","running"},
+                {"external_side_effects","unknown; effects outside the managed package and persist roots are not rolled back, and a failed hook is not re-run automatically"}});
+            save();
+            ScriptRun run;
+            try { run = run_package_script(context,hooks,index,directory,original_directory,
+                context.root/L"persist"/wide(hooks.name),transaction,command); }
+            catch (const std::exception& error) {
+                journal["scripts"].back()["status"] = "failed";
+                journal["scripts"].back()["error"] = error.what();
+                try { save(); } catch (...) { /* Preserve the original failure. */ }
+                throw;
+            }
+            auto& record = journal["scripts"].back();
+            record["status"] = run.exit_code == 0 ? "succeeded" : "failed";
+            record["exit_code"] = run.exit_code;
+            record["interpreter"] = path_text(run.interpreter);
+            record["hook"] = path_text(run.hook_path);
+            record["stdout_log"] = path_text(run.stdout_path);
+            record["stderr_log"] = path_text(run.stderr_path);
+            record["stdout_bytes"] = run.stdout_text.size();
+            record["stderr_bytes"] = run.stderr_text.size();
+            record["stdout_tail"] = script_json_text(tail_text(run.stdout_text,4096));
+            record["stderr_tail"] = script_json_text(tail_text(run.stderr_text,4096));
+            save();
+            script_runs.push_back(record);
+            if (run.exit_code != 0)
+                throw std::runtime_error(std::string(script_phase_name(phase))+" hook failed with exit code "+
+                    std::to_string(run.exit_code)+"; output was captured in "+path_text(run.stdout_path)+
+                    " and "+path_text(run.stderr_path));
+        }
     };
     save();
     try {
@@ -405,8 +454,14 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
                 command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
             }
-            persistence = prepare_persistence(context,package,stage);
+            fs::create_directories(app);
             if (updating) {
+                // Fixed Scoop update order: the old version's uninstall hooks run before its current
+                // link and entries are removed, and $cmd stays "update" so hooks that only act on a
+                // real uninstall can distinguish an update.
+                journal["stage"] = "running-pre-uninstall-hooks"; save();
+                run_scripts(installed,ScriptPhase::before_uninstall,plan.local.directory,plan.local.directory,"update",true);
+                run_scripts(installed,ScriptPhase::uninstaller,plan.local.directory,plan.local.directory,"update",true);
                 move(app/L"current",transaction/L"old-current");
                 for (const auto& command : installed.commands) {
                     move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".old.exe"));
@@ -417,10 +472,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     if (!shortcut_was_absent(installed.shortcuts[index].name))
                         move(shortcut_link_path(context,installed.shortcuts[index].name),
                             transaction/(L"old-shortcut-"+std::to_wstring(index)+L".lnk"));
+                journal["stage"] = "running-post-uninstall-hooks"; save();
+                run_scripts(installed,ScriptPhase::after_uninstall,plan.local.directory,plan.local.directory,"update",true);
                 move(record_path,transaction/L"old-managed-record.json");
             }
-            fs::create_directories(app);
+            journal["stage"] = "publishing-version"; save();
             create(version,[&]() { publish_new(stage,version); });
+            // pre_install runs inside the real version directory, not the transaction staging area,
+            // because hooks may embed $dir into files that outlive the installation step.
+            journal["stage"] = "running-pre-install-hooks"; save();
+            run_scripts(package,ScriptPhase::before_install,version,version,updating ? "update" : "install",false);
+            persistence = prepare_persistence(context,package,version);
             make_junction(transaction/L"new-current",version);
             create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
             persistence = verify_persistence(context,package,version);
@@ -466,6 +528,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
                     {"target",path_text(target)},{"arguments",shortcut.arguments},{"sha256",sha256_file(link)}});
             }
+            run_scripts(package,ScriptPhase::after_install,app/L"current",version,updating ? "update" : "install",false);
             ordinary_parents(context.root,record_path.parent_path());
             fs::create_directories(record_path.parent_path());
             publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
@@ -476,6 +539,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
                 {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
         } else {
+            journal["stage"] = "running-pre-uninstall-hooks"; save();
+            run_scripts(package,ScriptPhase::before_uninstall,plan.local.directory,plan.local.directory,"uninstall",false);
+            run_scripts(package,ScriptPhase::uninstaller,plan.local.directory,plan.local.directory,"uninstall",false);
             move(app/L"current",transaction/L"current");
             for (const auto& command : package.commands) {
                 move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".exe"));
@@ -487,6 +553,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     move(shortcut_link_path(context,package.shortcuts[index].name),
                         transaction/(L"shortcut-"+std::to_wstring(index)+L".lnk"));
             move(version,transaction/L"removed-version");
+            journal["stage"] = "running-post-uninstall-hooks"; save();
+            run_scripts(package,ScriptPhase::after_uninstall,plan.local.directory,plan.local.directory,"uninstall",false);
             move(record_path,transaction/L"managed-record.json");
         }
         journal["state"] = "committed"; save();
@@ -517,7 +585,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
         {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
-        {"shortcuts_already_absent",absent_shortcuts}};
+        {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs}};
     if (plan.action == Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         result["data_retained"] = true;
