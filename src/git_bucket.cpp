@@ -29,6 +29,10 @@ public:
     }
     ~GitSession() { git_libgit2_shutdown(); }
 };
+struct GitBuffer {
+    git_buf value = GIT_BUF_INIT;
+    ~GitBuffer() { git_buf_dispose(&value); }
+};
 std::string oid_text(const git_oid* oid) {
     char text[GIT_OID_HEXSZ+1]{};
     git_oid_tostr(text,sizeof(text),oid);
@@ -67,6 +71,23 @@ void require_regular_directory(const fs::path& directory) {
     const DWORD attributes = GetFileAttributesW(directory.c_str());
     if (attributes != INVALID_FILE_ATTRIBUTES && (!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)))
         throw std::runtime_error("Git storage directory is not an ordinary directory");
+}
+void move_cache_directory(const fs::path& source, const fs::path& destination, const fs::path& parent) {
+    const auto expected_parent = fs::canonical(parent);
+    if (fs::weakly_canonical(source.parent_path()) != expected_parent ||
+        fs::weakly_canonical(destination.parent_path()) != expected_parent || fs::exists(destination))
+        throw std::runtime_error("Unsafe or conflicting Git cache move");
+    require_regular_directory(source);
+    fs::rename(source,destination);
+}
+bool cache_is_initialized(git_repository* repository) {
+    git_reference* head = nullptr;
+    if (git_repository_head(&head,repository) < 0) return false;
+    const auto reference = own(head,git_reference_free);
+    git_commit* commit = nullptr;
+    if (git_commit_lookup(&commit,repository,git_reference_target(reference.get())) < 0) return false;
+    git_commit_free(commit);
+    return true;
 }
 Json disk_files(const fs::path& directory, bool skip_git = false) {
     require_regular_directory(directory);
@@ -142,13 +163,19 @@ Json inspect_scoop_bucket(const Context& context, const std::string& name) {
     const auto upstream = own(raw_upstream,git_reference_free);
     if (!git_oid_equal(git_reference_target(head.get()),git_reference_target(upstream.get())))
         throw std::runtime_error("Local and upstream revisions differ; refusing to discard local history");
+    GitBuffer remote_name,merge_reference;
+    check(git_branch_upstream_remote(&remote_name.value,repository.get(),git_reference_name(head.get())),"Read tracking remote");
+    check(git_branch_upstream_merge(&merge_reference.value,repository.get(),git_reference_name(head.get())),"Read tracking branch");
+    const std::string merge = merge_reference.value.ptr ? merge_reference.value.ptr : "";
+    if (!merge.starts_with("refs/heads/") || !remote_name.value.ptr || std::string(remote_name.value.ptr) == ".")
+        throw std::runtime_error("Unsupported upstream tracking layout; update stopped");
     git_remote* raw_remote = nullptr;
-    check(git_remote_lookup(&raw_remote,repository.get(),"origin"),"Read bucket origin");
+    check(git_remote_lookup(&raw_remote,repository.get(),remote_name.value.ptr),"Read bucket tracking source");
     const auto remote = own(raw_remote,git_remote_free);
     const char* url = git_remote_url(remote.get());
     if (!url) throw std::runtime_error("Bucket origin URL is missing");
     require_public_url(url);
-    return {{"name",name},{"url",url},{"branch",git_reference_shorthand(head.get())},
+    return {{"name",name},{"url",url},{"branch",merge.substr(std::string("refs/heads/").size())},
         {"revision",oid_text(git_reference_target(head.get()))},{"path",path_text(directory)},
         {"files",disk_files(directory,true)},{"kind","git"},{"synced_at",nullptr}};
 }
@@ -172,14 +199,31 @@ Json prepare_git_bucket(const Context& context, const std::string& name, const s
     Transfer transfer;
     git_repository* raw = nullptr;
     std::string selected_branch = branch;
-    if (!fs::exists(repository_path)) {
+    if (fs::exists(repository_path)) {
+        const int opened = git_repository_open_bare(&raw,path_text(repository_path).c_str());
+        if (opened < 0 || !cache_is_initialized(raw)) {
+            if (raw) { git_repository_free(raw); raw = nullptr; }
+            const auto quarantine = fs::path(repository_path.wstring()+L".incomplete-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
+            move_cache_directory(repository_path,quarantine,repositories);
+        }
+    }
+    if (!raw) {
+        const auto initialization = fs::path(repository_path.wstring()+L".init-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
+        if (fs::exists(initialization)) throw std::runtime_error("Git initialization path already exists");
         git_clone_options options = GIT_CLONE_OPTIONS_INIT;
         options.bare = 1;
         options.fetch_opts = fetch_options(transfer);
         if (url.starts_with("file://")) options.fetch_opts.depth = 0;
         options.checkout_branch = branch.empty() ? nullptr : branch.c_str();
-        check(git_clone(&raw,url.c_str(),path_text(repository_path).c_str(),&options),"Clone bucket");
-    } else check(git_repository_open_bare(&raw,path_text(repository_path).c_str()),"Open bucket object store");
+        git_repository* initializing = nullptr;
+        check(git_clone(&initializing,url.c_str(),path_text(initialization).c_str(),&options),"Clone bucket");
+        {
+            const auto complete = own(initializing,git_repository_free);
+            if (!cache_is_initialized(complete.get())) throw std::runtime_error("Cloned repository has no complete initial commit");
+        }
+        move_cache_directory(initialization,repository_path,repositories);
+        check(git_repository_open_bare(&raw,path_text(repository_path).c_str()),"Open initialized object store");
+    }
     const auto repository = own(raw,git_repository_free);
     git_remote* raw_remote = nullptr;
     check(git_remote_lookup(&raw_remote,repository.get(),"origin"),"Open bucket remote");

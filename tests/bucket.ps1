@@ -55,6 +55,14 @@ $first = ($firstText -join "`n") | ConvertFrom-Json
 if ($first.branch -ne 'trunk' -or $first.revision -ne (Invoke-FixtureGit @('-C',$repository,'rev-parse','HEAD'))) { throw 'branch/revision lost' }
 $same = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $same.changed -ne $false -or $same.path -ne $first.path) { throw 'unchanged bucket unnecessarily republished' }
+$trackingDirectory = Join-Path $root 'buckets/tracked'
+New-Item -ItemType Directory -Path (Split-Path $trackingDirectory) -Force | Out-Null
+Invoke-FixtureGit @('clone','--origin','upstream','--branch','trunk',$url,$trackingDirectory) | Out-Null
+Invoke-FixtureGit @('-C',$trackingDirectory,'branch','-m','local-name') | Out-Null
+Invoke-FixtureGit @('-C',$trackingDirectory,'remote','add','origin','https://127.0.0.1:9/incorrect.git') | Out-Null
+$tracked = (& $CoopExe --root $root bucket update tracked --json) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $tracked.url -ne $url -or $tracked.branch -ne 'trunk') { throw 'actual tracking remote/branch was not preserved' }
+if (-not (Test-Path -LiteralPath "$trackingDirectory/.git")) { throw 'original Scoop Git metadata was removed' }
 Copy-Item "$PSScriptRoot/corpus/main/ripgrep.json" "$repository/bucket/ripgrep.json"
 Invoke-FixtureGit @('-C',$repository,'add','bucket') | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','add ripgrep') | Out-Null
@@ -66,7 +74,7 @@ Invoke-FixtureGit @('-C',$repository,'rm','bucket/jq.json') | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','delete jq') | Out-Null
 $deleted = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'delete refresh failed' }
-$items = @((& $CoopExe --root $root search jq --json) | ConvertFrom-Json)
+$items = @((& $CoopExe --root $root search git/jq --json) | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 0) { throw 'removed manifest remained visible' }
 
 $initialRevision = $first.revision
