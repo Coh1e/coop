@@ -4,8 +4,23 @@
 
 // Observe the process tree, distinguishing Windows' console infrastructure.
 int wmain(int argc, wchar_t** argv) {
-    if (argc != 3) return 2;
-    std::wstring command = L"\"" + std::wstring(argv[1]) + L"\" " + argv[2];
+    if (argc < 3) return 2;
+    std::wstring command;
+    for (int i = 1; i < argc; ++i) {
+        command += L'"';
+        unsigned slashes = 0;
+        for (const auto* character = argv[i]; *character; ++character) {
+            if (*character == L'\\') { ++slashes; continue; }
+            command.append(*character == L'"' ? slashes * 2 + 1 : slashes, L'\\');
+            command += *character;
+            slashes = 0;
+        }
+        command.append(slashes * 2, L'\\');
+        command += L"\" ";
+    }
+    wchar_t windows_directory[MAX_PATH]{};
+    if (!GetWindowsDirectoryW(windows_directory, MAX_PATH)) return 1;
+    const std::wstring console_host = std::wstring(windows_directory) + L"\\System32\\conhost.exe";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -16,9 +31,6 @@ int wmain(int argc, wchar_t** argv) {
     }
     unsigned started = 0;
     unsigned console_hosts = 0;
-    wchar_t windows_directory[MAX_PATH]{};
-    if (!GetWindowsDirectoryW(windows_directory, MAX_PATH)) return 1;
-    const std::wstring console_host = std::wstring(windows_directory) + L"\\System32\\conhost.exe";
     DWORD exit_code = 1;
     bool done = false;
     while (!done) {
