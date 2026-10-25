@@ -16,7 +16,7 @@
   - **扫描**：未注册目录，每次查询读取并解析全部 Manifest；这是优化前 `search`/`info` 的唯一路径。
   - **本地索引**：`bucket add` 注册的本地目录，查询校验文件元数据指纹后读取 `.coop/index/<名称>.json`。
   - **Git 索引**：Git 快照，查询按已发布 revision 校验索引，不再对快照做 stat 扫描。
-- Git 刷新：项目内 `file://` 仓库（1500 个 Manifest）经内嵌 libgit2 获取，分别测量首次、无变化、有变化，并记录耗时、libgit2 `received_bytes`、快照数量、索引哈希与注册表记录变化。默认套件保持离线；真实 HTTPS 的网络字节不在本轮运行范围。
+- Git 刷新：项目内 `file://` 仓库（1500 个 Manifest）经内嵌 libgit2 获取，分别测量首次、无变化、有变化，并记录耗时、libgit2 `received_bytes`、快照数量、索引哈希与注册表记录变化。默认套件保持离线；另有一次性真实 HTTPS 小仓库测量，记录首次/无变化字节（不在默认套件内）。
 - 环境：Windows 11 专业工作站版 N 10.0.26300；AMD Ryzen 7 8845HS（16 逻辑处理器）；64GiB 内存；KIOXIA-EXCERIA G2 NVMe SSD；PowerShell 7.6.5；CMake 4.4.4；Ninja 1.13.2；git 2.56.0.windows.3；`coop 0.1.0` Release 构建。基线提交 `eb6220f`，优化前测量使用该提交的构建。
 
 ## 本轮结果
@@ -77,7 +77,9 @@
 
 - 无变化刷新确实不做无关重建：快照数量不变、索引不重建、发布记录中的文件哈希表与 revision 不变。刷新仍会重新哈希当前快照以检测本地修改，这是安全校验而不是重建。
 - 首次刷新在夹具刚写完与缓存已热时差异很大（10.6s 对 1.5s），说明该环境的首次文件访问与安全扫描占主导；本页不把任一数值当作所有机器的首次耗时。
-- `received_bytes` 是 libgit2 传输回调统计的对象字节，`file://` 传输不代表真实网络。真实 HTTPS bucket 的网络字节和延迟未在默认套件运行；`tests/git-live.ps1` 只验证 HTTPS 可用性、无 git.exe 和代理/证书失败，不作为本轮字节证据。
+
+真实 HTTPS（项目内隔离根，公开小仓库 `https://gitlab.com/gitlab-examples/cpp-example.git`，不是 Scoop bucket）补充了实际网络路径：首次 4.89s、`received_bytes=34,950`；无变化 1.89s、`received_bytes=113`（ref/协议开销，未传对象）；两次 `changed`/`path`/索引 SHA256/快照数一致。该仓库规模很小，不能代表 Main/Extras 的网络耗时，只证明真实 HTTPS 下的首次/无变化字节与不重建行为。
+- `received_bytes` 是 libgit2 传输回调统计的对象字节，`file://` 传输不代表真实网络。真实 HTTPS 的字节由上述小仓库补充测量；它不覆盖 Main/Extras 规模。`tests/git-live.ps1` 只验证 HTTPS 可用性、无 git.exe 和代理/证书失败，且本轮未运行，不作为字节证据。
 
 ## 已实施的优化
 
@@ -95,4 +97,4 @@
 - 本轮运行回归：查询、bucket、清理、恢复、接管、更新、依赖等受影响测试在优化后的构建上重新运行并通过；完整套件结果见任务证据。
 - 静态：Release 构建通过（MSVC `/W4 /WX`）；索引与版本证据改动经代码审查。
 - 历史：优化前的 `eb6220f` 探针结果见任务证据，仅用于本文对比，不代表当前代码。
-- 未运行：真实 HTTPS Main/Extras 的网络字节与延迟；管理员清理 standby list 后的系统级冷缓存；真实用户 Scoop 根；安装/更新/卸载的耗时分解（不属于本票的本地查询与 Git 刷新范围）。
+- 未运行：真实 Scoop Main/Extras 的 HTTPS 网络字节与延迟（仅用公开小仓库验证 HTTPS 路径）；管理员清理 standby list 后的系统级冷缓存；真实用户 Scoop 根；安装/更新/卸载的耗时分解（不属于本票的本地查询与 Git 刷新范围）。
