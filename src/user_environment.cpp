@@ -494,4 +494,124 @@ Json restore_user_environment(const Json& undo) {
 Json preview_user_environment_undo(const Json& undo) {
     return apply_undo(undo,false);
 }
+namespace {
+std::string default_module_directory() {
+    std::vector<wchar_t> buffer(32768);
+    const auto length = GetEnvironmentVariableW(L"USERPROFILE",buffer.data(),static_cast<DWORD>(buffer.size()));
+    if (!length || length >= buffer.size()) return {};
+    return path_text(fs::path(std::wstring(buffer.data(),length))/L"Documents"/L"WindowsPowerShell"/L"Modules");
+}
+}
+Json add_user_path_entry(const std::string& variable, const std::string& entry, const Json& prior_ownership) {
+    if (variable.empty() || variable.find('=') != std::string::npos)
+        throw std::runtime_error("Invalid user environment variable name");
+    if (entry.empty()) throw std::runtime_error("A user path entry must not be empty");
+    if (!prior_ownership.is_null() && !prior_ownership.is_object())
+        throw std::runtime_error("The stored path entry ownership record is invalid");
+    Json undo = {{"values",Json::array()}};
+    try {
+        Json writes = Json::array();
+        Json preserved = Json::array();
+        const auto current = read_value(variable);
+        auto entries = split_path(current.value);
+        const bool owned_before = [&]() {
+            if (!prior_ownership.is_object() || !prior_ownership.contains("added") ||
+                !prior_ownership.at("added").is_array()) return false;
+            for (const auto& item : prior_ownership.at("added"))
+                if (item.is_string() && path_equal(item.get<std::string>(),entry)) return true;
+            return false;
+        }();
+        Json ownership = owned_before ? prior_ownership : Json{{"scope","HKCU\\Environment"},{"variable",variable},
+            {"entry",entry},{"previous",raw_json(current)},{"applied",raw_json(current)},{"added",Json::array()}};
+        if (contains_path(entries,entry)) {
+            // The entry is already on the value. Only an earlier Coop record makes it Coop-owned;
+            // otherwise the user, another client or an older Coop operation owns it.
+            ownership["applied"] = raw_json(current);
+            return {{"scope","HKCU\\Environment"},{"mechanism","current-user path-list entry"},
+                {"status","already-present"},{"ownership",std::move(ownership)},
+                {"undo",std::move(undo)},{"writes",std::move(writes)},{"preserved",std::move(preserved)},
+                {"broadcast",broadcast(false)}};
+        }
+        std::vector<std::string> base = entries;
+        // Scoop's ensure_in_psmodulepath starts an unset user PSModulePath from the default user
+        // module folder, so the locations a new PowerShell process normally offers stay reachable.
+        if (!current.present && name_equal(variable,"PSModulePath")) {
+            const auto fallback = default_module_directory();
+            if (!fallback.empty() && !contains_path(base,fallback)) base.push_back(fallback);
+        }
+        std::vector<std::string> updated{entry};
+        updated.insert(updated.end(),base.begin(),base.end());
+        RawValue next;
+        next.present = true;
+        next.value = join_path(updated);
+        next.type = value_type(current,next.value);
+        bool changed = false;
+        maybe_write(variable,current,next,writes,undo,changed,
+            "prepend the declared path entry and retain the existing user value");
+        if (changed) {
+            ownership["applied"] = raw_json(next);
+            if (!owned_before) ownership["added"] = Json::array({entry});
+        }
+        return {{"scope","HKCU\\Environment"},{"mechanism","current-user path-list entry"},
+            {"status",changed ? "added" : "unchanged"},{"ownership",std::move(ownership)},
+            {"undo",std::move(undo)},{"writes",std::move(writes)},{"preserved",std::move(preserved)},
+            {"broadcast",broadcast(changed)}};
+    } catch (...) {
+        try { restore_user_environment(undo); } catch (...) { /* The original failure remains authoritative. */ }
+        throw;
+    }
+}
+Json revert_user_path_entry(const Json& prior) {
+    if (!prior.is_object() || !prior.contains("variable") || !prior.at("variable").is_string())
+        throw std::runtime_error("The stored path entry record is invalid");
+    const auto variable = prior.at("variable").get<std::string>();
+    const auto entry = prior.value("entry",std::string{});
+    if (entry.empty()) throw std::runtime_error("The stored path entry record names no entry");
+    const auto added = prior.contains("added") && prior.at("added").is_array() ? prior.at("added") : Json::array();
+    Json undo = {{"values",Json::array()}};
+    try {
+        Json writes = Json::array();
+        Json preserved = Json::array();
+        bool changed = false;
+        Json result = {{"scope","HKCU\\Environment"},{"mechanism","current-user path-list entry"},
+            {"variable",variable},{"entry",entry},{"added",added},
+            {"undo",Json::array()},{"writes",Json::array()},{"preserved",Json::array()}};
+        // Only an entry Coop itself added belongs to Coop. A shared install by Scoop, or a value
+        // that already contained the entry, leaves no Coop ownership and is kept.
+        if (added.empty()) {
+            result["status"] = "not-owned";
+            result["broadcast"] = broadcast(false);
+            return result;
+        }
+        const auto current = read_value(variable);
+        const auto applied = prior.contains("applied") ? raw_from_json(prior.at("applied"),variable) : RawValue{};
+        const auto previous = prior.contains("previous") ? raw_from_json(prior.at("previous"),variable) : RawValue{};
+        if (same_value(current,applied)) {
+            maybe_write(variable,current,previous,writes,undo,changed,
+                "restore the value recorded before Coop added the path entry");
+        } else {
+            auto entries = split_path(current.value);
+            for (const auto& item : added)
+                if (item.is_string()) erase_path(entries,item.get<std::string>());
+            RawValue updated = current;
+            updated.present = !entries.empty();
+            updated.value = join_path(entries);
+            updated.type = value_type(current,updated.value);
+            maybe_write(variable,current,updated,writes,undo,changed,
+                "remove only the path entries Coop added; user changes and other entries are preserved");
+            if (current.present)
+                add_preserved(preserved,variable,applied,current,
+                    "the value differs from the value Coop wrote; user changes and other entries are kept");
+        }
+        result["status"] = changed ? "reverted" : "unchanged";
+        result["undo"] = std::move(undo);
+        result["writes"] = std::move(writes);
+        result["preserved"] = std::move(preserved);
+        result["broadcast"] = broadcast(changed);
+        return result;
+    } catch (...) {
+        try { restore_user_environment(undo); } catch (...) { /* The original failure remains authoritative. */ }
+        throw;
+    }
+}
 }

@@ -36,4 +36,7 @@ Json expanded_environment(const Context& context, const Package& package, const 
 Json expanded_path_entries(const Context& context, const Package& package, const fs::path& base);
 
 Json exposure_plan_json(const Context& context, const Package& package, const fs::path& base);
+// psmodule exposure in the preview: the shared modules junction and the user PSModulePath entry,
+// stated the same way for the operation that creates it and the one that removes it.
+Json ps_module_plan_json(const Context& context, const std::string& name, const fs::path& target, bool removal);
 }

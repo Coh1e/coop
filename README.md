@@ -25,6 +25,7 @@ Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Sc
 - [旧版本保留、回退、清理与数据彻底删除](docs/old-version-support.md)
 - [依赖安装与反向依赖保护](docs/dependency-support.md)
 - [复杂命令入口、快捷方式与环境暴露](docs/exposure-support.md)
+- [PowerShell 模块暴露（psmodule）](docs/psmodule-support.md)
 - [生命周期 Hook 与真实 PowerShell](docs/script-support.md)
 - [Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)
 - [跨机制中断恢复与冲突诊断](docs/recovery-support.md)

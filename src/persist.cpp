@@ -1,7 +1,6 @@
 #include "persist.hpp"
 #include "native.hpp"
 #include <windows.h>
-#include <winioctl.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -11,18 +10,6 @@
 
 namespace coop {
 namespace {
-// REPARSE_DATA_BUFFER is only declared by WDK headers; this is the mount-point layout
-// used for directory junctions (ULONG tag, USHORT sizes, then the name buffer).
-struct ReparseMountPointBuffer {
-    ULONG ReparseTag;
-    USHORT ReparseDataLength;
-    USHORT Reserved;
-    USHORT SubstituteNameOffset;
-    USHORT SubstituteNameLength;
-    USHORT PrintNameOffset;
-    USHORT PrintNameLength;
-    WCHAR PathBuffer[1];
-};
 struct ResolvedEntry {
     Persistence mapping;
     fs::path link;
@@ -71,36 +58,6 @@ void require_ordinary(const fs::path& base, const fs::path& path, bool final_rep
 fs::path store_path(const Context& context, const Package& package, const fs::path& target) {
     validate_component(package.name);
     return context.root/L"persist"/wide(package.name)/target;
-}
-
-fs::path junction_target(const fs::path& link) {
-    HANDLE handle = CreateFileW(link.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
-        nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT|FILE_FLAG_BACKUP_SEMANTICS,nullptr);
-    if (handle == INVALID_HANDLE_VALUE)
-        throw std::runtime_error("Cannot open persisted directory link (Windows error "+std::to_string(GetLastError())+")");
-    std::vector<unsigned char> buffer(MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
-    DWORD returned = 0;
-    const bool success = DeviceIoControl(handle,FSCTL_GET_REPARSE_POINT,nullptr,0,buffer.data(),
-        static_cast<DWORD>(buffer.size()),&returned,nullptr);
-    CloseHandle(handle);
-    if (!success) throw std::runtime_error("Cannot read persisted directory link (Windows error "+std::to_string(GetLastError())+")");
-    const auto* header = reinterpret_cast<const ReparseMountPointBuffer*>(buffer.data());
-    if (header->ReparseTag != IO_REPARSE_TAG_MOUNT_POINT)
-        throw std::runtime_error("Persisted directory link is not a junction");
-    const auto& mount = *header;
-    const auto path_buffer = reinterpret_cast<const unsigned char*>(mount.PathBuffer);
-    const std::size_t base = static_cast<std::size_t>(path_buffer-buffer.data());
-    if (mount.SubstituteNameOffset % sizeof(WCHAR) || mount.SubstituteNameLength % sizeof(WCHAR) ||
-        base + mount.SubstituteNameOffset + mount.SubstituteNameLength > returned)
-        throw std::runtime_error("Persisted directory junction has invalid target data");
-    const auto offset = mount.SubstituteNameOffset/sizeof(WCHAR);
-    const auto length = mount.SubstituteNameLength/sizeof(WCHAR);
-    std::wstring target(mount.PathBuffer+offset,length);
-    if (target.starts_with(L"\\??\\")) target.erase(0,4);
-    else if (target.starts_with(L"\\\\?\\")) target.erase(0,4);
-    if (target.empty() || !fs::path(target).is_absolute())
-        throw std::runtime_error("Persisted directory junction has a non-absolute target");
-    return fs::path(target);
 }
 
 struct FileIdentity {

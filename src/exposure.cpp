@@ -250,4 +250,17 @@ Json exposure_plan_json(const Context& context, const Package& package, const fs
             {"icon",shortcut.icon.empty() ? std::string{} : path_text(base/shortcut.icon)}});
     return result;
 }
+Json ps_module_plan_json(const Context& context, const std::string& name, const fs::path& target, bool removal) {
+    if (name.empty()) return Json(nullptr);
+    const auto modules = context.root/L"modules";
+    return {{"operation",removal ? "remove" : "create"},
+        {"name",name},{"link",path_text(modules/wide(name))},{"kind","directory-junction"},
+        {"target",path_text(target)},
+        {"user_environment",{{"variable","PSModulePath"},{"entry",path_text(modules)},
+            {"scope","HKCU\\Environment"},
+            {"effect",removal ?
+                "remove only the entry Coop recorded as its own when no other module link remains; user changes and other entries are preserved" :
+                "prepend the entry when it is absent, record the previous raw value and the entry Coop added"}}},
+        {"scoop_semantics","Scoop 0.6.0 psmodules.ps1 install_psmodule/uninstall_psmodule: a directory junction <root>/modules/<name> and the user PSModulePath entry for <root>/modules"}};
+}
 }

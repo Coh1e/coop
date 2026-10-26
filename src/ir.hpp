@@ -60,6 +60,10 @@ const char* hook_stage_name(HookStage stage);
 struct Hook { HookStage stage; std::string text; std::string declared_by; };
 
 struct InstallerProgram { std::string file; std::vector<std::string> arguments; bool keep = false; };
+// Scoop's `psmodule` declaration: the installed version becomes the content of <root>/modules/<name>
+// through a directory junction and <root>/modules is put on the current user's PSModulePath. The IR
+// keeps only the module identity; the paths belong to the selected installation root.
+struct PsModule { std::string name; };
 // Dependencies keep the source spelling as evidence and separate the identity the planner
 // resolves. The bucket qualifier and version constraint are source semantics translated once by
 // the adapter, never re-parsed from the raw string by the planner or executor.
@@ -85,6 +89,7 @@ struct Package {
     std::vector<Hook> hooks;
     std::optional<InstallerProgram> installer;
     std::optional<InstallerProgram> uninstaller;
+    std::optional<PsModule> psmodule;
     std::vector<Dependency> dependencies;
     std::vector<Capability> capabilities;
     std::vector<Diagnostic> diagnostics;
@@ -112,8 +117,8 @@ struct InstalledFact {
 enum class Action { install, update, uninstall, adopt, reset };
 enum class Operation {
     download, verify, extract, hook, installer, publish_current, entries, shortcuts, environment,
-    persistence, commit_state, remove_entries, remove_shortcuts, remove_environment,
-    unlink_persistence, unlink_current, remove_version, adopt_state
+    persistence, ps_module, commit_state, remove_entries, remove_shortcuts, remove_environment,
+    remove_ps_module, unlink_persistence, unlink_current, remove_version, adopt_state
 };
 const char* operation_name(Operation operation);
 

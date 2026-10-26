@@ -256,10 +256,12 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/exposure 中文 space")
   add_test(NAME user_environment COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/user-environment.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/user-environment 中文 space")
+  add_test(NAME psmodule COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/psmodule.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/psmodule 中文 space")
   # These tests read and snapshot the real current-user environment. A shared resource lock keeps
   # ctest -j from interleaving their snapshots/writes; they must also not be run in parallel by
   # separate ctest invocations.
-  set_tests_properties(acceptance exposure user_environment old_versions recovery_matrix PROPERTIES RESOURCE_LOCK coop_user_environment)
+  set_tests_properties(acceptance exposure user_environment psmodule old_versions recovery_matrix PROPERTIES RESOURCE_LOCK coop_user_environment)
   add_test(NAME hooks COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/hooks.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/hooks 中文 space")
   add_test(NAME installers COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/installers.ps1"

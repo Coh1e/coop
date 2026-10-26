@@ -32,4 +32,14 @@ Json restore_user_environment(const Json& undo);
 // The same classification without writing HKCU, used by `recover --dry-run` and by the recovery
 // report before any path is rolled back.
 Json preview_user_environment_undo(const Json& undo);
+// Path-list variables that a package mechanism owns instead of a Manifest field (currently
+// PSModulePath for psmodule packages). `add_user_path_entry` prepends the entry only when it is
+// absent, keeps the exact previous raw value and the entry list Coop added, and broadcasts the
+// change. `prior_ownership` carries an earlier record from the same package so an update keeps the
+// original value and ownership instead of claiming an already-present entry as unowned.
+// `revert_user_path_entry` uses that evidence: it restores the previous value when nothing changed
+// since Coop wrote it, otherwise removes only the entries Coop added so user edits and other
+// entries survive.
+Json add_user_path_entry(const std::string& variable, const std::string& entry, const Json& prior_ownership);
+Json revert_user_path_entry(const Json& prior);
 }

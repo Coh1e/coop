@@ -1062,6 +1062,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     save();
     Json user_environment = Json(nullptr);
     Json environment_undo = Json::array();
+    // PowerShell module exposure evidence written to the package record: module name, junction,
+    // linked target and the PSModulePath entry Coop added with its previous raw value.
+    Json psmodule_record = Json(nullptr);
     try {
         const auto stage = transaction/L"payload";
         const auto downloads = transaction/L"downloads";
@@ -1318,6 +1321,59 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                             transaction/((step.previous ? L"old-shortcut-" : L"shortcut-")+std::to_wstring(index)+L".lnk"));
                 break;
             }
+            case ir::Operation::remove_ps_module: {
+                // Remove the module junction this package declared and, only when Coop's own record
+                // says Coop added the shared modules directory to PSModulePath and no other module
+                // link still needs it, remove exactly that entry. Everything else is preserved.
+                ensure_preparation();
+                const auto& module_package = (step.previous || plan.action == Action::uninstall) ? installed : package;
+                if (!module_package.psmodule)
+                    throw std::runtime_error("Plan remove-ps-module step has no psmodule in the installed package IR");
+                const auto modules = context.root/L"modules";
+                const auto link = modules/wide(module_package.psmodule->name);
+                Json record = {{"name",module_package.psmodule->name},{"link",path_text(link)}};
+                const auto attributes = GetFileAttributesW(link.c_str());
+                if (attributes == INVALID_FILE_ATTRIBUTES) {
+                    record["junction"] = "already-absent";
+                } else {
+                    if (!(attributes & FILE_ATTRIBUTE_REPARSE_POINT) || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+                        throw std::runtime_error("PowerShell module path is not a directory junction; refusing to delete it: "+path_text(link));
+                    const auto existing = junction_target(link);
+                    const auto relative = existing.lexically_relative(app);
+                    if (relative.empty() || relative.is_absolute() || *relative.begin() == L"..")
+                        throw std::runtime_error("PowerShell module junction belongs to another location; refusing to remove it: "+
+                            path_text(link)+" -> "+path_text(existing));
+                    move(link,transaction/(step.previous ? L"old-ps-module" : L"removed-ps-module"));
+                    record["junction"] = "removed";
+                    record["previous_target"] = path_text(existing);
+                }
+                bool other_links = false;
+                std::error_code error;
+                if (fs::is_directory(modules,error) && !error) {
+                    const auto remaining = fs::directory_iterator(modules,error);
+                    other_links = !error && remaining != fs::directory_iterator();
+                }
+                const bool replacement_keeps_module = (updating || resetting) && package.psmodule.has_value();
+                const Json prior = has_managed_record && managed.contains("psmodule") && managed.at("psmodule").is_object()
+                    ? managed.at("psmodule").value("user_environment",Json(nullptr)) : Json(nullptr);
+                if (replacement_keeps_module) {
+                    record["user_environment"] = {{"status","retained"},
+                        {"reason","the replacement package still declares a PowerShell module, so the modules directory stays on PSModulePath"}};
+                } else if (other_links) {
+                    record["user_environment"] = {{"status","retained"},
+                        {"reason","another PowerShell module link still uses the modules directory"}};
+                } else if (!prior.is_object() || !prior.contains("ownership")) {
+                    record["user_environment"] = {{"status","not-owned"},
+                        {"reason","no Coop ownership evidence for the modules directory entry; it is left unchanged"}};
+                } else {
+                    auto reverted = revert_user_path_entry(prior.at("ownership"));
+                    environment_undo.push_back(reverted.value("undo",Json::object()));
+                    record["user_environment"] = std::move(reverted);
+                }
+                psmodule_record = Json(nullptr);
+                journal["ps_module"] = record; save();
+                break;
+            }
             case ir::Operation::remove_environment: {
                 // During an update or reset the old and new declarations are reconciled by the
                 // single environment operation below, so the installed package keeps its user
@@ -1439,6 +1495,65 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 break;
             }
+            case ir::Operation::ps_module: {
+                // The declared module becomes a directory junction next to the shared modules
+                // directory, exactly like Scoop's install_psmodule, and the modules directory is
+                // put on the current user's PSModulePath. The junction points at apps/<name>/current
+                // so an update switches the module content with the published current link.
+                ensure_preparation();
+                ensure_version();
+                if (!package.psmodule)
+                    throw std::runtime_error("Plan ps-module step has no declared psmodule in the package IR");
+                const auto modules = context.root/L"modules";
+                ordinary_parents(context.root,modules);
+                const auto link = modules/wide(package.psmodule->name);
+                const auto target = app/L"current";
+                Json record = {{"name",package.psmodule->name},{"link",path_text(link)},
+                    {"target",path_text(target)},{"kind","directory-junction"}};
+                bool reused = false;
+                const auto attributes = GetFileAttributesW(link.c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES) {
+                    if (!(attributes & FILE_ATTRIBUTE_REPARSE_POINT) || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+                        throw std::runtime_error("PowerShell module path exists and is not a directory junction: "+path_text(link));
+                    const auto existing = junction_target(link);
+                    if (same_identity(existing,target)) {
+                        reused = true;
+                    } else {
+                        // Scoop replaces a stale module link while warning. Only a link that still
+                        // belongs to this package's apps directory is replaced; anything else is a
+                        // real conflict that must not be deleted.
+                        const auto relative = existing.lexically_relative(app);
+                        if (relative.empty() || relative.is_absolute() || *relative.begin() == L"..")
+                            throw std::runtime_error("PowerShell module junction belongs to another location: "+
+                                path_text(link)+" -> "+path_text(existing));
+                        move(link,transaction/L"old-ps-module");
+                        record["replaced"] = path_text(existing);
+                    }
+                }
+                if (!reused) {
+                    fs::create_directories(modules);
+                    create(link,[&]() { make_junction(link,target); });
+                    record["junction"] = "created";
+                } else {
+                    record["junction"] = "reused";
+                }
+                // An earlier Coop record for this package keeps the original PSModulePath value and
+                // the ownership of the entry, so an update does not turn Coop's own entry into an
+                // unowned one that a later uninstall must leave behind.
+                Json prior_entry = Json(nullptr);
+                if (has_managed_record && managed.contains("psmodule") && managed.at("psmodule").is_object()) {
+                    const auto& prior_module = managed.at("psmodule");
+                    if (prior_module.contains("user_environment") && prior_module.at("user_environment").is_object())
+                        prior_entry = prior_module.at("user_environment").value("ownership",Json(nullptr));
+                }
+                auto applied = add_user_path_entry("PSModulePath",path_text(modules),prior_entry);
+                environment_undo.push_back(applied.value("undo",Json::object()));
+                record["user_environment"] = std::move(applied);
+                psmodule_record = std::move(record);
+                journal["ps_module"] = psmodule_record; save();
+                test_fault_point(context,"after-ps-module");
+                break;
+            }
             case ir::Operation::environment: {
                 environment = expanded_environment(context,package,app/L"current");
                 path_entries = expanded_path_entries(context,package,app/L"current");
@@ -1508,6 +1623,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
                         {"user_environment",user_environment},
+                        {"psmodule",psmodule_record},
                         {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
                         {"origin",(updating || resetting) ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
                         {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
@@ -1554,6 +1670,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     if (plan.action == Action::uninstall) {
         erase_tree(transaction/L"current");
         erase_tree(transaction/L"removed-version");
+        erase_tree(transaction/L"removed-ps-module");
+    } else {
+        erase_tree(transaction/L"old-ps-module");
     }
     try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},

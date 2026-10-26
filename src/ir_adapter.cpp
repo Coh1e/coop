@@ -50,7 +50,10 @@ ArchiveFormat archive_format(const std::string& filename, bool innosetup) {
     // Scoop applies Expand-InnoArchive only to an .exe artifact of an `innosetup` Manifest; every
     // other artifact keeps its ordinary archive handling.
     if (innosetup && name.ends_with(".exe")) return ArchiveFormat::inno_setup;
-    if (name.ends_with(".zip")) return ArchiveFormat::zip;
+    // A NuGet package is a ZIP container. Scoop reaches for its external 7-Zip helper because the
+    // suffix matches its archive list, but the extracted layout is the same ZIP tree the native
+    // reader produces.
+    if (name.ends_with(".zip") || name.ends_with(".nupkg")) return ArchiveFormat::zip;
     if (name.ends_with(".7z")) return ArchiveFormat::seven_zip;
     if (name.ends_with(".msi")) return ArchiveFormat::msi;
     // All of these are read by the native libarchive path with the compression filter compiled in:
@@ -348,11 +351,27 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
                 if (item.key() != "file" && item.key() != "args" && item.key() != "keep" && item.key() != "script")
                     package.diagnostics.push_back({Layer::adapter,"installer-field","Unsupported installer option: "+item.key()});
         }
-        // psmodule, cookie and referer remain unsupported source declarations; `innosetup` is
-        // translated into the IR archive mechanism above instead of being rejected as text.
-        for (const auto* field : {"psmodule","cookie","referer"})
+        // psmodule is translated into the IR module declaration below; `cookie` and `referer` remain
+        // unsupported source declarations.
+        for (const auto* field : {"cookie","referer"})
             if (effective(pick(field)))
                 package.diagnostics.push_back({Layer::adapter,"unsupported-capability",std::string("Not yet supported: ")+field});
+        const auto psmodule = pick("psmodule");
+        if (!psmodule.is_null()) {
+            if (!psmodule.is_object()) throw std::runtime_error("psmodule must be an object");
+            if (!psmodule.contains("name") || !psmodule.at("name").is_string())
+                throw std::runtime_error("Invalid manifest: The 'name' property is missing from 'psmodule'.");
+            const auto module_name = psmodule.at("name").get<std::string>();
+            if (module_name.empty())
+                throw std::runtime_error("Invalid manifest: The 'name' property is missing from 'psmodule'.");
+            // Scoop uses the name verbatim as the <root>/modules directory entry, so it must obey the
+            // same safe component boundary as every other managed path.
+            validate_component(module_name);
+            package.psmodule = PsModule{module_name};
+            for (auto item = psmodule.begin(); item != psmodule.end(); ++item)
+                if (item.key() != "name")
+                    package.diagnostics.push_back({Layer::adapter,"psmodule-field","Unsupported psmodule option: "+item.key()});
+        }
     } catch (const Json::parse_error& error) {
         package.diagnostics.push_back({Layer::syntax,"manifest-json",error.what()});
     } catch (const std::exception& error) {

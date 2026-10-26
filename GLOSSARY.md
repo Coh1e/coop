@@ -28,6 +28,8 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **环境暴露（Environment Exposure）**：软件包声明的 PATH、环境变量与使用入口在用户环境中的可用性；约定范围内与 Scoop 的用户级效果一致。环境变更归属用于区分包管理器负责的值与用户后来修改的值。
 
+**PowerShell 模块暴露（psmodule）**：Manifest `psmodule` 声明把已安装版本出版为 `<root>/modules/<name>` 目录 junction，并把 `<root>/modules` 放到当前用户 `PSModulePath`。条目按路径列表项归属：Coop 只撤销自己新增的那一条，其他条目与用户后续修改保持。
+
 **生命周期 Hook（Lifecycle Hook）**：Manifest 在安装、更新和卸载阶段声明的脚本，包括 `pre_install`、`post_install`、`pre_uninstall`、`post_uninstall`、`installer.script`、`uninstaller.script`。其阶段含义、上下文和先后关系以约定的 Scoop 兼容基准为准。
 
 **安装器程序（Installer Program）**：Manifest 的 `installer`/`uninstaller` 对象通过 `file`/`args`（可带 `keep`）声明的外部程序，与 `installer.script`/`uninstaller.script` 脚本区分。它由真实 PowerShell 调用固定的 Scoop `Invoke-Installer` 执行，在版本目录运行并使用 Scoop 的参数替换与删除语义；程序自身的外部副作用属于未知范围，不承诺回滚。

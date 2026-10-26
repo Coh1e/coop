@@ -130,5 +130,16 @@ void validate(Package& package) {
     }
     if (!package.shortcuts.empty())
         capability(package,"start-menu-shortcut",true,"Shortcuts are created under the Scoop Apps Start Menu folder with recorded identity");
+    if (package.psmodule) {
+        capability(package,"ps-module",true,
+            "A declared psmodule links <root>/modules/<name> to the installed apps/<name>/current directory with a native directory junction and puts <root>/modules on the current user's PSModulePath; the previous PSModulePath value and the entry Coop added are recorded in the package record so uninstall removes only that entry, keeps every other entry and leaves a PSModulePath the user edited afterwards intact");
+        // PSModulePath itself is owned by the psmodule mechanism. A package that also declares it as
+        // a plain environment value would have two writers for one variable, so it is reported
+        // instead of silently letting the env_set step overwrite the module entry.
+        for (const auto& entry : package.environment)
+            if (lower(entry.variable) == "psmodulepath")
+                report(package,Layer::validation,"psmodule-path-conflict",
+                    "psmodule already owns PSModulePath; a declared PSModulePath environment value conflicts with it");
+    }
 }
 }

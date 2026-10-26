@@ -48,6 +48,9 @@ struct Package {
     std::vector<ScriptOperation> scripts;
     std::optional<InstallerProcess> installer;
     std::optional<InstallerProcess> uninstaller;
+    // Declared PowerShell module exposure, projected from the IR declaration. The module name is
+    // the <root>/modules entry; the junction target is always apps/<name>/current.
+    std::optional<ir::PsModule> psmodule;
     std::vector<Diagnostic> diagnostics;
     // Normalized IR this record was projected from. Planning consumes it directly so the legacy
     // execution record cannot become a second source of package semantics.
@@ -56,8 +59,8 @@ struct Package {
 enum class Action { adopt, install, update, uninstall, reset };
 enum class StepKind {
     download, verify, extract, script, installer, publish_current, commands,
-    shortcuts, environment, persistence, commit_state, remove_commands,
-    unlink_current, remove_environment, unlink_persistence, remove_version, adopt_state, uninstaller, remove_shortcuts
+    shortcuts, environment, persistence, ps_module, commit_state, remove_commands,
+    unlink_current, remove_environment, remove_ps_module, unlink_persistence, remove_version, adopt_state, uninstaller, remove_shortcuts
 };
 struct Step { StepKind kind; std::size_t index = 0; bool previous_package = false; std::string detail; };
 struct FilePrecondition { fs::path path; std::string sha256; };

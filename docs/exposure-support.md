@@ -38,6 +38,7 @@
 - Scoop 创建或 `.coop/packages/<包>.json` 丢失的共用安装没有 Coop 原始值记录。更新/卸载会从已安装 Manifest 声明的 `env_set`/`env_add_path` 推导归属（`environment_ownership_source=installed-declaration`）：当前值仍等于旧声明时视为包所有并可替换或删除，不等时保留并报告为用户修改；PATH 只删除与旧声明 `apps/<包>/current` 项匹配的条目。由于没有安装前原值，声明推导的卸载删除匹配值而不是恢复未知原值。
 - 卸载时若 Coop 记录中的当前值仍等于 Coop 写入值，恢复安装前的原始值（原本不存在则删除）；若用户已修改，则保留新值。PATH 只删除 Coop 实际新增且仍存在的项，用户新增项和其余顺序不动。事务失败时使用同一记录做进程内回滚，`journal.json` 保存 `environment_applied`、`environment_reverted`、`environment_rollback`、广播结果、`preserved`、归属来源及共用安装使用的 `environment_previous_declarations`。
 - 预览中的 `exposure.environment`、`exposure.path_entries` 与 `exposure.environment_scope` 明确列出将应用的值和作用范围；`exposure.shortcut_directory` 与来源说明快捷方式位置。系统级环境变量和 `HKLM` 不开放，仍只报告必要时需人工处理。
+- `psmodule` 声明的模块目录不是 `env_set`/`env_add_path`：它会把 `<root>/modules` 作为独立条目前置到用户 `PSModulePath`，并按条目归属撤销。预览在 `ps_module` 中单独展示，细则与真机证据见[PowerShell 模块暴露（psmodule）](psmodule-support.md)。
 
 ## 真机验证（R07 / #28）
 

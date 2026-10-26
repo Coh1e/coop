@@ -3,6 +3,9 @@
 namespace coop {
 void download_file(const std::string& url, const fs::path& destination);
 void make_junction(const fs::path& link, const fs::path& target);
+// Reads the target of an NTFS directory junction (mount point). Used wherever a managed link must
+// be proven to belong to Coop's own object instead of being followed or deleted blindly.
+fs::path junction_target(const fs::path& link);
 // Windows command-line quoting for one argument of a child process command line.
 std::wstring quote_argument(const std::wstring& value);
 // Start one declared external tool without a shell and capture both output streams. stdout/stderr

@@ -81,6 +81,7 @@ Package project(const ir::Package& definition) {
     };
     if (definition.installer) package.installer = program(*definition.installer);
     if (definition.uninstaller) package.uninstaller = program(*definition.uninstaller);
+    package.psmodule = definition.psmodule;
     for (const auto& item : definition.diagnostics)
         package.diagnostics.push_back({diagnostic_kind(item.layer),item.code,item.message});
     package.definition = std::make_shared<const ir::Package>(definition);

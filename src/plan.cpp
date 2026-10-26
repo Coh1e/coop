@@ -41,10 +41,12 @@ const char* step_name(StepKind kind) {
     case StepKind::shortcuts: return "shortcuts";
     case StepKind::environment: return "environment";
     case StepKind::persistence: return "persistence";
+    case StepKind::ps_module: return "ps-module";
     case StepKind::commit_state: return "commit-state";
     case StepKind::remove_commands: return "remove-commands";
     case StepKind::unlink_current: return "unlink-current";
     case StepKind::remove_environment: return "remove-environment";
+    case StepKind::remove_ps_module: return "remove-ps-module";
     case StepKind::unlink_persistence: return "unlink-persistence";
     case StepKind::remove_version: return "remove-version";
     case StepKind::adopt_state: return "adopt-state";
@@ -199,10 +201,12 @@ StepKind legacy_step(ir::Operation operation) {
     case ir::Operation::shortcuts: return StepKind::shortcuts;
     case ir::Operation::environment: return StepKind::environment;
     case ir::Operation::persistence: return StepKind::persistence;
+    case ir::Operation::ps_module: return StepKind::ps_module;
     case ir::Operation::commit_state: return StepKind::commit_state;
     case ir::Operation::remove_entries: return StepKind::remove_commands;
     case ir::Operation::remove_shortcuts: return StepKind::remove_shortcuts;
     case ir::Operation::remove_environment: return StepKind::remove_environment;
+    case ir::Operation::remove_ps_module: return StepKind::remove_ps_module;
     case ir::Operation::unlink_persistence: return StepKind::unlink_persistence;
     case ir::Operation::unlink_current: return StepKind::unlink_current;
     case ir::Operation::remove_version: return StepKind::remove_version;
@@ -313,6 +317,7 @@ Json package_json(const Context& context, const Package& package) {
     for (const auto& item : package.persistence) result["persistence"].push_back({{"source",path_text(item.source)},{"target",path_text(item.target)}});
     for (const auto& item : package.environment) result["environment"].push_back({{"name",item.name},{"value",item.value}});
     for (const auto& item : package.path_entries) result["path_entries"].push_back(path_text(item));
+    if (package.psmodule) result["psmodule"] = {{"name",package.psmodule->name}};
     const auto host = script_host();
     for (const auto& script : package.scripts) {
         Json entry = {{"phase",script_phase_name(script.phase)},{"text",script.text},
@@ -682,6 +687,22 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         : action == Action::reset ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version)
         : action == Action::adopt ? plan.local.current : plan.local.directory;
     result["exposure"] = exposure_plan_json(context,plan.package,exposure_base);
+    // A psmodule package exposes one shared module link. An update that drops the declaration (or
+    // an uninstall) plans the removal instead, so the preview never hides what will disappear.
+    // Adoption reuses an existing installation and publishes no exposure of its own, so it reports
+    // no module operation.
+    const Package* psmodule_package = nullptr;
+    if (action != Action::adopt) {
+        if (plan.package.psmodule) psmodule_package = &plan.package;
+        else if (plan.previous && plan.previous->psmodule) psmodule_package = &*plan.previous;
+    }
+    if (psmodule_package) {
+        const bool removal = action == Action::uninstall || !plan.package.psmodule;
+        result["ps_module"] = ps_module_plan_json(context,psmodule_package->psmodule->name,
+            context.root/L"apps"/wide(psmodule_package->name)/L"current",removal);
+    } else {
+        result["ps_module"] = Json(nullptr);
+    }
     if (plan.adoption) {
         Json adopted = Json::array();
         for (const auto& shortcut : plan.adoption->shortcuts)

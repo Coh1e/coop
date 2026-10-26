@@ -235,6 +235,7 @@ static Json validation_json(const Context& context, const Json& item) {
         validation["manifest_digest"] = validated.manifest_digest;
         validation["version"] = validated.version;
         validation["downloads"] = validated.downloads.size();
+        if (validated.psmodule) validation["psmodule"] = {{"name",validated.psmodule->name}};
         for (const auto& download : validated.downloads)
             validation["artifacts"].push_back({{"url",download.url},{"filename",download.filename},
                 {"renamed",download.renamed},{"algorithm",ir::digest_algorithm_name(download.digest.algorithm)},

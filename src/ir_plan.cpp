@@ -18,10 +18,12 @@ const char* operation_name(Operation operation) {
     case Operation::shortcuts: return "shortcuts";
     case Operation::environment: return "environment";
     case Operation::persistence: return "persistence";
+    case Operation::ps_module: return "ps-module";
     case Operation::commit_state: return "commit-state";
     case Operation::remove_entries: return "remove-entries";
     case Operation::remove_shortcuts: return "remove-shortcuts";
     case Operation::remove_environment: return "remove-environment";
+    case Operation::remove_ps_module: return "remove-ps-module";
     case Operation::unlink_persistence: return "unlink-persistence";
     case Operation::unlink_current: return "unlink-current";
     case Operation::remove_version: return "remove-version";
@@ -51,6 +53,9 @@ void add_removal(Plan& plan, const Package& package, bool previous, bool retain_
         plan.steps.push_back({Operation::remove_entries,0,previous,"remove "+count_text(package.entries.size(),"command entry","command entries")});
     if (!package.shortcuts.empty())
         plan.steps.push_back({Operation::remove_shortcuts,0,previous,"remove "+count_text(package.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")});
+    if (package.psmodule)
+        plan.steps.push_back({Operation::remove_ps_module,0,previous,"remove the modules/"+package.psmodule->name+
+            " junction and the modules directory entry Coop added to the user PSModulePath, keeping every other entry"});
     if (!package.environment.empty())
         plan.steps.push_back({Operation::remove_environment,0,previous,"revert "+count_text(package.environment.size(),"declared environment entry","declared environment entries")+" whose ownership still matches"});
     if (!retain_version) {
@@ -82,6 +87,9 @@ void add_installation(Plan& plan) {
         plan.steps.push_back({Operation::entries,0,false,"create "+count_text(package.entries.size(),"command entry","command entries")});
     if (!package.shortcuts.empty())
         plan.steps.push_back({Operation::shortcuts,0,false,"create "+count_text(package.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")});
+    if (package.psmodule)
+        plan.steps.push_back({Operation::ps_module,0,false,"link modules/"+package.psmodule->name+
+            " to the installed apps/"+package.name+"/current directory and add the modules directory to the user PSModulePath"});
     if (!package.environment.empty())
         plan.steps.push_back({Operation::environment,0,false,"apply "+count_text(package.environment.size(),"declared environment entry","declared environment entries")});
     if (!package.persistence.empty())
@@ -103,6 +111,9 @@ void add_reset(Plan& plan) {
         plan.steps.push_back({Operation::remove_entries,0,true,"remove "+count_text(current.entries.size(),"command entry","command entries")+" of the replaced version"});
     if (!current.shortcuts.empty())
         plan.steps.push_back({Operation::remove_shortcuts,0,true,"remove "+count_text(current.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")+" of the replaced version"});
+    if (current.psmodule)
+        plan.steps.push_back({Operation::remove_ps_module,0,true,"remove the modules/"+current.psmodule->name+
+            " junction and the modules directory entry Coop added to the user PSModulePath, keeping every other entry"});
     if (!current.environment.empty())
         plan.steps.push_back({Operation::remove_environment,0,true,"revert "+count_text(current.environment.size(),"declared environment entry","declared environment entries")+" of the replaced version whose ownership still matches"});
     plan.steps.push_back({Operation::publish_current,0,false,"publish current for the retained local version "+retained.version});
@@ -112,6 +123,9 @@ void add_reset(Plan& plan) {
         plan.steps.push_back({Operation::entries,0,false,"create "+count_text(retained.entries.size(),"command entry","command entries")});
     if (!retained.shortcuts.empty())
         plan.steps.push_back({Operation::shortcuts,0,false,"create "+count_text(retained.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")});
+    if (retained.psmodule)
+        plan.steps.push_back({Operation::ps_module,0,false,"link modules/"+retained.psmodule->name+
+            " to the retained apps/"+retained.name+"/current directory and add the modules directory to the user PSModulePath"});
     if (!retained.environment.empty())
         plan.steps.push_back({Operation::environment,0,false,"apply "+count_text(retained.environment.size(),"declared environment entry","declared environment entries")});
     plan.steps.push_back({Operation::commit_state,0,false,"commit the reset installation record"});
