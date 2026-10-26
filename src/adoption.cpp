@@ -82,9 +82,9 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (!current_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"adoption-lifecycle-unsupported",current_blocker); return result;
         }
-        for (const auto& dependency : plan.package.dependencies)
-            if (!dependency_is_installed(context,dependency)) {
-                reject(AdoptionEligibility::inconsistent,DiagnosticKind::environment,"missing-dependency","Declared dependency is not installed: "+dependency); return result;
+        for (const auto& dependency : plan.dependencies)
+            if (!dependency.installed) {
+                reject(AdoptionEligibility::inconsistent,DiagnosticKind::environment,"missing-dependency","Declared dependency is not installed: "+dependency.request); return result;
             }
         if (!plan.update_candidate) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"missing-update-manifest","No same-source local Manifest to assess future updates"); return result;

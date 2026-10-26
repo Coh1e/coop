@@ -63,10 +63,6 @@ std::string trim_text(std::string value) {
     if (first == std::string::npos) return {};
     return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
 }
-std::string lower_text(std::string value) {
-    for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-    return value;
-}
 std::string join_text(const std::vector<std::string>& values, const std::string& separator) {
     std::string result;
     for (const auto& value : values) {
@@ -75,50 +71,13 @@ std::string join_text(const std::vector<std::string>& values, const std::string&
     }
     return result;
 }
-struct DependencySpec {
-    std::string raw;
-    std::string bucket;
-    std::string name;
-    std::string version;
-};
-DependencySpec parse_dependency_spec(const std::string& raw) {
-    DependencySpec spec;
-    spec.raw = trim_text(raw);
-    auto value = spec.raw;
-    if (const auto at = value.find('@'); at != std::string::npos) {
-        spec.version = value.substr(at+1);
-        value.resize(at);
-    }
-    const auto slash = value.find('/');
-    if (slash != std::string::npos) {
-        if (slash == 0) throw std::runtime_error("Invalid dependency name: "+spec.raw);
-        spec.bucket = value.substr(0,slash);
-        spec.name = value.substr(slash+1);
-    } else {
-        spec.name = value;
-    }
-    if (spec.name.empty()) throw std::runtime_error("Invalid dependency name: "+spec.raw);
-    validate_component(spec.name);
-    if (!spec.bucket.empty()) validate_component(spec.bucket);
-    return spec;
-}
-std::optional<std::vector<std::string>> manifest_dependencies(const Json& manifest, std::string& problem) {
-    if (!manifest.is_object()) { problem = "Manifest is not an object"; return std::nullopt; }
-    if (!manifest.contains("depends") || manifest.at("depends").is_null()) return std::vector<std::string>{};
-    const auto& depends = manifest.at("depends");
-    if (depends.is_string()) return std::vector<std::string>{depends.get<std::string>()};
-    if (!depends.is_array()) { problem = "depends must be a string or string array"; return std::nullopt; }
-    std::vector<std::string> result;
-    for (const auto& item : depends) {
-        if (!item.is_string()) { problem = "depends contains a non-string value"; return std::nullopt; }
-        result.push_back(item.get<std::string>());
-    }
-    return result;
-}
 std::string item_text(const Json& item, const char* key) {
     return item.contains(key) && item.at(key).is_string() ? item.at(key).get<std::string>() : std::string{};
 }
-bool read_dependent_dependencies(const Context& context, const Json& item, std::vector<std::string>& dependencies, std::string& problem) {
+// Saved dependent manifests are read through the IR adapter, so reverse-dependency evidence uses
+// the same normalized identity as forward dependency planning. Coop's own record is only a fallback
+// when the shared manifest is missing or unreadable.
+bool read_dependent_dependencies(const Context& context, const Json& item, std::vector<ir::Dependency>& dependencies, std::string& problem) {
     const auto name = item_text(item,"name");
     const auto scope = item_text(item,"scope");
     fs::path root = context.root;
@@ -128,17 +87,28 @@ bool read_dependent_dependencies(const Context& context, const Json& item, std::
     }
     const auto current = root/L"apps"/wide(name)/L"current";
     try {
-        const auto manifest = read_json(installed_record(current,L"manifest"));
-        if (const auto declared = manifest_dependencies(manifest,problem)) { dependencies = *declared; return true; }
+        const auto manifest = installed_record(current,L"manifest");
+        const auto architecture = item_text(item,"architecture").empty() ? std::string("64bit") : item_text(item,"architecture");
+        const auto definition = ir::adapt_manifest(manifest,name,item_text(item,"bucket"),architecture);
+        for (const auto& diagnostic : definition.diagnostics)
+            if (diagnostic.code == "manifest-json" || diagnostic.code == "manifest-shape") {
+                problem = diagnostic.message;
+                throw std::runtime_error(diagnostic.message);
+            }
+        dependencies = definition.dependencies;
+        return true;
     } catch (const std::exception& error) { problem = error.what(); }
     if (scope == "user") {
         try {
             const auto record = read_json(context.root/L".coop"/L"packages"/(wide(name)+L".json"));
             if (record.contains("dependencies") && record.at("dependencies").is_array()) {
-                std::vector<std::string> saved;
+                std::vector<ir::Dependency> saved;
                 for (const auto& entry : record.at("dependencies")) {
                     if (!entry.is_string()) throw std::runtime_error("Managed dependency record contains a non-string value");
-                    saved.push_back(entry.get<std::string>());
+                    ir::Dependency dependency;
+                    dependency.source = entry.get<std::string>();
+                    dependency.name = dependency_package_name(dependency.source);
+                    saved.push_back(std::move(dependency));
                 }
                 dependencies = std::move(saved);
                 return true;
@@ -160,15 +130,14 @@ void collect_reverse_dependencies(const Context& context, Plan& plan) {
             root = *context.global_root;
         }
         if (!fs::is_directory(root/L"apps"/wide(name)/L"current")) continue;
-        std::vector<std::string> dependencies;
+        std::vector<ir::Dependency> dependencies;
         std::string problem;
         if (!read_dependent_dependencies(context,item,dependencies,problem)) {
             unverified.insert(scope+"/"+name);
             continue;
         }
         for (const auto& dependency : dependencies) {
-            const auto dependency_name = dependency_package_name(dependency);
-            if (!dependency_name.empty() && equal_name(dependency_name,plan.package.name)) {
+            if (!dependency.name.empty() && equal_name(dependency.name,plan.package.name)) {
                 blocking.insert(name);
                 break;
             }
@@ -183,178 +152,35 @@ void collect_reverse_dependencies(const Context& context, Plan& plan) {
         plan.diagnostics.push_back({DiagnosticKind::verification,"dependency-evidence-incomplete",
             "Saved dependency evidence cannot be read for: "+join_text(plan.unverified_dependents,", ")+"; missing evidence does not prove that no package depends on this one"});
 }
-class DependencyResolver {
-public:
-    DependencyResolver(const Context& context, std::string architecture, bool require_installed = false)
-        : architecture_(architecture.empty() ? std::string("64bit") : std::move(architecture)), require_installed_(require_installed),
-          installed_(installed_packages(context)), catalog_(catalog(context)) {
-        for (std::size_t index = 0; index < installed_.size(); ++index) {
-            const auto& item = installed_[index];
-            if (item_text(item,"scope") != "user") continue;
-            const auto name = item_text(item,"name");
-            if (name.empty() || !fs::is_directory(context.root/L"apps"/wide(name)/L"current")) continue;
-            installed_by_name_[lower_text(name)] = index;
-        }
-        for (const auto& item : catalog_) {
-            const auto name = item_text(item,"name");
-            if (name.empty()) continue;
-            catalog_by_name_[lower_text(name)].emplace_back(item_text(item,"bucket"),fs::path(wide(item_text(item,"path"))));
-        }
-    }
-    std::vector<DependencyItem> resolve_request(const std::string& request) {
-        try {
-            resolve_spec(parse_dependency_spec(request),"",true);
-        } catch (const std::exception& error) {
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-invalid",error.what()});
-        }
-        return order_;
-    }
-    std::vector<DependencyItem> resolve_declared(const Package& package) {
-        for (const auto& dependency : package.dependencies) {
-            try {
-                const auto spec = parse_dependency_spec(dependency);
-                if (!spec.version.empty()) {
-                    diagnostics_.push_back({DiagnosticKind::adapter,"dependency-version","Version-constrained dependency is not supported: "+spec.raw});
-                    continue;
-                }
-                resolve_spec(spec,package.name,false);
-            } catch (const std::exception& error) {
-                diagnostics_.push_back({DiagnosticKind::validation,"dependency-invalid",error.what()});
+// The IR planner resolves the package graph. This adapter supplies local catalog identity and
+// normalized package IR; it does not decide order, cycles or source conflicts itself.
+ir::DependencyResolution resolve_package_dependencies(const Context& context, const Package& package,
+                                                      bool require_installed) {
+    if (!package.definition) return {};
+    const auto index = catalog(context);
+    ir::DependencySource source;
+    source.buckets = [index](const std::string& name) {
+        std::vector<std::string> buckets;
+        for (const auto& item : index)
+            if (equal_name(item_text(item,"name"),name)) buckets.push_back(item_text(item,"bucket"));
+        return buckets;
+    };
+    source.load = [index,architecture = package.architecture](const std::string& bucket, const std::string& name) {
+        for (const auto& item : index)
+            if (equal_name(item_text(item,"name"),name) && equal_name(item_text(item,"bucket"),bucket)) {
+                auto definition = ir::adapt_manifest(fs::path(wide(item_text(item,"path"))),name,bucket,
+                    architecture.empty() ? std::string("64bit") : architecture);
+                ir::validate(definition);
+                return definition;
             }
-        }
-        return order_;
-    }
-    const std::vector<Diagnostic>& diagnostics() const { return diagnostics_; }
-private:
-    bool claim_name(const DependencySpec& spec, const std::string& key) {
-        const auto name_key = lower_text(spec.name);
-        const auto found = names_.find(name_key);
-        if (found != names_.end() && found->second != key) {
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-conflict",
-                "Dependency '"+spec.raw+"' resolves to multiple sources: "+found->second+" and "+key});
-            return false;
-        }
-        names_[name_key] = key;
-        return true;
-    }
-    bool resolve_spec(const DependencySpec& spec, const std::string& required_by, bool root) {
-        if (!root && !spec.version.empty()) {
-            diagnostics_.push_back({DiagnosticKind::adapter,"dependency-version","Version-constrained dependency is not supported: "+spec.raw});
-            return false;
-        }
-        const auto name_key = lower_text(spec.name);
-        if (const auto found = installed_by_name_.find(name_key); found != installed_by_name_.end()) {
-            const auto& item = installed_[found->second];
-            const auto installed_bucket = item_text(item,"bucket");
-            if (!spec.bucket.empty() && !installed_bucket.empty() && !equal_name(spec.bucket,installed_bucket)) {
-                diagnostics_.push_back({DiagnosticKind::environment,"dependency-bucket-conflict",
-                    "Dependency '"+spec.raw+"' is installed from bucket '"+installed_bucket+"' instead of '"+spec.bucket+"'"});
-                return false;
-            }
-            const auto bucket = installed_bucket.empty() ? spec.bucket : installed_bucket;
-            const auto key = lower_text(bucket+"/"+item_text(item,"name"));
-            if (!claim_name(spec,key)) return false;
-            if (done_.contains(key)) return true;
-            done_.insert(key);
-            DependencyItem resolved;
-            resolved.request = bucket.empty() ? item_text(item,"name") : bucket+"/"+item_text(item,"name");
-            resolved.name = item_text(item,"name");
-            resolved.bucket = bucket;
-            resolved.version = item_text(item,"version");
-            resolved.installed = true;
-            order_.push_back(std::move(resolved));
-            return true;
-        }
-        const auto matches_it = catalog_by_name_.find(name_key);
-        if (require_installed_) {
-            diagnostics_.push_back({DiagnosticKind::environment,"dependency-missing",
-                "Declared dependency '"+spec.raw+"' is not installed"});
-            return false;
-        }
-        if (matches_it == catalog_by_name_.end()) {
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-missing",
-                "Dependency '"+spec.raw+"' required by '"+(required_by.empty()?std::string("the requested package"):required_by)+"' is not available in local buckets"});
-            return false;
-        }
-        std::vector<const std::pair<std::string,fs::path>*> matches;
-        for (const auto& candidate : matches_it->second)
-            if (spec.bucket.empty() || equal_name(spec.bucket,candidate.first)) matches.push_back(&candidate);
-        if (matches.empty()) {
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-missing",
-                "Dependency '"+spec.raw+"' required by '"+(required_by.empty()?std::string("the requested package"):required_by)+"' is not available in the selected bucket"});
-            return false;
-        }
-        if (matches.size() > 1) {
-            std::vector<std::string> buckets;
-            for (const auto* match : matches) buckets.push_back(match->first);
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-ambiguous",
-                "Dependency '"+spec.raw+"' matches multiple buckets ("+join_text(buckets,", ")+"); qualify it as bucket/name"});
-            return false;
-        }
-        const auto& [bucket,path] = *matches.front();
-        const auto key = lower_text(bucket+"/"+spec.name);
-        if (done_.contains(key)) return true;
-        if (std::find(stack_.begin(),stack_.end(),key) != stack_.end()) {
-            auto chain = stack_;
-            chain.push_back(key);
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-cycle","Circular dependency detected: "+join_text(chain," -> ")});
-            return false;
-        }
-        if (!claim_name(spec,key)) return false;
-        Package package;
-        try {
-            package = parse_package(path,spec.name,bucket,architecture_);
-        } catch (const std::exception& error) {
-            diagnostics_.push_back({DiagnosticKind::validation,"dependency-invalid","Dependency '"+spec.raw+"' cannot be read: "+error.what()});
-            return false;
-        }
-        if (!root) {
-            const auto blocker = package_execution_blocker(package);
-            if (!blocker.empty()) {
-                diagnostics_.push_back({DiagnosticKind::capability,"dependency-unsupported","Dependency '"+spec.raw+"' cannot be installed: "+blocker});
-                return false;
-            }
-        }
-        stack_.push_back(key);
-        bool ok = true;
-        for (const auto& dependency : package.dependencies) {
-            try {
-                const auto child = parse_dependency_spec(dependency);
-                if (!child.version.empty()) {
-                    diagnostics_.push_back({DiagnosticKind::adapter,"dependency-version","Version-constrained dependency is not supported: "+child.raw});
-                    ok = false;
-                    continue;
-                }
-                if (!resolve_spec(child,package.name,false)) ok = false;
-            } catch (const std::exception& error) {
-                diagnostics_.push_back({DiagnosticKind::validation,"dependency-invalid",error.what()});
-                ok = false;
-            }
-        }
-        stack_.pop_back();
-        if (!ok) return false;
-        done_.insert(key);
-        DependencyItem resolved;
-        resolved.request = bucket+"/"+spec.name;
-        resolved.name = spec.name;
-        resolved.bucket = bucket;
-        resolved.version = package.version;
-        resolved.dependencies = package.dependencies;
-        order_.push_back(std::move(resolved));
-        return true;
-    }
-    std::string architecture_;
-    bool require_installed_ = false;
-    Json installed_;
-    Json catalog_;
-    std::map<std::string,std::size_t> installed_by_name_;
-    std::map<std::string,std::vector<std::pair<std::string,fs::path>>> catalog_by_name_;
-    std::map<std::string,std::string> names_;
-    std::set<std::string> done_;
-    std::vector<std::string> stack_;
-    std::vector<DependencyItem> order_;
-    std::vector<Diagnostic> diagnostics_;
-};
+        throw std::runtime_error("Package not found in local buckets");
+    };
+    const ir::DependencyBlocker blocker = [](const ir::Package& definition) {
+        return package_execution_blocker(project_package(definition));
+    };
+    return ir::resolve_dependencies(*package.definition,ir::read_installations(context.root),require_installed,
+        source,blocker);
+}
 StepKind legacy_step(ir::Operation operation) {
     switch (operation) {
     case ir::Operation::download: return StepKind::download;
@@ -451,24 +277,9 @@ std::string dependency_package_name(const std::string& specified) {
     if (const auto slash = value.find('/'); slash != std::string::npos) value.erase(0,slash+1);
     return value;
 }
-bool dependency_is_installed(const Context& context, const std::string& specified) {
-    const auto name = dependency_package_name(specified);
-    if (name.empty()) return false;
-    const auto current = context.root/L"apps"/wide(name)/L"current";
-    if (!fs::is_directory(current)) return false;
-    auto bucket = trim_text(specified);
-    if (const auto at = bucket.find('@'); at != std::string::npos) bucket.resize(at);
-    if (const auto slash = bucket.find('/'); slash != std::string::npos) bucket.resize(slash);
-    else bucket.clear();
-    if (bucket.empty()) return true;
-    try {
-        const auto install = read_json(installed_record(current,L"install"));
-        const auto installed_bucket = item_text(install,"bucket");
-        return installed_bucket.empty() || equal_name(bucket,installed_bucket);
-    } catch (const std::exception&) { return false; }
-}
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
-    Plan plan{action,{},std::nullopt,{},{},{},false,{},std::nullopt,std::nullopt,{}};
+    Plan plan;
+    plan.action = action;
     auto name = request;
     std::string bucket, version;
     const auto at = name.find('@');
@@ -523,6 +334,23 @@ Plan make_plan(const Context& context, Action action, const std::string& request
                     plan.diagnostics.push_back({diagnostic.kind,"future-update-"+diagnostic.code,diagnostic.message});
                 break;
             }
+        }
+    }
+    if (action == Action::install || action == Action::update || action == Action::adopt) {
+        // The IR planner resolves the declared dependency graph once. The plan carries the ordered
+        // result, so preview, execution and the saved evidence cannot disagree about it.
+        auto resolution = resolve_package_dependencies(context,plan.package,action != Action::install);
+        plan.dependencies = std::move(resolution.dependencies);
+        for (const auto& diagnostic : resolution.diagnostics)
+            plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
+        for (const auto& dependency : plan.dependencies) {
+            if (dependency.installed) continue;
+            plan.preconditions.push_back({fs::path(wide(dependency.package.manifest_path)),dependency.package.manifest_digest});
+            // A dependency whose own IR has unresolved problems must not make the root plan look
+            // executable. Execution refuses that dependency's plan, so preview reports the same
+            // diagnostics at the parent level.
+            for (const auto& diagnostic : dependency.diagnostics)
+                plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
         }
     }
     if (action == Action::install) append_ir_plan(plan,ir::Action::install,true);
@@ -608,11 +436,45 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["blocking_dependents"] = plan.blocking_dependents;
     result["unverified_dependents"] = plan.unverified_dependents;
     result["dependency_order"] = Json::array();
-    for (const auto& item : plan.dependency_order)
-        result["dependency_order"].push_back({{"package",item.name},{"request",item.request},{"bucket",item.bucket},
-            {"version",item.version},{"installed",item.installed},{"status",item.installed ? "satisfied" : "planned"},
-            {"dependencies",item.dependencies}});
-    result["planned_dependencies"] = plan.planned_dependencies;
+    const auto steps_json = [](const std::vector<ir::Step>& steps) {
+        Json result = Json::array();
+        for (const auto& step : steps)
+            result.push_back({{"operation",ir::operation_name(step.operation)},{"index",step.index},
+                {"previous_package",step.previous},{"effect",step.effect}});
+        return result;
+    };
+    const auto declared_json = [](const std::vector<ir::Dependency>& dependencies) {
+        Json result = Json::array();
+        for (const auto& dependency : dependencies) result.push_back(dependency.source);
+        return result;
+    };
+    for (const auto& item : plan.dependencies) {
+        Json dependency = {{"package",item.name},{"request",item.request},{"bucket",item.bucket},{"version",item.version},
+            {"installed",item.installed},{"status",item.installed ? "satisfied" : "planned"},
+            {"dependencies",declared_json(item.package.dependencies)},{"ir_operations",steps_json(item.steps)},
+            {"diagnostics",Json::array()}};
+        if (item.installed) dependency["installed_version"] = item.installed_version;
+        if (item.installed) dependency["installed_bucket"] = item.installed_bucket;
+        for (const auto& diagnostic : item.diagnostics)
+            dependency["diagnostics"].push_back({{"layer",ir::layer_name(diagnostic.layer)},{"code",diagnostic.code},{"message",diagnostic.message}});
+        result["dependency_order"].push_back(std::move(dependency));
+    }
+    // Installation previews keep the historical shape where the requested package appears last in
+    // dependency_order. It is reported from the same plan and its own IR steps, not re-derived.
+    if (action == Action::install) {
+        Json requested = {{"package",plan.package.name},
+            {"request",plan.package.bucket.empty() ? plan.package.name : plan.package.bucket+"/"+plan.package.name},
+            {"bucket",plan.package.bucket},{"version",plan.package.version},{"installed",plan.local.exists},
+            {"status",plan.local.exists ? "satisfied" : "planned"},{"requested",true},
+            {"dependencies",declared_json(plan.package.definition ? plan.package.definition->dependencies : std::vector<ir::Dependency>{})},
+            {"ir_operations",steps_json(plan.ir_steps)},{"diagnostics",Json::array()}};
+        result["dependency_order"].push_back(std::move(requested));
+    }
+    Json planned = Json::array();
+    for (const auto& item : plan.dependencies)
+        if (!item.installed) planned.push_back(item.name);
+    if (action == Action::install && !plan.local.exists) planned.push_back(plan.package.name);
+    result["planned_dependencies"] = std::move(planned);
     const fs::path exposure_base = (action == Action::install || action == Action::update)
         ? context.root/L"apps"/wide(plan.package.name)/L"current"
         : action == Action::adopt ? plan.local.current : plan.local.directory;
@@ -705,25 +567,13 @@ struct PackageOutcome {
 std::string first_diagnostic(const std::vector<Diagnostic>& diagnostics) {
     return diagnostics.empty() ? std::string{} : diagnostics.front().message;
 }
-std::string diagnostics_text(const std::vector<Diagnostic>& diagnostics) {
-    std::vector<std::string> messages;
-    for (const auto& item : diagnostics) messages.push_back(item.message);
-    return join_text(messages,"; ");
-}
 void print_json(const Json& value) {
     std::cout << value.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
 }
 PackageOutcome install_preview(const Context& context, const std::string& request, const std::string& architecture) {
     PackageOutcome outcome;
-    DependencyResolver resolver(context,architecture);
-    auto order = resolver.resolve_request(request);
     try {
         auto plan = make_plan(context,Action::install,request,architecture);
-        plan.dependency_order = std::move(order);
-        for (const auto& item : plan.dependency_order)
-            if (!item.installed) plan.planned_dependencies.push_back(item.name);
-        plan.diagnostics.insert(plan.diagnostics.end(),resolver.diagnostics().begin(),resolver.diagnostics().end());
-        plan.execution_available = execution_blocker(context,plan).empty();
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
         outcome.reason = first_diagnostic(plan.diagnostics);
@@ -736,71 +586,70 @@ PackageOutcome install_preview(const Context& context, const std::string& reques
     }
     return outcome;
 }
-PackageOutcome install_execute(const Context& context, const std::string& request, const std::string& architecture) {
+// Build the execution plan for one resolved dependency from the parent plan. The dependency's IR
+// steps are already the ones the preview displayed; this only binds the current paths and the
+// parent's resolved order as its precondition context.
+Plan dependency_execution_plan(const Context& context, const ir::DependencyPlan& item,
+                               const std::vector<ir::DependencyPlan>& order) {
+    Plan plan;
+    plan.action = Action::install;
+    plan.package = project_package(item.package);
+    plan.dependencies = order;
+    plan.local.current = context.root/L"apps"/wide(item.name)/L"current";
+    plan.ir_steps = item.steps;
+    for (const auto& step : item.steps)
+        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous,step.effect});
+    plan.preconditions.push_back({plan.package.manifest_path,plan.package.manifest_sha256});
+    for (const auto& diagnostic : item.diagnostics)
+        plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
+    plan.execution_available = execution_blocker(context,plan).empty();
+    return plan;
+}
+PackageOutcome install_execute_plan(const Context& context, const Plan& plan, const std::string& request) {
     PackageOutcome outcome;
-    DependencyResolver resolver(context,architecture);
-    const auto order = resolver.resolve_request(request);
-    if (!resolver.diagnostics().empty()) {
-        outcome.failed = true;
-        outcome.status = "failed";
-        outcome.reason = diagnostics_text(resolver.diagnostics());
-        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",outcome.reason}};
-        return outcome;
-    }
     Json packages = Json::array();
     Json root_result;
-    try {
-        auto root_plan = make_plan(context,Action::install,request,architecture);
-        for (const auto& item : order) if (!item.installed) root_plan.planned_dependencies.push_back(item.name);
-        const auto blocker = execution_blocker(context,root_plan);
-        if (!blocker.empty()) {
-            outcome.failed = true;
-            outcome.status = "failed";
-            outcome.reason = blocker;
-            outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",blocker}};
-            return outcome;
-        }
-    } catch (const std::exception& error) {
+    const auto blocker = execution_blocker(context,plan);
+    if (!blocker.empty()) {
         outcome.failed = true;
         outcome.status = "failed";
-        outcome.reason = error.what();
-        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",error.what()}};
+        outcome.reason = blocker;
+        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",blocker}};
         return outcome;
     }
-    for (std::size_t index = 0; index < order.size(); ++index) {
-        const auto& item = order[index];
-        const bool requested = index + 1 == order.size();
+    for (const auto& item : plan.dependencies) {
         if (item.installed) {
-            if (requested) {
-                outcome.failed = true;
-                outcome.status = "failed";
-                outcome.reason = "Package already exists; use adoption or update";
-                packages.push_back({{"package",item.name},{"bucket",item.bucket},{"version",item.version},
-                    {"status","failed"},{"reason",outcome.reason},{"requested",true}});
-                break;
-            }
             packages.push_back({{"package",item.name},{"bucket",item.bucket},{"version",item.version},
                 {"status","skipped"},{"reason","already-installed"},{"requested",false}});
             continue;
         }
         try {
-            const auto package_request = requested ? request : item.bucket+"/"+item.name;
-            const auto plan = make_plan(context,Action::install,package_request,architecture);
-            auto result = execute_plan_result(context,plan);
-            result["requested"] = requested;
+            auto result = execute_plan_result(context,dependency_execution_plan(context,item,plan.dependencies));
+            result["requested"] = false;
             packages.push_back(result);
-            if (requested) root_result = result;
         } catch (const std::exception& error) {
             outcome.failed = true;
             outcome.status = "failed";
             outcome.reason = error.what();
             packages.push_back({{"package",item.name},{"bucket",item.bucket},{"version",item.version},
-                {"status","failed"},{"reason",error.what()},{"requested",requested}});
+                {"status","failed"},{"reason",error.what()},{"requested",false}});
             break;
         }
     }
+    if (!outcome.failed) try {
+        auto result = execute_plan_result(context,plan);
+        result["requested"] = true;
+        packages.push_back(result);
+        root_result = result;
+    } catch (const std::exception& error) {
+        outcome.failed = true;
+        outcome.status = "failed";
+        outcome.reason = error.what();
+        packages.push_back({{"package",plan.package.name},{"bucket",plan.package.bucket},{"version",plan.package.version},
+            {"status","failed"},{"reason",error.what()},{"requested",true}});
+    }
     if (root_result.is_null() || root_result.empty()) {
-        root_result = Json{{"package",order.empty() ? request : order.back().name},{"action","install"},
+        root_result = Json{{"package",plan.package.name},{"action","install"},
             {"status",outcome.failed ? "failed" : "success"}};
         if (outcome.failed && !outcome.reason.empty()) root_result["reason"] = outcome.reason;
     }
@@ -810,16 +659,19 @@ PackageOutcome install_execute(const Context& context, const std::string& reques
     outcome.value = root_result;
     return outcome;
 }
-Plan prepared_simple_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
-    auto plan = make_plan(context,action,request,architecture);
-    if (action == Action::update) {
-        const auto target_architecture = plan.package.architecture.empty() ? (architecture.empty() ? std::string("64bit") : architecture) : plan.package.architecture;
-        DependencyResolver resolver(context,target_architecture,true);
-        plan.dependency_order = resolver.resolve_declared(plan.package);
-        plan.diagnostics.insert(plan.diagnostics.end(),resolver.diagnostics().begin(),resolver.diagnostics().end());
-        plan.execution_available = execution_blocker(context,plan).empty();
+PackageOutcome install_execute(const Context& context, const std::string& request, const std::string& architecture) {
+    PackageOutcome outcome;
+    try { return install_execute_plan(context,make_plan(context,Action::install,request,architecture),request); }
+    catch (const std::exception& error) {
+        outcome.failed = true;
+        outcome.status = "failed";
+        outcome.reason = error.what();
+        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",error.what()}};
+        return outcome;
     }
-    return plan;
+}
+Plan prepared_simple_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
+    return make_plan(context,action,request,architecture);
 }
 PackageOutcome simple_preview(const Context& context, Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
@@ -878,11 +730,11 @@ int install_single(const Context& context, const std::string& request, const std
         print_json(outcome.value);
         return outcome.failed ? 1 : 0;
     }
-    DependencyResolver resolver(context,architecture);
-    const auto order = resolver.resolve_request(request);
-    if (!resolver.diagnostics().empty()) throw std::runtime_error(diagnostics_text(resolver.diagnostics()));
-    if (order.size() <= 1) return execute_plan(context,make_plan(context,Action::install,request,architecture));
-    const auto outcome = install_execute(context,request,architecture);
+    auto plan = make_plan(context,Action::install,request,architecture);
+    const auto blocker = execution_blocker(context,plan);
+    if (!blocker.empty()) throw std::runtime_error(blocker);
+    if (plan.dependencies.empty()) return execute_plan(context,plan);
+    const auto outcome = install_execute_plan(context,plan,request);
     if (context.json_output) print_json(outcome.value);
     else {
         for (const auto& item : outcome.value.at("packages"))

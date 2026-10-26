@@ -271,14 +271,25 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
             }
         }
         for (const auto& dependency : strings(pick("depends"),"depends")) {
-            const auto slash = dependency.find('/');
-            if (slash != std::string::npos) validate_component(dependency.substr(0,slash));
-            validate_component(dependency.substr(slash == std::string::npos ? 0 : slash+1));
-            const auto at = dependency.find('@');
             Dependency resolved;
             resolved.source = dependency;
-            resolved.name = dependency.substr(0,at);
-            resolved.version = at == std::string::npos ? std::string{} : dependency.substr(at+1);
+            auto identity = dependency;
+            if (const auto at = identity.find('@'); at != std::string::npos) {
+                resolved.version = identity.substr(at+1);
+                identity.resize(at);
+            }
+            if (const auto slash = identity.find('/'); slash != std::string::npos) {
+                resolved.bucket = identity.substr(0,slash);
+                resolved.name = identity.substr(slash+1);
+            } else {
+                resolved.name = identity;
+            }
+            if (resolved.name.empty() || (!resolved.bucket.empty() && resolved.bucket.find('/') != std::string::npos))
+                throw std::runtime_error("Invalid dependency name: "+dependency);
+            validate_component(resolved.name);
+            if (!resolved.bucket.empty()) validate_component(resolved.bucket);
+            if (resolved.version.find('/') != std::string::npos)
+                throw std::runtime_error("Invalid dependency version: "+dependency);
             package.dependencies.push_back(std::move(resolved));
         }
         for (const auto& entry : strings(pick("env_add_path"),"env_add_path")) {

@@ -1,5 +1,6 @@
 #pragma once
 #include "app.hpp"
+#include <functional>
 #include <optional>
 
 // Package IR: the normalized contract between a package source adapter, the IR validator, the
@@ -54,7 +55,10 @@ const char* hook_stage_name(HookStage stage);
 struct Hook { HookStage stage; std::string text; std::string declared_by; };
 
 struct InstallerProgram { std::string file; std::vector<std::string> arguments; bool keep = false; };
-struct Dependency { std::string source; std::string name; std::string version; };
+// Dependencies keep the source spelling as evidence and separate the identity the planner
+// resolves. The bucket qualifier and version constraint are source semantics translated once by
+// the adapter, never re-parsed from the raw string by the planner or executor.
+struct Dependency { std::string source; std::string name; std::string bucket; std::string version; };
 
 // Capability entries state what the IR requires from the product independently of any execution
 // path, so preview and query can report gaps without each caller re-deriving them.
@@ -112,12 +116,47 @@ const char* operation_name(Operation operation);
 // what the execution backend consumes, so preview and execution cannot drift apart.
 struct Step { Operation operation; std::size_t index = 0; bool previous = false; std::string effect; };
 
+// A resolved dependency. An installed dependency is reused from shared Scoop state; an
+// uninstalled one carries its own normalized package and operation sequence. The planner's order
+// is topological, so every child appears before the package that declares it.
+struct DependencyPlan {
+    std::string request;
+    std::string name;
+    std::string bucket;
+    std::string version;
+    bool installed = false;
+    std::string installed_version;
+    std::string installed_bucket;
+    Package package;
+    std::vector<Step> steps;
+    std::vector<Diagnostic> diagnostics;
+};
+
 struct Plan {
     Action action = Action::install;
     Package package;
     std::optional<Package> previous;
     std::vector<Step> steps;
+    // Dependencies are separate package plans, not nested operations of this package. The order is
+    // still part of this plan so preview and execution consume the same resolved sequence.
+    std::vector<DependencyPlan> dependencies;
 };
+
+struct DependencyResolution {
+    std::vector<DependencyPlan> dependencies;
+    std::vector<Diagnostic> diagnostics;
+};
+
+// The planner reads candidates through these callbacks so it owns dependency identity, ordering,
+// cycles, ambiguity and source conflicts without reading Scoop JSON itself.
+struct DependencySource {
+    std::function<std::vector<std::string>(const std::string& name)> buckets;
+    std::function<Package(const std::string& bucket, const std::string& name)> load;
+};
+using DependencyBlocker = std::function<std::string(const Package&)>;
+DependencyResolution resolve_dependencies(const Package& package, const std::vector<InstalledFact>& installed,
+                                          bool require_installed, const DependencySource& source,
+                                          const DependencyBlocker& blocker = {});
 
 // Source adapter: Scoop manifest JSON -> normalized IR. It only normalizes meaning; it never
 // downloads, extracts, runs scripts or writes state.

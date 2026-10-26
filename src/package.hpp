@@ -61,14 +61,6 @@ struct LocalFacts { fs::path current; fs::path directory; bool exists = false; }
 enum class AdoptionEligibility { eligible, already_managed, unsupported, untested, inconsistent };
 struct LegacyCommand { std::string name; FilePrecondition executable; FilePrecondition metadata; };
 struct LegacyShortcut { std::string name; fs::path path; std::string sha256; };
-struct DependencyItem {
-    std::string request;
-    std::string name;
-    std::string bucket;
-    std::string version;
-    bool installed = false;
-    std::vector<std::string> dependencies;
-};
 struct AdoptionAssessment {
     AdoptionEligibility eligibility = AdoptionEligibility::untested;
     std::vector<LegacyCommand> commands;
@@ -88,8 +80,9 @@ struct Plan {
     std::optional<AdoptionAssessment> adoption;
     std::vector<std::string> blocking_dependents;
     std::vector<std::string> unverified_dependents;
-    std::vector<DependencyItem> dependency_order;
-    std::vector<std::string> planned_dependencies;
+    // Resolved dependency plans, in the order they must be executed. An installed dependency is
+    // reused; an uninstalled one carries its own IR operation sequence and package record.
+    std::vector<ir::DependencyPlan> dependencies;
     bool purge = false;
     // IR operations this plan was built from. Preview reports them verbatim and the execution
     // backend is migrated onto the same sequence instead of re-deriving package order.
@@ -106,9 +99,11 @@ std::string sha256_text(const std::string& value);
 bool equal_name(const std::string& a, const std::string& b);
 bool same_identity(const fs::path& a, const fs::path& b);
 std::string dependency_package_name(const std::string& specified);
-bool dependency_is_installed(const Context& context, const std::string& specified);
 Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
                       const std::string& architecture);
+// Project an already normalized IR package into the legacy execution record. This is a field
+// projection only; it does not read the Manifest or reinterpret source fields.
+Package project_package(const ir::Package& definition);
 Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture);
 void recheck_plan(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);

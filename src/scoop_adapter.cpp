@@ -85,6 +85,9 @@ Package project(const ir::Package& definition) {
     return package;
 }
 }
+Package project_package(const ir::Package& definition) {
+    return project(definition);
+}
 Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
                       const std::string& architecture) {
     auto definition = ir::adapt_manifest(path,name,bucket,architecture);

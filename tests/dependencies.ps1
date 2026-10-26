@@ -37,6 +37,9 @@ if ('cacert' -notin @($wget.package.dependencies)) { throw 'real Manifest depend
 $order = @($wget.dependency_order)
 if ($order.Count -ne 2 -or $order[0].package -ne 'cacert' -or $order[0].status -ne 'planned' -or
     $order[1].package -ne 'wget' -or $order[1].status -ne 'planned') { throw 'real dependency order is wrong' }
+foreach ($entry in $order) {
+    if (@($entry.ir_operations).Count -eq 0) { throw "planned dependency $($entry.package) has no IR operations" }
+}
 if (@($wget.diagnostics | Where-Object code -eq 'dependency-missing').Count) { throw 'available cacert dependency was reported missing' }
 if ((Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop")) { throw 'dependency preview changed product state' }
 $wgetInstall = & $CoopExe --root $root install main/wget --json 2>&1
@@ -50,6 +53,9 @@ Write-Manifest $root 'test' 'missing' '1' $fixture1 'missing.exe' 'ghost'
 Write-Manifest $root 'test' 'cyclea' '1' $fixture1 'cyclea.exe' 'cycleb'
 Write-Manifest $root 'test' 'cycleb' '1' $fixture2 'cycleb.exe' 'cyclea'
 Write-Manifest $root 'test' 'versiondep' '1' $fixture1 'versiondep.exe' 'base@1'
+Write-Manifest $root 'test' 'qualifiedversion' '1' $fixture1 'qualifiedversion.exe' 'test/base@1'
+Write-Manifest $root 'test' 'deep' '1' $fixture1 'deep.exe' 'base'
+Write-Manifest $root 'test' 'deeper' '1' $fixture2 'deeper.exe' 'deep'
 Write-Manifest $root 'test' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'other' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'test' 'amb' '1' $fixture1 'amb.exe' 'dup'
@@ -66,6 +72,11 @@ if (-not $leafPreview.execution_available) { throw 'preview did not consider pla
 $order = @($leafPreview.dependency_order)
 if ($order.Count -ne 2 -or $order[0].package -ne 'base' -or $order[1].package -ne 'leaf') { throw 'preview dependency order is wrong' }
 if ('base' -notin @($leafPreview.planned_dependencies) -or 'leaf' -notin @($leafPreview.planned_dependencies)) { throw 'preview omitted planned packages' }
+foreach ($entry in $order) {
+    if ($entry.status -ne 'planned' -or $entry.installed -ne $false -or @($entry.ir_operations).Count -eq 0) {
+        throw "dependency $($entry.package) has no planned IR operation sequence"
+    }
+}
 if ((Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop")) { throw 'dependency preview changed product state' }
 $install = & $CoopExe --root $root install leaf --json
 Assert-Exit "dependency install failed: $($install -join "`n")"
@@ -75,12 +86,25 @@ if ($result.status -ne 'success' -or $packages.Count -ne 2) { throw 'dependency 
 if ($packages[0].package -ne 'base' -or $packages[0].status -ne 'success' -or $packages[0].requested -ne $false) { throw 'dependency was not installed first' }
 if ($packages[1].package -ne 'leaf' -or $packages[1].status -ne 'success' -or $packages[1].requested -ne $true) { throw 'requested package result is wrong' }
 if ($result.transaction_scope -notlike 'per-package*') { throw 'dependency install claimed a global transaction' }
+for ($index = 0; $index -lt $packages.Count; $index++) {
+    $planned = @($leafPreview.dependency_order[$index].ir_operations | ForEach-Object { $_.operation })
+    $journal = Get-Content -LiteralPath $packages[$index].journal -Raw | ConvertFrom-Json
+    $observed = @($journal.observed_steps)
+    if (($planned -join ',') -ne ($observed -join ',')) { throw "dependency package $($packages[$index].package) did not execute its displayed plan: planned=$($planned -join ',') observed=$($observed -join ',')" }
+}
 Assert-Runs "$root/shims/base.exe" 'fixture 1'
 Assert-Runs "$root/shims/leaf.exe" 'fixture 2'
 $leafRecord = Get-Content -LiteralPath "$root/.coop/packages/leaf.json" -Raw | ConvertFrom-Json
 if ('base' -notin @($leafRecord.dependencies)) { throw 'management record omitted the declared dependency' }
 
 # An already installed dependency is skipped, not reinstalled, and the dependent still installs.
+$skipPreview = & $CoopExe --root $root install leaf2 --dry-run --json
+Assert-Exit 'install preview with an already installed dependency failed'
+$skipPlan = Read-Json $skipPreview
+if (@($skipPlan.dependency_order).Count -ne 2 -or $skipPlan.dependency_order[0].package -ne 'base' -or
+    $skipPlan.dependency_order[0].installed -ne $true -or $skipPlan.dependency_order[0].status -ne 'satisfied' -or
+    @($skipPlan.dependency_order[0].ir_operations).Count -ne 0 -or
+    $skipPlan.dependency_order[0].installed_version -ne '1') { throw 'installed dependency was not reused in the plan' }
 $skip = & $CoopExe --root $root install leaf2 --json
 Assert-Exit 'install with an already installed dependency failed'
 $skipResult = Read-Json $skip
@@ -89,6 +113,19 @@ if ($skipPackages.Count -ne 2 -or $skipPackages[0].package -ne 'base' -or $skipP
     $skipPackages[0].reason -ne 'already-installed' -or $skipPackages[1].status -ne 'success') { throw 'installed dependency was not reported as skipped' }
 Assert-Runs "$root/shims/base.exe" 'fixture 1'
 Assert-Runs "$root/shims/leaf2.exe" 'fixture 2'
+
+# A transitive dependency chain is resolved and ordered by the IR planner before any write.
+$deepPreview = & $CoopExe --root $root install deeper --dry-run --json
+Assert-Exit 'transitive dependency preview failed'
+$deepPlan = Read-Json $deepPreview
+$deepOrder = @($deepPlan.dependency_order)
+if ($deepOrder.Count -ne 3 -or $deepOrder[0].package -ne 'base' -or $deepOrder[0].installed -ne $true -or
+    $deepOrder[1].package -ne 'deep' -or $deepOrder[1].status -ne 'planned' -or @($deepOrder[1].ir_operations).Count -eq 0 -or
+    $deepOrder[2].package -ne 'deeper' -or $deepOrder[2].status -ne 'planned' -or @($deepOrder[2].ir_operations).Count -eq 0) {
+    throw 'transitive dependency order is wrong'
+}
+if ('deep' -notin @($deepPlan.planned_dependencies) -or 'deeper' -notin @($deepPlan.planned_dependencies)) { throw 'transitive preview omitted planned packages' }
+if ((Test-Path "$root/apps/deep") -or (Test-Path "$root/apps/deeper")) { throw 'transitive dependency preview wrote product state' }
 
 # A batch reports every requested package; a later failure does not roll back an earlier success.
 $batch = & $CoopExe --root $root install ind leaf --json
@@ -118,6 +155,8 @@ if ($LASTEXITCODE -eq 0 -or ($ambiguous -join "`n") -notmatch 'dependency-ambigu
     ($ambiguous -join "`n") -notmatch 'other' -or ($ambiguous -join "`n") -notmatch 'test') { throw 'ambiguous dependency was not reported with its buckets' }
 $versioned = & $CoopExe --root $root install versiondep --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($versioned -join "`n") -notmatch 'dependency-version') { throw 'version-constrained dependency was not refused explicitly' }
+$qualifiedVersioned = & $CoopExe --root $root install qualifiedversion --dry-run --json
+if ($LASTEXITCODE -eq 0 -or ($qualifiedVersioned -join "`n") -notmatch 'dependency-version' -or ($qualifiedVersioned -join "`n") -notmatch 'test/base@1') { throw 'bucket-qualified version-constrained dependency was not refused with its source' }
 $unsupported = & $CoopExe --root $root install needsscript --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($unsupported -join "`n") -notmatch 'dependency-unsupported' -or ($unsupported -join "`n") -notmatch 'script') { throw 'unsupported dependency was not refused with a capability diagnostic' }
 if (Test-Path "$root/apps/needsscript") { throw 'unsupported dependency preview wrote product state' }
@@ -135,6 +174,8 @@ $update = & $CoopExe --root $root update leaf --dry-run --json
 Assert-Exit 'update preview failed after restoring the dependency'
 $updatePlan = Read-Json $update
 if (@($updatePlan.dependency_order | Where-Object { $_.package -eq 'base' -and $_.status -eq 'satisfied' }).Count -ne 1) { throw 'update preview omitted the satisfied dependency' }
+$satisfied = @($updatePlan.dependency_order | Where-Object { $_.package -eq 'base' })[0]
+if ($satisfied.installed -ne $true -or @($satisfied.ir_operations).Count -ne 0 -or $satisfied.installed_version -ne '1') { throw 'update preview did not reuse the installed dependency from shared facts' }
 
 # Known dependents, including unadopted installations, block uninstall; unreadable evidence is not treated as no dependency.
 New-Item -ItemType Directory -Path "$root/apps/legacy/current" -Force | Out-Null

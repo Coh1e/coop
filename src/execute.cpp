@@ -374,14 +374,20 @@ std::string package_execution_blocker(const Package& package) {
 std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.action == Action::adopt) {
         if (plan.adoption && plan.adoption->eligibility == AdoptionEligibility::already_managed) return {};
-        for (const auto& dependency : plan.package.dependencies)
-            if (!dependency_is_installed(context,dependency))
-                return "Declared dependency is not installed: "+dependency;
+        for (const auto& dependency : plan.dependencies)
+            if (!dependency.installed)
+                return "Declared dependency is not installed: "+dependency.request;
         if (!plan.adoption || plan.adoption->eligibility != AdoptionEligibility::eligible)
             return "Package is not eligible for in-place adoption; inspect --dry-run";
         return {};
     }
     if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update) return "This action is not executable yet";
+    // Reverse dependency protection is the first reason an uninstall can be refused. Reporting it
+    // before unrelated lifecycle gaps keeps the user-facing failure about the dependent package.
+    if (plan.action == Action::uninstall) {
+        if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
+        if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
+    }
     try {
         require_capabilities(plan.package);
         if (plan.previous) require_capabilities(*plan.previous);
@@ -403,15 +409,18 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
             return std::string("Purge scope cannot be verified: ")+error.what();
         }
     }
-    if (plan.action == Action::install || plan.action == Action::update) {
-        for (const auto& dependency : plan.package.dependencies) {
-            const auto name = dependency_package_name(dependency);
-            const bool planned = std::any_of(plan.planned_dependencies.begin(),plan.planned_dependencies.end(),[&](const std::string& item) {
-                return equal_name(item,name) || equal_name(item,dependency);
-            });
-            if (!planned && !dependency_is_installed(context,dependency))
-                return "Declared dependency is not installed: "+dependency;
-        }
+    if (plan.action == Action::update) {
+        for (const auto& dependency : plan.dependencies)
+            if (!dependency.installed)
+                return "Declared dependency is not installed: "+dependency.request;
+    }
+    // Installs may carry planned dependencies; their own plans are executed before this package.
+    // A dependency that is neither installed nor planned cannot happen in a resolved plan, but a
+    // missing IR sequence would make that state silently acceptable, so refuse it explicitly.
+    if (plan.action == Action::install) {
+        for (const auto& dependency : plan.dependencies)
+            if (!dependency.installed && dependency.steps.empty())
+                return "Declared dependency has no executable plan: "+dependency.request;
     }
     if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
     if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
