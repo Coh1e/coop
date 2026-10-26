@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-26T21:26:49.0552694Z",
+  "generated_at": "2026-10-26T22:03:11.5685846Z",
   "project_head": {
-    "revision": "b7a20b4f910734520b0c304bf90e99326cc18c3b",
+    "revision": "8283e6a062f5044f8a180ede05634c0efca619c7",
     "reference": "refs/heads/main"
   },
   "coop": {
@@ -362,9 +362,9 @@
     },
     {
       "mechanism": "command.no-extension",
-      "manifests": 34,
-      "read_ok": 34,
-      "executable": 27,
+      "manifests": 8,
+      "read_ok": 8,
+      "executable": 1,
       "blocked": 7,
       "environment_installed": 0,
       "verified": 0,
@@ -726,9 +726,9 @@
     },
     {
       "mechanism": "command.exe",
-      "manifests": 2896,
-      "read_ok": 2896,
-      "executable": 2881,
+      "manifests": 2921,
+      "read_ok": 2921,
+      "executable": 2906,
       "blocked": 13,
       "environment_installed": 2,
       "verified": 13,
@@ -1080,9 +1080,9 @@
     },
     {
       "mechanism": "command.bat",
-      "manifests": 108,
-      "read_ok": 108,
-      "executable": 107,
+      "manifests": 109,
+      "read_ok": 109,
+      "executable": 108,
       "blocked": 1,
       "environment_installed": 0,
       "verified": 1,
@@ -1507,58 +1507,186 @@
     {
       "bucket": "main",
       "package": "7zip",
-      "recorded_version": "26.05",
-      "run_exit": 0,
+      "facts_version": "26.05",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\7zip\\run.log",
       "installed_manifest_sha256": "a500afa37c46fa04571566dacca691661fdfa5b1be777ef1f96e3eaf6b8c364f",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-26.03",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "26.05",
+          "scoop_version": "26.05",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\7zip\\26.05",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\scoop-reset"
+        },
+        {
+          "step": "switch-to-26.03",
+          "label": "coop-reset-old",
+          "coop_version": "26.03",
+          "scoop_version": "26.03",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\7zip\\26.03",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-26.03",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "26.03",
+          "scoop_version": "26.03",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\7zip\\26.03",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "26.05",
+          "scoop_version": "26.05",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\7zip\\26.05",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "26.05",
+          "scoop_version": "26.05",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\7zip\\26.05",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "26.05",
       "current_manifest_sha256": "a500afa37c46fa04571566dacca691661fdfa5b1be777ef1f96e3eaf6b8c364f",
       "current_version": "26.05",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\7zip\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "clink",
-      "recorded_version": "1.9.34",
-      "run_exit": 0,
+      "facts_version": "1.9.34",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\clink\\run.log",
       "installed_manifest_sha256": "f02d778868d89c1899b01975ab3f9a526940adf988b0e00af951b1f01e99e6d1",
       "lifecycle_steps": [
         "scoop-reset",
         "coop-real-update",
         "scoop-uninstall-then-coop-install"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "1.9.34",
+          "scoop_version": "1.9.34",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\clink\\1.9.34",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\scoop-reset"
+        },
+        {
+          "step": "coop-real-update",
+          "label": "coop-update",
+          "coop_version": "1.9.35",
+          "scoop_version": "1.9.35",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\clink\\1.9.35",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\coop-update"
+        },
+        {
+          "step": "coop-real-update",
+          "label": "coop-update-scoop",
+          "coop_version": "1.9.35",
+          "scoop_version": "1.9.35",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\clink\\1.9.35",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\coop-update-scoop"
+        },
+        {
+          "step": "scoop-uninstall-then-coop-install",
+          "label": "scoop-remove-reinstall",
+          "coop_version": "1.9.35",
+          "scoop_version": "1.9.35",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\clink\\1.9.35",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\scoop-remove-reinstall"
+        },
+        {
+          "step": "scoop-uninstall-then-coop-install",
+          "label": "scoop-remove-reinstall-scoop",
+          "coop_version": "1.9.35",
+          "scoop_version": "1.9.35",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\clink\\1.9.35",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\scoop-remove-reinstall-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "1.9.35",
       "current_manifest_sha256": "f02d778868d89c1899b01975ab3f9a526940adf988b0e00af951b1f01e99e6d1",
       "current_version": "1.9.35",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:coop-real-update/coop-update",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\clink\\coop-update",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "cmake",
-      "recorded_version": "4.4.4",
-      "run_exit": 0,
+      "facts_version": "4.4.4",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\cmake\\run.log",
       "installed_manifest_sha256": "44b801fc979c08ffc350bd403787afdc48a142f2d6a55c3ef5bb63ab5739f5a3",
       "lifecycle_steps": "scoop-reset",
+      "lifecycle_verifications": {
+        "step": "scoop-reset",
+        "label": "scoop-reset",
+        "coop_version": "4.4.4",
+        "scoop_version": "4.4.4",
+        "run_exit": 0,
+        "current_target": "C:\\Users\\Neo\\scoop\\apps\\cmake\\4.4.4",
+        "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\cmake\\scoop-reset"
+      },
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "4.4.4",
       "current_manifest_sha256": "44b801fc979c08ffc350bd403787afdc48a142f2d6a55c3ef5bb63ab5739f5a3",
       "current_version": "4.4.4",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\cmake\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "fastfetch",
-      "recorded_version": "2.70.0",
-      "run_exit": 0,
+      "facts_version": "2.70.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\fastfetch\\run.log",
       "installed_manifest_sha256": "f87a1aff98789c8a8a9834a88bdb27edb65ee0d65107ae53dfcca5bb5b12644e",
       "lifecycle_steps": [
         "scoop-reset",
@@ -1566,68 +1694,268 @@
         "switch-back-to-current",
         "coop-uninstall-then-install"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "2.70.0",
+          "scoop_version": "2.70.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.70.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\scoop-reset"
+        },
+        {
+          "step": "switch-to-2.68.1",
+          "label": "coop-reset-old",
+          "coop_version": "2.68.1",
+          "scoop_version": "2.68.1",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.68.1",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-2.68.1",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "2.68.1",
+          "scoop_version": "2.68.1",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.68.1",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "2.70.0",
+          "scoop_version": "2.70.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.70.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "2.70.0",
+          "scoop_version": "2.70.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.70.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reset-current-scoop"
+        },
+        {
+          "step": "coop-uninstall-then-install",
+          "label": "coop-reinstall",
+          "coop_version": "2.70.0",
+          "scoop_version": "2.70.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.70.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reinstall"
+        },
+        {
+          "step": "coop-uninstall-then-install",
+          "label": "coop-reinstall-scoop",
+          "coop_version": "2.70.0",
+          "scoop_version": "2.70.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fastfetch\\2.70.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\coop-reinstall-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "2.70.0",
       "current_manifest_sha256": "f87a1aff98789c8a8a9834a88bdb27edb65ee0d65107ae53dfcca5bb5b12644e",
       "current_version": "2.70.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fastfetch\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "fd",
-      "recorded_version": "10.5.0",
-      "run_exit": 0,
+      "facts_version": "10.5.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\fd\\run.log",
       "installed_manifest_sha256": "7f07892fefb984fe4f7de35f2cfd30746fc1945fb8eeca6355801ce0ac514609",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-10.4.2",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "10.5.0",
+          "scoop_version": "10.5.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fd\\10.5.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\scoop-reset"
+        },
+        {
+          "step": "switch-to-10.4.2",
+          "label": "coop-reset-old",
+          "coop_version": "10.4.2",
+          "scoop_version": "10.4.2",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fd\\10.4.2",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-10.4.2",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "10.4.2",
+          "scoop_version": "10.4.2",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fd\\10.4.2",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "10.5.0",
+          "scoop_version": "10.5.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fd\\10.5.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "10.5.0",
+          "scoop_version": "10.5.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fd\\10.5.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "10.5.0",
       "current_manifest_sha256": "7f07892fefb984fe4f7de35f2cfd30746fc1945fb8eeca6355801ce0ac514609",
       "current_version": "10.5.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fd\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "fzf",
-      "recorded_version": "0.74.5",
-      "run_exit": 0,
+      "facts_version": "0.74.5",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\fzf\\run.log",
       "installed_manifest_sha256": "52e76f46c458b43b8f46818546156924334c3104fc38ac920ff86f1ea743569c",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-0.74.4",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "0.74.5",
+          "scoop_version": "0.74.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fzf\\0.74.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\scoop-reset"
+        },
+        {
+          "step": "switch-to-0.74.4",
+          "label": "coop-reset-old",
+          "coop_version": "0.74.4",
+          "scoop_version": "0.74.4",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fzf\\0.74.4",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-0.74.4",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "0.74.4",
+          "scoop_version": "0.74.4",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fzf\\0.74.4",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "0.74.5",
+          "scoop_version": "0.74.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fzf\\0.74.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "0.74.5",
+          "scoop_version": "0.74.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\fzf\\0.74.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "0.74.5",
       "current_manifest_sha256": "52e76f46c458b43b8f46818546156924334c3104fc38ac920ff86f1ea743569c",
       "current_version": "0.74.5",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\fzf\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "gh",
-      "recorded_version": "2.103.2",
-      "run_exit": 0,
+      "facts_version": "2.103.2",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\gh\\run.log",
       "installed_manifest_sha256": "c9a4951ce59c3013ea178f58402bb307fcf80eaae1482694e2c24d29516e2791",
       "lifecycle_steps": "scoop-reset",
+      "lifecycle_verifications": {
+        "step": "scoop-reset",
+        "label": "scoop-reset",
+        "coop_version": "2.103.2",
+        "scoop_version": "2.103.2",
+        "run_exit": 0,
+        "current_target": "C:\\Users\\Neo\\scoop\\apps\\gh\\2.103.2",
+        "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\gh\\scoop-reset"
+      },
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "2.103.2",
       "current_manifest_sha256": "c9a4951ce59c3013ea178f58402bb307fcf80eaae1482694e2c24d29516e2791",
       "current_version": "2.103.2",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\gh\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "git",
-      "recorded_version": "2.56.0.3",
-      "run_exit": 0,
+      "facts_version": "2.56.0.3",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\git\\run.log",
       "installed_manifest_sha256": "7ab41bafeb68ffa7d2c4553edc9cfa0087546296956fa2bcac4e18afcc5b572b",
       "lifecycle_steps": [
         "scoop-reset",
@@ -1635,130 +1963,494 @@
         "switch-back-to-current",
         "scoop-real-update"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "2.56.0.3",
+          "scoop_version": "2.56.0.3",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.3",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\scoop-reset"
+        },
+        {
+          "step": "switch-to-2.56.0.4",
+          "label": "coop-reset-old",
+          "coop_version": "2.56.0.4",
+          "scoop_version": "2.56.0.4",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.4",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-2.56.0.4",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "2.56.0.4",
+          "scoop_version": "2.56.0.4",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.4",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "2.56.0.3",
+          "scoop_version": "2.56.0.3",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.3",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "2.56.0.3",
+          "scoop_version": "2.56.0.3",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.3",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\coop-reset-current-scoop"
+        },
+        {
+          "step": "scoop-real-update",
+          "label": "scoop-update",
+          "coop_version": "2.56.0.4",
+          "scoop_version": "2.56.0.4",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\git\\2.56.0.4",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\scoop-update"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "2.56.0.4",
       "current_manifest_sha256": "7ab41bafeb68ffa7d2c4553edc9cfa0087546296956fa2bcac4e18afcc5b572b",
       "current_version": "2.56.0.4",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-real-update/scoop-update",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\git\\scoop-update",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "innounp",
-      "recorded_version": "2.71.2",
-      "run_exit": 0,
+      "facts_version": "2.71.2",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\innounp\\run.log",
       "installed_manifest_sha256": "a6a7406bc86c4ac1f4c7eb5ecea781c69246b045a63a2f432864b64f6bc69579",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-2.71.1",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "2.71.2",
+          "scoop_version": "2.71.2",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\innounp\\2.71.2",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\scoop-reset"
+        },
+        {
+          "step": "switch-to-2.71.1",
+          "label": "coop-reset-old",
+          "coop_version": "2.71.1",
+          "scoop_version": "2.71.1",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\innounp\\2.71.1",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-2.71.1",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "2.71.1",
+          "scoop_version": "2.71.1",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\innounp\\2.71.1",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "2.71.2",
+          "scoop_version": "2.71.2",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\innounp\\2.71.2",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "2.71.2",
+          "scoop_version": "2.71.2",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\innounp\\2.71.2",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "2.71.2",
       "current_manifest_sha256": "a6a7406bc86c4ac1f4c7eb5ecea781c69246b045a63a2f432864b64f6bc69579",
       "current_version": "2.71.2",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\innounp\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "ninja",
-      "recorded_version": "1.13.2",
-      "run_exit": 0,
+      "facts_version": "1.13.2",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\ninja\\run.log",
       "installed_manifest_sha256": "936760482e8e4026fd0401eba3fbef0c46e24dd45ed97e12ec8853a75eb0fa3e",
       "lifecycle_steps": "scoop-reset",
+      "lifecycle_verifications": {
+        "step": "scoop-reset",
+        "label": "scoop-reset",
+        "coop_version": "1.13.2",
+        "scoop_version": "1.13.2",
+        "run_exit": 0,
+        "current_target": "C:\\Users\\Neo\\scoop\\apps\\ninja\\1.13.2",
+        "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ninja\\scoop-reset"
+      },
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "1.13.2",
       "current_manifest_sha256": "936760482e8e4026fd0401eba3fbef0c46e24dd45ed97e12ec8853a75eb0fa3e",
       "current_version": "1.13.2",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ninja\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "pi-coding-agent",
-      "recorded_version": "1.4.0",
-      "run_exit": 0,
+      "facts_version": "1.4.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\pi-coding-agent\\run.log",
       "installed_manifest_sha256": "717e30dc5f830bf8b3a3607a9dd2c39f90cc498de088bf22c19477f1690cd24e",
       "lifecycle_steps": "scoop-reset",
+      "lifecycle_verifications": null,
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "1.4.0",
       "current_manifest_sha256": "717e30dc5f830bf8b3a3607a9dd2c39f90cc498de088bf22c19477f1690cd24e",
       "current_version": "1.4.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "facts-all.json",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\pi-coding-agent\\run.log",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "ripgrep",
-      "recorded_version": "15.2.0",
-      "run_exit": 0,
+      "facts_version": "15.2.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\ripgrep\\run.log",
       "installed_manifest_sha256": "fe578aef2cfcb6eab48ba76703f400865a8212159ed753b197851381f6f697df",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-15.1.0",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "15.2.0",
+          "scoop_version": "15.2.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\ripgrep\\15.2.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\scoop-reset"
+        },
+        {
+          "step": "switch-to-15.1.0",
+          "label": "coop-reset-old",
+          "coop_version": "15.1.0",
+          "scoop_version": "15.1.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\ripgrep\\15.1.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-15.1.0",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "15.1.0",
+          "scoop_version": "15.1.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\ripgrep\\15.1.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "15.2.0",
+          "scoop_version": "15.2.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\ripgrep\\15.2.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "15.2.0",
+          "scoop_version": "15.2.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\ripgrep\\15.2.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "15.2.0",
       "current_manifest_sha256": "fe578aef2cfcb6eab48ba76703f400865a8212159ed753b197851381f6f697df",
       "current_version": "15.2.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\ripgrep\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "starship",
-      "recorded_version": "1.27.0",
-      "run_exit": 0,
+      "facts_version": "1.27.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\starship\\run.log",
       "installed_manifest_sha256": "bdb84fe0622df39d5066351b1b973bb822b80ca4bc7b2c4196085161612f9c0c",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-1.26.0",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "1.27.0",
+          "scoop_version": "1.27.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\starship\\1.27.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\scoop-reset"
+        },
+        {
+          "step": "switch-to-1.26.0",
+          "label": "coop-reset-old",
+          "coop_version": "1.26.0",
+          "scoop_version": "1.26.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\starship\\1.26.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-1.26.0",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "1.26.0",
+          "scoop_version": "1.26.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\starship\\1.26.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "1.27.0",
+          "scoop_version": "1.27.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\starship\\1.27.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "1.27.0",
+          "scoop_version": "1.27.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\starship\\1.27.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "1.27.0",
       "current_manifest_sha256": "bdb84fe0622df39d5066351b1b973bb822b80ca4bc7b2c4196085161612f9c0c",
       "current_version": "1.27.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\starship\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "uv",
-      "recorded_version": "0.13.5",
-      "run_exit": 0,
+      "facts_version": "0.13.5",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\uv\\run.log",
       "installed_manifest_sha256": "75fc470b993a9fdd48660ecd4ecc953b34ab3f214da5a285a7d02ebfa0215330",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-0.12.17",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "0.13.5",
+          "scoop_version": "0.13.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\uv\\0.13.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\scoop-reset"
+        },
+        {
+          "step": "switch-to-0.12.17",
+          "label": "coop-reset-old",
+          "coop_version": "0.12.17",
+          "scoop_version": "0.12.17",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\uv\\0.12.17",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-0.12.17",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "0.12.17",
+          "scoop_version": "0.12.17",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\uv\\0.12.17",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "0.13.5",
+          "scoop_version": "0.13.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\uv\\0.13.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "0.13.5",
+          "scoop_version": "0.13.5",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\uv\\0.13.5",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "0.13.5",
       "current_manifest_sha256": "75fc470b993a9fdd48660ecd4ecc953b34ab3f214da5a285a7d02ebfa0215330",
       "current_version": "0.13.5",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\uv\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     },
     {
       "bucket": "main",
       "package": "zoxide",
-      "recorded_version": "0.10.0",
-      "run_exit": 0,
+      "facts_version": "0.10.0",
+      "facts_run_exit": 0,
+      "facts_run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\items\\zoxide\\run.log",
       "installed_manifest_sha256": "4f508546dfd7921cba69d277f497002eac1de12737eb071a830c651056c86228",
       "lifecycle_steps": [
         "scoop-reset",
         "switch-to-0.9.9",
         "switch-back-to-current"
       ],
+      "lifecycle_verifications": [
+        {
+          "step": "scoop-reset",
+          "label": "scoop-reset",
+          "coop_version": "0.10.0",
+          "scoop_version": "0.10.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\zoxide\\0.10.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\scoop-reset"
+        },
+        {
+          "step": "switch-to-0.9.9",
+          "label": "coop-reset-old",
+          "coop_version": "0.9.9",
+          "scoop_version": "0.9.9",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\zoxide\\0.9.9",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\coop-reset-old"
+        },
+        {
+          "step": "switch-to-0.9.9",
+          "label": "coop-reset-old-scoop",
+          "coop_version": "0.9.9",
+          "scoop_version": "0.9.9",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\zoxide\\0.9.9",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\coop-reset-old-scoop"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current",
+          "coop_version": "0.10.0",
+          "scoop_version": "0.10.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\zoxide\\0.10.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\coop-reset-current"
+        },
+        {
+          "step": "switch-back-to-current",
+          "label": "coop-reset-current-scoop",
+          "coop_version": "0.10.0",
+          "scoop_version": "0.10.0",
+          "run_exit": 0,
+          "current_target": "C:\\Users\\Neo\\scoop\\apps\\zoxide\\0.10.0",
+          "log_dir": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\coop-reset-current-scoop"
+        }
+      ],
       "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
       "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
       "status": "real-cohort",
+      "verified_version": "0.10.0",
       "current_manifest_sha256": "4f508546dfd7921cba69d277f497002eac1de12737eb071a830c651056c86228",
       "current_version": "0.10.0",
-      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+      "run_exit": 0,
+      "run_source": "lifecycle:scoop-reset/scoop-reset",
+      "run_log": "D:\\Projects\\coop\\.local\\pi\\tasks\\40\\evidence\\cohort-final3\\cohort-20261026-201857\\lifecycle\\zoxide\\scoop-reset",
+      "evidence": [
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+        ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json"
+      ]
     }
   ],
   "shared_root": {

@@ -1,6 +1,6 @@
 # Main／Extras 全量兼容盘点（R20/#41）
 
-> 本页记录 2026-10-27 对官方 Main、Extras **完整分母**的一次盘点：固定实际 bucket 修订，逐份 Manifest 记录机制声明、读取状态、规划状态和真机验证状态。命令、逐包记录与缺口清单在 `.local/pi/tasks/41/evidence/coverage-final3/coverage-20261026-212649/`；本页与 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 只做汇总与索引。**读取或规划成功不等于运行验证**：本轮只有 15 个包在同一修订上具有真机运行事实，其余保持“未运行”。
+> 本页记录 2026-10-27 对官方 Main、Extras **完整分母**的一次盘点：固定实际 bucket 修订，逐份 Manifest 记录机制声明、读取状态、规划状态和真机验证状态。命令、逐包记录与缺口清单在 `.local/pi/tasks/41/evidence/coverage-fix2/coverage-20261026-220311/`；本页与 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 只做汇总与索引。**读取或规划成功不等于运行验证**：本轮只有 15 个包在同一修订上具有真机运行事实，其余保持“未运行”。
 
 ## 结论
 
@@ -20,7 +20,7 @@
 | Main 实际工作树修订 | `5be7f8c702856c72800a0a4945b88fe6ea2bd52f`（分支 `master`，1783 个文件） |
 | Main Coop 注册表记录 | `89b4cf8078b4968bca637b2ae226b16e8d04dbce`（2026-10-26T05:09:07Z，**与工作树不一致**） |
 | Extras 盘点修订 | `0f8f4b5fd43bedccc7b233b77f4605bddba8085b`（官方 `master` HEAD，本轮克隆取得，2643 个文件） |
-| Coop | `coop 0.1.0`，SHA256 `76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79`；盘点代码提交 `b7a20b4f910734520b0c304bf90e99326cc18c3b`（当前文档提交只增加本页、基线与链接） |
+| Coop | `coop 0.1.0`，SHA256 `76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79`；盘点代码提交 `8283e6a062f5044f8a180ede05634c0efca619c7`（当前文档提交只增加本页、基线与链接） |
 | 盘点工具 | [`tests/real-scoop-coverage.ps1`](../tests/real-scoop-coverage.ps1) 与 [`tests/coverage-manifest-features.ps1`](../tests/coverage-manifest-features.ps1) |
 | 规划接口 | 真实 `coop.exe --root <项目内盘点根> --arch 64bit info <bucket/包名> --json` 与 `install <bucket/包名> --dry-run --json`，8 个并行读取工作进程 |
 
@@ -111,19 +111,21 @@ NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executab
 
 | 目标类型 | Manifest | 读取通过 | 计划可执行 | 真机运行包 |
 | --- | ---: | ---: | ---: | ---: |
-| EXE | 2896 | 2896 | 2881 | 13 |
-| BAT | 108 | 108 | 107 | 1 |
+| EXE | 2921 | 2921 | 2906 | 13 |
+| BAT | 109 | 109 | 108 | 1 |
 | CMD | 45 | 45 | 44 | 0 |
 | PS1 | 43 | 43 | 42 | 0 |
 | JAR | 38 | 38 | 37 | 0 |
 | COM | 7 | 7 | 7 | 0 |
-| 无扩展名 | 34 | 34 | 27 | 0 |
+| 无扩展名 | 8 | 8 | 1 | 0 |
 | `.py` | 3 | 3 | **0** | 0 |
 | `.config` | 1 | 1 | **0** | 0 |
 
+命令宿主按完整 `bin` 目标判定：保留含空格的完整路径、去掉成对引号、元组形式取第一个元素作为路径，不按空白拆分；否则 `Plex Media Server.exe`、`Puppet Labs\Puppet\bin\facter.bat` 会被误计为无扩展名。`tests/coverage-features.ps1` 用这些形状做回归（CTest `coverage_features`）。
+
 ## 未覆盖机制、受影响软件与诊断
 
-下表是 53 个计划被阻塞包的去重归因；包名可在 `.local/pi/tasks/41/evidence/coverage-final3/coverage-20261026-212649/manifests.json` 或已提交的 `tests/coverage/baseline.json` 中逐项核对。`retdec` 同时有 Manifest 形状和命令宿主问题，`lazy-posh-git` 同时有 `psmodule` 依赖和依赖自身不受支持问题，所以分行计数之和为 55。
+下表是 53 个计划被阻塞包的去重归因；包名可在 `.local/pi/tasks/41/evidence/coverage-fix2/coverage-20261026-220311/manifests.json` 或已提交的 `tests/coverage/baseline.json` 中逐项核对。`retdec` 同时有 Manifest 形状和命令宿主问题，`lazy-posh-git` 同时有 `psmodule` 依赖和依赖自身不受支持问题，所以分行计数之和为 55。
 
 | 机制 | 包数 | 受影响软件 | 诊断 |
 | --- | ---: | --- | --- |
@@ -138,18 +140,18 @@ NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executab
 
 ## 真机已验证的 15 个包
 
-来源为 [#40](https://github.com/Coh1e/coop/issues/40) 的 `.local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/`。验证绑定条件：安装副本 `current/scoop-manifest.json` 的 SHA256 与本轮分母 Manifest 相同，且记录的程序运行退出码为 0；15/15 满足。这是**包级运行事实**，不是每个声明机制的生命周期证明。
+来源为 [#40](https://github.com/Coh1e/coop/issues/40) 的 `.local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/`。验证绑定条件：安装副本 `current/scoop-manifest.json` 的 SHA256 与本轮分母 Manifest 相同，并且存在与分母版本一致的 cohort 验证运行（`run_exit=0`）：优先使用 lifecycle 中的 `verification`/`coop_verify`/`scoop_verify`，没有匹配运行时才回退到 facts 快照。`summary.json` 的 `verified[*]` 同时记录 `verified_version`、`run_exit`、`run_source`、`run_log` 与两份来源文件。15/15 满足；这是**包级运行事实**，不是每个声明机制的生命周期证明。
 
-| 包 | 记录版本 | 真机操作（来自 #40 lifecycle） |
+| 包 | 验证运行版本 | 真机操作（来自 #40 lifecycle） |
 | --- | --- | --- |
 | 7zip | 26.05 | Scoop reset；Coop 切到 26.03 再回当前 |
-| clink | 1.9.34 | Scoop reset；Coop 真实更新到 1.9.35；Scoop 卸载后 Coop 重装 |
+| clink | 1.9.35 | Scoop reset；Coop 真实更新到 1.9.35；Scoop 卸载后 Coop 重装 |
 | cmake | 4.4.4 | Scoop reset |
 | fastfetch | 2.70.0 | Scoop reset；Coop 版本往返；Coop 卸载并重装 |
 | fd | 10.5.0 | Scoop reset；Coop 版本往返 |
 | fzf | 0.74.5 | Scoop reset；Coop 版本往返 |
 | gh | 2.103.2 | Scoop reset |
-| git | 2.56.0.3 | Scoop reset；Coop 版本往返；Scoop 真实更新到 2.56.0.4 后 Coop 识别 |
+| git | 2.56.0.4 | Scoop reset；Coop 版本往返；Scoop 真实更新到 2.56.0.4 后 Coop 识别 |
 | innounp | 2.71.2 | Scoop reset；Coop 版本往返 |
 | ninja | 1.13.2 | Scoop reset |
 | pi-coding-agent | 1.4.0 | 只读记录（执行器自身运行中，不重写入口） |
@@ -158,7 +160,7 @@ NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executab
 | uv | 0.13.5 | Scoop reset；Coop 版本往返 |
 | zoxide | 0.10.0 | Scoop reset；Coop 版本往返 |
 
-这 15 个包在安装态上覆盖 ZIP、7z、MSI、单文件产物以及命令入口、快捷方式、环境、持久化等对象；#40 实际执行的是 `scoop reset`、Coop 本地版本往返、真实更新、卸载重装和 Scoop 卸载后重装，并没有为每个包重新执行其全部脚本或安装器，也没有新装其余 4134 个包。逐项运行、入口、环境、数据与双方识别事实见[本机安装集的逐项交替验收](real-machine-acceptance.md)；Extras 没有任何本轮真机验证。
+这 15 个包在安装态上覆盖 ZIP、7z、MSI、单文件产物以及命令入口、快捷方式、环境、持久化等对象；#40 实际执行的是 `scoop reset`、Coop 本地版本往返、真实更新、卸载重装和 Scoop 卸载后重装，并没有为每个包重新执行其全部脚本或安装器，也没有新装其余 4134 个包。`clink` 的 facts 快照版本是 1.9.34，`git` 是 2.56.0.3；它们的验证运行来自 lifecycle 的 `coop-real-update`（1.9.35）与 `scoop-real-update`（2.56.0.4），而不是把旧版本运行套到新 Manifest 上。`pi-coding-agent` 因执行器自身运行中只使用只读 facts 运行。逐项运行、入口、环境、数据与双方识别事实见[本机安装集的逐项交替验收](real-machine-acceptance.md)；Extras 没有任何本轮真机验证。
 
 ## 历史真机样本（不计入本轮已验证数）
 
@@ -185,11 +187,11 @@ pwsh -NoProfile -File tests/real-scoop-coverage.ps1 -CoopExe .local/build/coop.e
 - 修订变化后加 `-ResetInventory` 重建项目内副本；该开关会先安全移除 helper junction，不会递归进入共用 Scoop 安装。Extras 可用 `-ExtrasRevision <40 位 commit>` 固定；不传时沿用已有项目内副本的 HEAD。
 - 脚本退出 0 表示盘点完成，不代表 4149 个包都可运行；被阻塞的包是结果。退出非零表示盘点自身失败（读取范围、修订或摘要不一致、共用根被写入、统计不闭合），不会被当作“不支持包”的正常结果。
 - 脚本内置断言：读取与计划状态必须覆盖全部 Manifest；验证状态不得超过 cohort 事实；Main 分母必须与共用工作树逐字节一致；共用根快照必须无变化。
-- 本轮命令、退出码与完整控制台输出在 `.local/pi/tasks/41/evidence/coverage-final3-run.log`（退出 0）。
+- 本轮命令、退出码与完整控制台输出在 `.local/pi/tasks/41/evidence/coverage-fix2-run.log`（退出 0）。
 
 ## 证据
 
-运行目录：`.local/pi/tasks/41/evidence/coverage-final3/coverage-20261026-212649/`
+运行目录：`.local/pi/tasks/41/evidence/coverage-fix2/coverage-20261026-220311/`
 
 | 内容 | 文件 |
 | --- | --- |
