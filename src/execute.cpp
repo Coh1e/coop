@@ -5,6 +5,7 @@
 #include "persist.hpp"
 #include "versions.hpp"
 #include "exposure.hpp"
+#include "user_environment.hpp"
 #include "script.hpp"
 #include "shim.hpp"
 #include <windows.h>
@@ -772,6 +773,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     }
     journal["downloads"] = Json::array();
     save();
+    Json user_environment = Json(nullptr);
+    Json environment_undo = Json::array();
     try {
         const auto stage = transaction/L"payload";
         const auto downloads = transaction/L"downloads";
@@ -954,7 +957,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             }
             case ir::Operation::remove_environment:
-                journal["environment_reverted"] = "Declared user environment values are recorded but are not mutated by this execution path";
+                // During an update the old and new declarations are reconciled by the single
+                // environment operation below, so the installed package keeps its user values
+                // until the replacement is ready. An update without any new declarations and a
+                // normal uninstall revert immediately.
+                if (updating && !(package.environment.empty() && package.path_entries.empty())) {
+                    journal["environment_reversion"] = "deferred; the update's environment operation reconciles old and new declarations";
+                } else {
+                    auto reverted = revert_user_environment(managed.value("user_environment",Json(nullptr)));
+                    environment_undo.push_back(reverted.value("undo",Json::object()));
+                    journal["environment_reverted"] = std::move(reverted);
+                }
                 save();
                 break;
             case ir::Operation::unlink_persistence:
@@ -1046,12 +1059,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 break;
             }
-            case ir::Operation::environment:
+            case ir::Operation::environment: {
                 environment = expanded_environment(context,package,app/L"current");
                 path_entries = expanded_path_entries(context,package,app/L"current");
-                journal["environment_applied"] = "Recorded for command processes; persistent user environment mutation remains an explicit follow-up";
+                auto applied = apply_user_environment(environment,path_entries,
+                    managed.value("user_environment",Json(nullptr)));
+                environment_undo.push_back(applied.value("undo",Json::object()));
+                user_environment = applied.value("ownership",Json(nullptr));
+                journal["environment_applied"] = std::move(applied);
                 save();
                 break;
+            }
             case ir::Operation::persistence:
                 ensure_version();
                 persistence = prepare_persistence(context,package,version);
@@ -1096,6 +1114,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"status","ready"},{"shim_format",legacy_shims.empty() ? "coop" : "scoop"},
                         {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
+                        {"user_environment",user_environment},
                         {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
                         {"origin",updating ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
                         {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
@@ -1115,6 +1134,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             catch (...) { /* Empty shortcut folders are cosmetic; committed state remains valid. */ }
         }
     } catch (...) {
+        if (!environment_undo.empty()) {
+            Json environment_rollback = Json::array();
+            for (auto entry = environment_undo.rbegin(); entry != environment_undo.rend(); ++entry) {
+                try { environment_rollback.push_back(restore_user_environment(*entry)); }
+                catch (const std::exception& error) {
+                    environment_rollback.push_back({{"status","failed"},{"reason",error.what()}});
+                }
+            }
+            journal["environment_rollback"] = std::move(environment_rollback);
+            try { save(); } catch (...) { /* Preserve the original failure. */ }
+        }
         try {
             for (auto entry = owned.rbegin(); entry != owned.rend(); ++entry) erase_tree(*entry);
             for (auto entry = moved.rbegin(); entry != moved.rend(); ++entry) {

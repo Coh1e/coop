@@ -21,7 +21,7 @@
 
 ## 命令入口兼容范围
 
-当包没有声明 `env_set`/`env_add_path` 且所有入口都是 EXE/COM 直接启动时，Coop 写入 Scoop 可读的 `<name>.shim` 并复制 Coop 启动器作为 `<name>.exe`。Scoop 的 `reset`/`uninstall` 可以替换或删除这一对文件；Coop 再次更新/卸载时重新识别格式。带环境声明、脚本宿主或 JAR 入口的包仍使用 `.coop-shim.json`，R07 已用真实 EXE/BAT/PS1/JAR/GUI 包验证其入口行为、参数、退出码、工作目录和 Scoop `reset` 后的继续管理；Scoop 安装的脚本宿主包只有 `.cmd`/`.ps1`/sh 包装、没有 `.exe`/`.shim` 时，Coop 从内容与命令名识别并可在隔离根实际更新/卸载（真实 `clink` 已核对更新/卸载预览可执行）。Scoop `reset` 重建的原生包装在 Coop 卸载时只按内容指向本包清理。Coop 自身直接生成这些 Scoop 原生脚本包装、以及持久用户环境效果仍分别留在 R08 与后续清理票。真实入口、快捷方式与 Scoop 交替证据见[复杂命令入口、快捷方式与环境暴露](exposure-support.md#真机验证r07-28)。
+当包没有声明 `env_set`/`env_add_path` 且所有入口都是 EXE/COM 直接启动时，Coop 写入 Scoop 可读的 `<name>.shim` 并复制 Coop 启动器作为 `<name>.exe`。Scoop 的 `reset`/`uninstall` 可以替换或删除这一对文件；Coop 再次更新/卸载时重新识别格式。带环境声明、脚本宿主或 JAR 入口的包仍使用 `.coop-shim.json`，R07 已用真实 EXE/BAT/PS1/JAR/GUI 包验证其入口行为、参数、退出码、工作目录和 Scoop `reset` 后的继续管理；Scoop 安装的脚本宿主包只有 `.cmd`/`.ps1`/sh 包装、没有 `.exe`/`.shim` 时，Coop 从内容与命令名识别并可在隔离根实际更新/卸载（真实 `clink` 已核对更新/卸载预览可执行）。Scoop `reset` 重建的原生包装在 Coop 卸载时只按内容指向本包清理。Coop 自身直接生成这些 Scoop 原生脚本包装仍留在后续清理票；持久用户环境已由 R08 交付，真实写入、新终端读取、用户修改保护和卸载恢复证据见[复杂命令入口、快捷方式与环境暴露](exposure-support.md#用户环境真机验证r08-29)。真实入口、快捷方式与 Scoop 交替证据见[复杂命令入口、快捷方式与环境暴露](exposure-support.md#真机验证r07-28)。
 
 ## 验证
 

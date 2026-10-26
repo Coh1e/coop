@@ -107,8 +107,25 @@ void validate(Package& package) {
             "Entry host and argument forwarding follow the target file type");
     }
     if (!package.environment.empty()) {
-        capability(package,"user-environment",false,
-            "Declared PATH and environment values are currently applied to package launch processes only; user-level persistence is not implemented yet");
+        std::set<std::string> names;
+        bool path_entries = false;
+        for (const auto& entry : package.environment)
+            if (entry.path_entry) path_entries = true;
+        for (const auto& entry : package.environment) {
+            if (entry.variable.empty() || entry.variable.find('=') != std::string::npos) {
+                report(package,Layer::validation,"environment-name","Environment variable name is invalid");
+                continue;
+            }
+            // env_add_path may legitimately contribute several PATH entries; env_set PATH is one
+            // value and cannot be combined with them without a defined precedence.
+            if (entry.path_entry) continue;
+            if (!names.insert(lower(entry.variable)).second)
+                report(package,Layer::validation,"duplicate-environment","Duplicate environment variable: "+entry.variable);
+            if (lower(entry.variable) == "path" && path_entries)
+                report(package,Layer::validation,"environment-path-conflict","env_set PATH conflicts with env_add_path declarations");
+        }
+        capability(package,"user-environment",true,
+            "Declared PATH and environment values are written to the current user's environment, recorded with their previous values, broadcast to new processes and reverted only while ownership still matches");
     }
     if (!package.shortcuts.empty())
         capability(package,"start-menu-shortcut",true,"Shortcuts are created under the Scoop Apps Start Menu folder with recorded identity");

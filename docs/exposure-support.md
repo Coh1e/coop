@@ -32,9 +32,11 @@
 ## 环境暴露
 
 - `env_set` 与 `env_add_path` 中的 `$dir`、`$original_dir`、`$persist_dir`、`$version` 按包解析（`%变量%` 也展开），PATH 项解析到 `apps/<包>/current` 下，因此更新切换 current 后仍然正确。
-- 声明的环境值和 PATH 项在启动命令入口时应用到该进程及其子进程：`env_set` 设置变量，`env_add_path` 前置于 PATH 并保留原有 PATH。测试使用真实程序读取 `%VAR%` 和 PATH 验证，而不是内存假实现。
-- 首版不修改用户或系统环境变量，也不写注册表 `HKCU\Environment`。因此不存在“持久化用户环境”这一外部副作用；卸载撤销入口后，声明环境不再注入，也不会删除外部环境中同名值。接管包的旧用户级环境值保持为外部证据，Coop 不认领、不删除。
-- 预览中的 `exposure.environment`、`exposure.path_entries` 与 `exposure.environment_scope` 明确列出将应用的值和作用范围；`exposure.shortcut_directory` 与来源说明快捷方式位置。
+- 安装/更新时，声明的环境值写入当前用户注册表 `HKCU\Environment`，并向所有顶层窗口广播 `WM_SETTINGCHANGE`，参数为 `Environment`。因此新终端、普通进程启动和其他不经过 Coop 启动器的入口读取同一组值，不再只依赖启动器子进程注入；Coop 启动器仍按既有方式把同一组值应用到自身进程，保持快速路径一致。
+- `env_add_path` 解析为 `apps/<包>/current` 下的绝对路径并前置于用户 PATH；原有 PATH 项及其顺序保留。注册表值的字符串类型（`REG_SZ`/`REG_EXPAND_SZ`）也按 Scoop 规则保留，含 `%` 的值使用可展开字符串。
+- 每个包的 `.coop/packages/<包>.json` 保存 `user_environment` 证据：作用域、每个变量的写入前原始值和类型、Coop 写入值、PATH 的 `previous`/`applied` 及本次新增项、写入/广播结果。更新时只有当前值仍等于 Coop 上次写入值才替换；用户后来修改的值被保留并在 `preserved` 中报告。新 Manifest 不再声明的变量和 PATH 项在同一次更新中撤销。
+- 卸载时若当前值仍等于 Coop 写入值，恢复安装前的原始值（原本不存在则删除）；若用户已修改，则保留新值。PATH 只删除 Coop 实际新增且仍存在的项，用户新增项和其余顺序不动。事务失败时使用同一记录做进程内回滚，`journal.json` 保存写入、广播、保留和回滚证据。
+- 预览中的 `exposure.environment`、`exposure.path_entries` 与 `exposure.environment_scope` 明确列出将应用的值和作用范围；`exposure.shortcut_directory` 与来源说明快捷方式位置。系统级环境变量和 `HKLM` 不开放，仍只报告必要时需人工处理。
 
 ## 真机验证（R07 / #28）
 
@@ -54,6 +56,21 @@
 
 入口/快捷方式参数的 `$dir` 展开在隔离测试 `tests/exposure.ps1` 中用真实 CLI、真实程序与真实 `.lnk` 验证（预览、`.shim`、管理记录与子进程观察一致）；所选真实包没有声明这些变量，因此没有在真实根重复制造该组合。上述真机运行的原始日志与 JSON 保存在 `.local/pi/tasks/28/evidence/real-exposure-head/`（最终 head 运行；中间修复运行不作为证据）。
 
+## 用户环境真机验证（R08 / #29）
+
+`tests/user-environment.ps1`（CTest `user_environment`）在项目内隔离安装根中安装一个边界明确的测试包，但环境读写作用于真实当前用户 `HKCU\Environment` 和真实新终端进程。测试先保存 `Path` 及测试变量快照，`finally` 逐项恢复。
+
+| 步骤 | 真实观察 |
+| --- | --- |
+| 安装 v1 | 三个 `env_set` 值写入注册表，`env_add_path=bin` 前置于用户 PATH；管理记录保存 `user_environment`；journal 记录四项写入及 `WM_SETTINGCHANGE` 的 `sent=true` |
+| 新终端 | 用 `Start-Process -UseNewEnvironment` 启动真实 `cmd.exe`，它从 Windows 用户环境块而非测试父进程继承环境；读到 v1 值和声明的 PATH 项 |
+| 用户修改 | 手工把其中一个变量改为 `modified-by-user` 并追加用户自己的 PATH 项 |
+| 更新 v2 | 未修改的两个变量替换为 v2，用户修改值保持 `modified-by-user`；用户 PATH 项保留，Coop PATH 项仍存在；journal 的 `preserved` 列出保留原因 |
+| 卸载 | Coop 创建的变量被删除，安装前已有变量恢复原值，用户修改值保留；Coop PATH 项消失，用户 PATH 项及原有项保留；journal 的 `environment_reverted.writes` 记录恢复动作 |
+| 清理 | 新终端再次观察到上述结果；测试结束后 `Path` 和测试变量回到运行前快照，无 Coop 测试 PATH 项或变量残留 |
+
+本轮运行的完整命令、退出码、终端输出和 journal 摘录保存在 `.local/pi/tasks/29/evidence/`（最终 head 运行）。该验证覆盖真实用户环境与新终端；未安装 Main/Extras 中同时声明环境与快捷方式的真实包。
+
 ## 隔离验证
 
 `tests/exposure.ps1`（CTest `exposure`）在项目内隔离根目录运行真实 CLI 和真实程序：
@@ -71,18 +88,18 @@
 | 另一客户端重建的快捷方式 | 同目标、参数、图标但字节不同的 `.lnk`（例如 `scoop reset`）被按启动身份接受；不可读或身份不同的仍被拒绝 |
 | `.bat` / `.com` | `.bat` 经 `%ComSpec%` 转发参数并返回 0；PE `.com` 目标直接运行并输出预期文本 |
 | JAR 缺少运行时 | 移除子进程 `JAVA_HOME` 与 PATH 中的 Java 后，入口明确失败并输出缺少 Java 运行时的诊断 |
-| 环境暴露 | 真实子进程读到 `env_set` 值、展开后的 `$persist_dir`/`$version`，PATH 含 `current\bin` 且保留原 PATH |
+| 环境暴露 | 真实子进程读到 `env_set` 值、展开后的 `$persist_dir`/`$version`，PATH 含 `current\bin` 且保留原 PATH；用户环境值随安装写入、更新替换，卸载恢复原值/删除 Coop 创建的变量 |
 | 占用与冲突 | 锁定的快捷方式令卸载失败并回滚，安装与入口保持；失败事务日志记录发布错误；外部修改的快捷方式被拒绝且不被覆盖 |
 | 失败恢复 | 快捷方式目录不可创建时整个安装回滚，事务日志为 `rolled-back`，外部文件未被改动 |
 | 接管 | 多别名带参数的 Scoop shim 与快捷方式被核对后接管；更新后参数与环境仍正确转发；卸载只删除已核对归属的入口与快捷方式 |
-| 隔离边界 | 使用 `COOP_PROGRAMS_DIR` 时真实开始菜单未被写入；用户级环境变量保持未设置 |
+| 隔离边界 | 使用 `COOP_PROGRAMS_DIR` 时真实开始菜单未被写入；安装声明的用户环境值使用唯一测试名写入真实 `HKCU\Environment`，测试结束由 `finally` 恢复快照，不遗留测试 PATH 项或变量 |
 
 `COOP_PROGRAMS_DIR` 只作为当前子进程的环境参数传入，用于把真实快捷方式写入项目内目录；它不是持久用户设置，默认行为仍是当前用户开始菜单。
 
 未运行或未承诺：
 
-- 持久化用户/系统环境变量写入与广播（首版刻意不做，无法在项目内隔离验证）。
-- 通过开始菜单快捷方式直接启动的程序不经过 Coop 启动器，因此不会获得 `env_set`/`env_add_path`；首版不写用户环境来实现同等效果。
+- 系统级（`HKLM`）环境变量、需要管理员的系统级安装和广播后的 Shell/Explorer 刷新时序没有在本轮实际观察；用户级广播调用结果已记录，新 `cmd.exe` 进程读取真实用户环境块已验证。
+- 用户环境与快捷方式组合的真实包安装（例如 Main/Extras 中同时声明 `env_set`、`env_add_path` 和多层快捷方式的包）仍属于后续真实样本覆盖；本轮真实验证使用边界明确的测试包和真实用户环境。
 - Coop 在真实根创建**子目录**快捷方式与带参数快捷方式：本轮真机包只提供平铺/无参数声明，子目录与参数创建由 `tests/exposure.ps1` 在隔离根用真实 `.lnk` 验证；真实根只核对 Scoop 已有子目录/参数快捷方式不被误认领。
 - 快捷方式图标的像素级效果、开始菜单索引刷新和 Windows Shell 缓存行为。
 - `.com` 真实程序入口：本轮只有隔离 PE `.com` 证据；真实根覆盖 EXE、BAT、PS1、JAR 与 GUI。

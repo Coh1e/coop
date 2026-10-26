@@ -238,7 +238,7 @@ Json exposure_plan_json(const Context& context, const Package& package, const fs
     const auto programs = shortcut_directory(context);
     Json result = {{"shortcut_directory",path_text(programs)},
         {"shortcut_directory_source",environment_variable(L"COOP_PROGRAMS_DIR").empty() ? "start-menu-programs" : "isolated-override"},
-        {"environment_scope","Declared values are applied to processes started through Coop command entries; user and system environment variables are not modified"},
+        {"environment_scope","Declared values are written to the current user's environment (HKCU\\Environment), broadcast with WM_SETTINGCHANGE and also applied to Coop command processes; previous values and ownership are recorded, and user later changes are preserved"},
         {"shortcuts",Json::array()},{"environment",expanded_environment(context,package,base)},
         {"path_entries",expanded_path_entries(context,package,base)}};
     const auto argument_base = context.root/L"apps"/wide(package.name)/L"current";

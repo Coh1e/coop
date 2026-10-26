@@ -14,6 +14,38 @@ if ((Get-FileHash -LiteralPath $scoopShim -Algorithm SHA256).Hash.ToLower() -ne 
 function Assert-Exit([string]$message) { if ($LASTEXITCODE -ne 0) { throw $message } }
 function Read-Json([object]$output) { return (($output -join "`n") | ConvertFrom-Json) }
 function File-Uri([string]$path) { return ([Uri][IO.Path]::GetFullPath($path)).AbsoluteUri }
+function Get-UserRaw([string]$name) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+    if ($null -eq $key) { throw 'HKCU\Environment is missing' }
+    try {
+        $actual = @($key.GetValueNames() | Where-Object { [string]::Equals($_,$name,[StringComparison]::OrdinalIgnoreCase) })
+        if ($actual.Count -eq 0) { return [pscustomobject]@{present=$false;kind='String';value=''} }
+        $actualName = [string]$actual[0]
+        return [pscustomobject]@{present=$true;kind=$key.GetValueKind($actualName).ToString();
+            value=[string]$key.GetValue($actualName,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)}
+    } finally { $key.Dispose() }
+}
+function Set-UserRaw([string]$name,[string]$value,[string]$kind = 'String') {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment',$true)
+    if ($null -eq $key) { throw 'HKCU\Environment is missing' }
+    try { $key.SetValue($name,$value,[Microsoft.Win32.RegistryValueKind]$kind) } finally { $key.Dispose() }
+}
+function Remove-UserValue([string]$name) {
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment',$true)
+    if ($null -eq $key) { throw 'HKCU\Environment is missing' }
+    try {
+        $actual = @($key.GetValueNames() | Where-Object { [string]::Equals($_,$name,[StringComparison]::OrdinalIgnoreCase) })
+        if ($actual.Count -gt 0) { $key.DeleteValue([string]$actual[0]) }
+    } finally { $key.Dispose() }
+}
+function Restore-UserRaw([string]$name,$snapshot) {
+    if ($snapshot.present) { Set-UserRaw $name $snapshot.value $snapshot.kind }
+    else { Remove-UserValue $name }
+}
+function Path-Has([string]$path,[string]$entry) {
+    foreach ($candidate in @($path -split ';' | Where-Object { $_ })) { if ($candidate.TrimEnd('\') -ieq $entry.TrimEnd('\')) { return $true } }
+    return $false
+}
 function New-TestRoot {
     $root = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path "$root/buckets/test/bucket" -Force | Out-Null
@@ -112,6 +144,10 @@ if ($javac -and $jarTool -and (Test-Path -LiteralPath $javac) -and (Test-Path -L
     [IO.File]::WriteAllBytes($jarPath,[byte[]](0x50,0x4b,0x03,0x04))
 }
 
+$userEnvironmentNames = @('Path','FIXTURE_ENV','TOOL_DATA','TOOL_VERSION','PS1_MARKER','GUI_FIXTURE_MARKER')
+$userEnvironmentSnapshots = @{}
+foreach ($name in $userEnvironmentNames) { $userEnvironmentSnapshots[$name] = Get-UserRaw $name }
+try {
 $root = New-TestRoot
 $programs = Join-Path $root 'programs'
 $env:COOP_PROGRAMS_DIR = $programs
@@ -160,6 +196,9 @@ $record = Get-Content -LiteralPath "$root/.coop/packages/envapp.json" -Raw | Con
 if (@($record.commands).Count -ne 11) { throw 'management record omitted command entries' }
 if (@($record.shortcuts).Count -ne 4) { throw 'management record omitted shortcuts' }
 if (@($record.environment | Where-Object name -eq 'FIXTURE_ENV').value -ne 'declared-value') { throw 'management record omitted environment ownership' }
+if (-not $record.user_environment -or $record.user_environment.scope -ne 'HKCU\Environment') { throw 'management record omitted persistent user environment ownership' }
+if ((Get-UserRaw 'FIXTURE_ENV').value -ne 'declared-value') { throw 'install did not write the declared user environment value' }
+if (-not (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/current/bin'))) { throw 'install did not add the declared user PATH entry' }
 
 $cmdOutput = ((& "$root/shims/cmd-tool.exe" hello 'two words') -join "`n")
 if ($LASTEXITCODE -ne 0 -or $cmdOutput -notmatch 'cmd-args:' -or $cmdOutput -notmatch '--default' -or $cmdOutput -notmatch 'two words' -or $cmdOutput -notmatch 'cmd-1') { throw "CMD entry did not forward arguments: $cmdOutput" }
@@ -214,7 +253,6 @@ Assert-Shortcut (Join-Path $programs "$expandShortcut.lnk") "$root/apps/envapp/c
 $foreignLink = Join-Path $programs "Unrelated-$tag.lnk"
 [IO.File]::WriteAllText($foreignLink,'foreign shortcut')
 if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Scoop Apps\Coop $tag")) { throw 'isolated test wrote into the real Start Menu' }
-if ([Environment]::GetEnvironmentVariable('FIXTURE_ENV','User') -eq 'declared-value') { throw 'test wrote a persistent user environment variable' }
 
 $mainLink = Join-Path $programs "$mainShortcut.lnk"
 $rewrite = (New-Object -ComObject WScript.Shell).CreateShortcut($mainLink)
@@ -235,6 +273,8 @@ $cmdOutput = ((& "$root/shims/cmd-tool.exe" hello) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $cmdOutput -notmatch 'cmd-2') { throw 'updated CMD entry did not run the new version' }
 $showOutput = ((& "$root/shims/show-tool.exe") -join "`n")
 if ($showOutput -notmatch 'env=declared-v2' -or $showOutput -notmatch 'version=2') { throw 'updated environment exposure is wrong' }
+if ((Get-UserRaw 'FIXTURE_ENV').value -ne 'declared-v2') { throw 'update did not replace the persistent user environment value' }
+if (-not (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/current/bin'))) { throw 'update removed the persistent user PATH entry' }
 if (Test-Path -LiteralPath (Join-Path $programs "$failShortcut.lnk")) { throw 'update left the removed shortcut behind' }
 Assert-Shortcut (Join-Path $programs "$mainShortcut.lnk") "$root/apps/envapp/current/tool.exe" ''
 Assert-Shortcut (Join-Path $programs "$subShortcut.lnk") "$root/apps/envapp/current/tool.exe" ''
@@ -282,6 +322,8 @@ if ((Test-Path "$root/apps/envapp/current") -or (Test-Path "$root/apps/envapp/2"
 if ((Test-Path "$root/shims/cmd-tool.cmd") -or (Test-Path "$root/shims/cmd-tool.ps1") -or (Test-Path "$root/shims/cmd-tool")) { throw 'uninstall left Scoop-created wrappers for the removed package' }
 if (-not (Test-Path $foreignWrapper)) { throw 'uninstall removed a Scoop-style wrapper that does not belong to the package' }
 Remove-Item -LiteralPath $foreignWrapper -Force
+if ((Get-UserRaw 'FIXTURE_ENV').value -ne $userEnvironmentSnapshots['FIXTURE_ENV'].value) { throw 'uninstall did not restore the pre-Coop user environment value' }
+if (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/current/bin')) { throw 'uninstall left the persistent user PATH entry behind' }
 if ((Test-Path (Join-Path $programs "Coop $tag")) -or (Test-Path (Join-Path $programs "Git $tag"))) { throw 'uninstall left empty shortcut subfolders behind' }
 if (-not (Test-Path -LiteralPath $foreignLink)) { throw 'uninstall removed a shortcut Coop does not own' }
 Remove-Item -LiteralPath $foreignLink -Force
@@ -489,3 +531,8 @@ if ((Test-Path "$directRoot/apps/scopebat/current") -or (Test-Path "$directRoot/
 @{coop=$CoopExe;root=$root;adopt_root=$adoptRoot;jar_available=$jarAvailable;jar=$jarPath;programs=$programs;script_root=$scriptRoot;direct_root=$directRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'exposure-evidence.json') -Encoding utf8
 Write-Output "PASS complex command entries, shortcuts and environment exposure: $TestRoot"
 exit 0
+} finally {
+    foreach ($name in $userEnvironmentNames) {
+        try { Restore-UserRaw $name $userEnvironmentSnapshots[$name] } catch { Write-Warning "Could not restore user environment value $name : $_" }
+    }
+}

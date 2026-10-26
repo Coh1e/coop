@@ -83,5 +83,5 @@
 - 未运行 neovim、cmake、oh-my-posh 的真实下载/安装；其计划可执行，但生命周期未验证。
 - 未运行 9 份“已知不支持”样本的执行路径（这是有意拒绝），也未运行 4 份被拒绝样本的实际安装。它们的脚本、MSI、InnoSetup 或 SHA512 兼容工作属于后续范围。
 - 未执行 arm64 真实程序、真实用户 Scoop 迁移/回滚、正式发布、私有或 SSH Git 来源、跨工具交替写入。本轮 `git-live` 只验证公开 GitHub/GitLab HTTPS；未做 Main/Extras 全量规模的网络性能测量。
-- MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、`installer.file/args` 进程声明、注册表/用户环境写入仍未实现；完整生态兼容不能由 20 个样本推断。
+- MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、`installer.file/args` 进程声明、系统级注册表/环境写入仍未实现；用户级 `env_set`/`env_add_path` 已由 R08 写入并撤销，但完整生态兼容不能由 20 个样本推断。
 - 本轮完整命令、退出码和测试根证据保存在 `.local/pi/tasks/20/evidence`（被忽略的本地任务证据），其中 `acceptance-evidence.json` 记录逐样本计划分类、首条路径状态、进程观测与工具版本。可重跑入口是 `ctest --test-dir .local/build --output-on-failure -R '^acceptance$'`。
