@@ -41,17 +41,6 @@ void ensure_directory(const fs::path& path) {
         require_ordinary_directory(path);
     }
 }
-void erase_tree(const fs::path& path) {
-    const auto attributes = GetFileAttributesW(path.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES) return;
-    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
-        if (attributes & FILE_ATTRIBUTE_DIRECTORY) RemoveDirectoryW(path.c_str());
-        else DeleteFileW(path.c_str());
-        return;
-    }
-    if (attributes & FILE_ATTRIBUTE_DIRECTORY) for (const auto& entry : fs::directory_iterator(path)) erase_tree(entry.path());
-    if (!fs::remove(path)) throw std::runtime_error("Cannot clean extracted archive staging");
-}
 void ensure_parents(const fs::path& root, const fs::path& path) {
     const auto relative = path.lexically_relative(root);
     if (relative.empty() || relative.is_absolute()) throw std::runtime_error("Archive entry escapes its package destination");

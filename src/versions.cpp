@@ -90,20 +90,6 @@ std::string lower_key(const std::string& value) {
     return result;
 }
 
-void erase_tree(const fs::path& path) {
-    const auto attributes = GetFileAttributesW(path.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES) return;
-    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
-        if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (!RemoveDirectoryW(path.c_str())) throw std::runtime_error("Cannot unlink managed junction");
-        } else if (!DeleteFileW(path.c_str())) throw std::runtime_error("Cannot unlink managed file");
-        return;
-    }
-    if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-        for (const auto& entry : fs::directory_iterator(path)) erase_tree(entry.path());
-    }
-    if (!fs::remove(path)) throw std::runtime_error("Cannot remove managed path");
-}
 
 void save_journal(const fs::path& path, const Json& journal) {
     write_json(path,journal);

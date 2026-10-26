@@ -114,4 +114,22 @@ void write_json(const fs::path& path, const Json& value, bool compact) {
         throw std::runtime_error("Cannot commit state file (Windows error "+std::to_string(error)+")");
     }
 }
+void erase_tree(const fs::path& path) {
+    const auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) return;
+    // Scoop marks persist junctions read-only on the link itself (attrib +R /L), and archives can
+    // contain read-only files. Clear the bit before unlinking so retained version directories do
+    // not look "in use" just because of their persistence links.
+    if (attributes & FILE_ATTRIBUTE_READONLY)
+        SetFileAttributesW(path.c_str(),attributes & ~FILE_ATTRIBUTE_READONLY);
+    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+        if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+            if (!RemoveDirectoryW(path.c_str())) throw std::runtime_error("Cannot unlink managed junction: "+path_text(path));
+        } else if (!DeleteFileW(path.c_str())) throw std::runtime_error("Cannot unlink managed file: "+path_text(path));
+        return;
+    }
+    if (attributes & FILE_ATTRIBUTE_DIRECTORY)
+        for (const auto& entry : fs::directory_iterator(path)) erase_tree(entry.path());
+    if (!fs::remove(path)) throw std::runtime_error("Cannot remove managed path: "+path_text(path));
+}
 }

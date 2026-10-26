@@ -155,7 +155,12 @@ if ($install2.code -ne 0) { throw "persistence install failed: $($install2.text)
 Manifest $root2 'persistfixture' '2' $persist2 $mapping
 $update2 = Run-Json @('--root',$root2,'update','persistfixture','--json')
 if ($update2.code -ne 0) { throw "persistence update failed: $($update2.text)" }
-# Old-version cleanup unlinks persistence junctions instead of following into the store.
+# Old-version cleanup unlinks persistence junctions instead of following into the store. Scoop
+# marks persist junctions read-only on the link itself (attrib +R /L) and read-only files must not
+# block the unlink either, so the retained version carries the same attributes Scoop creates.
+& attrib.exe +R /L "$root2/apps/persistfixture/1/config" | Out-Null
+& attrib.exe +R "$root2/apps/persistfixture/1/sample.ini" | Out-Null
+if (-not ((Get-Item -LiteralPath "$root2/apps/persistfixture/1/config" -Force).Attributes -band [IO.FileAttributes]::ReadOnly)) { throw 'failed to mark the retained junction read-only' }
 $cleanupPersist = Run-Json @('--root',$root2,'cleanup','persistfixture','--json')
 if ($cleanupPersist.code -ne 0 -or (Test-Path "$root2/apps/persistfixture/1")) { throw "old-version cleanup with persist links failed: $($cleanupPersist.text)" }
 if (-not (Test-Path "$root2/persist/persistfixture/config/settings.ini") -or -not (Test-Path "$root2/persist/persistfixture/sample.ini") -or -not (Test-Path "$root2/persist/persistfixture/unrelated/keep.txt")) { throw 'cleanup followed a persist link and deleted store data' }

@@ -10,6 +10,9 @@ Json installed_packages(const Context& context);
 Json catalog(const Context& context);
 Json bucket_sources(const Context& context);
 void write_json(const fs::path& path, const Json& value, bool compact = false);
+// Removes a Coop-managed tree. Reparse points are unlinked instead of followed, and the read-only
+// attribute Scoop keeps on persist junctions (attrib +R /L) is cleared before unlinking.
+void erase_tree(const fs::path& path);
 void validate_component(const std::string& value);
 class RootLock {
 public:

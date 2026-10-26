@@ -150,6 +150,11 @@ if (-not (Test-Path -LiteralPath "$app/current/persist-fixture.exe")) { throw 'f
 Remove-Item -LiteralPath "$app/2/sample.ini" -Force
 New-Item -ItemType HardLink -Path "$app/2/sample.ini" -Target "$store/sample.ini" | Out-Null
 
+# Real Scoop marks persist junctions read-only on the link itself (attrib +R /L) and a persisted
+# file can be read-only too; uninstall must clear that before unlinking and keep the store.
+& attrib.exe +R /L "$app/2/config" | Out-Null
+& attrib.exe +R "$app/2/sample.ini" | Out-Null
+if (-not ((Get-Item -LiteralPath "$app/2/config" -Force).Attributes -band [IO.FileAttributes]::ReadOnly)) { throw 'failed to mark the version junction read-only' }
 $uninstallOutput = & $CoopExe --root $root uninstall $name --json
 if ($LASTEXITCODE -ne 0) { throw "persist uninstall failed: $($uninstallOutput -join "`n")" }
 $removed = ($uninstallOutput -join "`n") | ConvertFrom-Json

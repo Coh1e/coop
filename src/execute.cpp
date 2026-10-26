@@ -31,20 +31,6 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
             throw std::runtime_error("Managed destination contains a reparse point");
     }
 }
-void erase_tree(const fs::path& path) {
-    const auto attributes = GetFileAttributesW(path.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES) return;
-    if (attributes & FILE_ATTRIBUTE_READONLY)
-        SetFileAttributesW(path.c_str(),attributes & ~FILE_ATTRIBUTE_READONLY);
-    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
-        if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
-            if (!RemoveDirectoryW(path.c_str())) throw std::runtime_error("Cannot unlink managed junction");
-        } else if (!DeleteFileW(path.c_str())) throw std::runtime_error("Cannot unlink managed file");
-        return;
-    }
-    if (attributes & FILE_ATTRIBUTE_DIRECTORY) for (const auto& entry : fs::directory_iterator(path)) erase_tree(entry.path());
-    if (!fs::remove(path)) throw std::runtime_error("Cannot remove managed path");
-}
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");

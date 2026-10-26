@@ -1,6 +1,6 @@
 # 持久化数据支持
 
-日期：2026-10-25。状态：T10 实现与运行验证记录，T15 补充彻底删除与旧版本清理。范围是当前用户级、无脚本包的生命周期；不把本页当作全部 Scoop 持久化兼容声明。
+日期：2026-10-25。状态：T10 实现与运行验证记录，T15 补充彻底删除与旧版本清理，R09 补充真机原地复用验证。范围是当前用户级、无脚本包的生命周期；不把本页当作全部 Scoop 持久化兼容声明。
 
 ## 1. Scoop 语义依据
 
@@ -58,6 +58,7 @@
 - `coop cleanup [package...] [--dry-run]` 只处理管理记录或卸载保留证据中登记、Manifest 与安装记录摘要未变、不是当前版本且没有 pending 事务依赖的本地版本目录。
 - 未记录的目录、缺失历史 Manifest、Manifest/安装记录被修改、版本目录本身是 reparse point 或正在使用的版本全部保留并报告 `unmanageable`/`in-use`/`recovery-protected`；不猜测缺失 Manifest 或下载 URL。
 - 清理先把候选目录移动到清理事务，再删除；移动失败不删除任何内容。中断的清理事务在下一次清理时先恢复，仍被占用的目录放回原位。当前版本永不进入候选。
+- Scoop 会对持久化目录 junction 设置链接级只读属性（`attrib +R /L`），归档内的文件也可能是只读。清理和解链前先清除该属性，再只解除链接；否则 Scoop 创建、Coop 保留的旧版本目录会被误判为占用（R09 真机复现并修复，回归见 `tests/cleanup.ps1` 与 `tests/persist.ps1`）。
 
 ### 冲突与恢复
 
@@ -91,3 +92,28 @@
 - 权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装 persist 权限。
 - 数据迁移后整个事务失败时回滚 store 内容；当前明确不承诺该行为。
 - 多个写进程并发操作同一 store 的专项竞态；现有根目录写锁与通用并发测试提供边界，但未单独重复持久化场景。
+
+## 4. 真机验证（R09 / #30）
+
+`tests/real-scoop-persistence.ps1` 在人类选定的真实共用根（`C:\Users\Neo\scoop`）上顺序执行，只安装运行前不存在的包，结束后核对安装清单与本轮前一致并删除本轮创建的测试 store 与临时 bucket；既有 `persist/frp`、`persist/spotbugs`、`persist/uv` 数据不被改写。本轮实测 Windows 11 工作站、Scoop v0.6.0、main `a97619fec75f0c74bd74e73b0e9138df08687a50`、PowerShell 7.6.5；代码提交见本轮报告与 `versions-final-head.txt`，`coop.exe` 摘要见证据 JSON。
+
+| 场景 | 真实观察 |
+| --- | --- |
+| 既有目录链接（只读） | 真实 `7zip` 26.05 的 `Codecs`、`Formats` junction 在 `coop list --json` 与 `adopt --dry-run` 中报告为既有 store、`data_retained=true`，实际 junction 目标逐项一致；读取前后 store 内容与安装清单不变，未写 `.coop/packages/7zip.json` |
+| 文件映射：Scoop → Coop 更新 | `scoop install mediamtx@1.21.2` 为文件映射创建 hardlink；测试值写入 store 后，真实 `mediamtx.exe` 通过版本目录链接读到 `coop-r09-store` 并以其为监听地址失败。Coop 更新到 1.21.3 的计划与执行步骤逐项一致，新版本 `mediamtx.yml` 与 store 是同一文件，store 哈希与文件标识不变，`retained_versions=[1.21.2]`、`data_rollback=none`；旧版本仍读同一 store |
+| 文件映射：Scoop 继续使用 | `scoop reset mediamtx` 后真实 shim 运行 1.21.3，Coop 仍识别同一安装；`coop uninstall` 返回 `data_retained=true`，旧版本目录保留且链接仍指向 store；`coop cleanup` 删除旧版本目录后 store 不变；Scoop 重装 1.21.2 后新 hardlink 仍指向同一 store 并读到同一测试值 |
+| 目录映射：Scoop → Coop 更新 | `scoop install pocketbase@0.40.5` 创建 `pb_data`、`pb_migrations` junction；store 中的迁移文件被真实程序应用并写入 store 内的 `data.db`。Coop 更新到 0.40.6 后两个 junction 仍指向同一 store，迁移文件与 `data.db` 的文件标识不变，新版本运行 `migrate up` 报告 `No new migrations to apply.`，旧版本目录保留 |
+| 目录映射：卸载、清理与重装 | `scoop reset pocketbase` 后 shim 运行 0.40.6；`coop uninstall` 保留两个 store 与 `data.db`；`coop cleanup` 删除保留的 0.40.5 目录时不跟随 junction，store 数据仍在；Scoop 重装 0.40.5 后连接同一 `pb_data` 并报告无新迁移 |
+| 准备失败保护 | 临时 bucket 包使用项目内 mediamtx 归档：先安装 1.21.2 并把测试值写入 store，再以损坏归档预览/执行更新。更新以 `Unrecognized archive format` 失败，退出非零；当前版本、入口、hardlink 与 store 内容不变，真实程序仍读到同一测试值；journal 为 `rolled-back` 且 `observed_steps=[download,verify,extract]`；随后普通卸载仍 `data_retained=true` |
+| 回滚范围 | 成功更新单独报告 `retained_versions` 与 `data_rollback=none`；准备失败只回滚 Coop 已移动/创建的程序、入口和 staging，store 内容不被回滚也不被删除。保留旧程序不等于数据回到旧状态，数据恢复没有自动承诺 |
+
+本轮修复了一个真机问题：Scoop 用 `attrib +R /L` 把持久化 junction 标记为链接级只读，`coop cleanup` 删除保留的 Scoop 旧版本目录时只调 `RemoveDirectoryW`，因此报告 `Cannot unlink managed junction` 并把目录当作 in-use。现在 `src/data.cpp` 的统一 `erase_tree` 在解除链接前清除只读属性，`execute`、`cleanup` 与归档 staging 共用同一实现；回归在 `tests/cleanup.ps1`（旧版本 junction）和 `tests/persist.ps1`（卸载当前版本链接）中，红/绿记录见 `.local/pi/tasks/30/evidence/`。
+
+本轮运行的完整命令、退出码、计划、journal 与场景 JSON 保存在 `.local/pi/tasks/30/evidence/real-persistence-final/`（最终 head 运行）；中间修复运行不作为证据。
+
+未在真机运行或未承诺：
+
+- 文件映射样本使用 `mediamtx`；`frp` 的 `frps.exe` 在本机被 Defender 判定为 `PUA:Win32/FRProxy` 隔离，因此没有改用该包，也没有修改杀毒设置。既有的 `persist/frp` 数据仍作为历史保留证据只读核对，未被搬动。
+- 测试创建的 store 是空的（本轮首次安装），因此“复用既有 store”的完整分支在真机由 Scoop/Coop 交替共享同一 store 证明；更早卸载遗留的 `frp`/`spotbugs`/`uv` store 没有被重新挂载，也没有被修改。
+- 脚本、快捷方式、环境变量、MSI/7z 安装器与持久化映射的真实组合；权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装以及并发写同一 store 的竞态仍未运行。
+- 数据迁移（persist 映射变化）仍明确拒绝而不是自动迁移；其失败回滚范围不在本页承诺内。
