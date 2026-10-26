@@ -17,7 +17,7 @@
 | `uninstaller.file` / `uninstaller.args` 卸载器程序 | 固定样本与当前 Main/Extras 固定修订没有此类声明 | 已启用（#32）：与安装器程序共用同一 `Invoke-Installer` 路径并在卸载/更新旧版本时以 `$dir` 指向被移除版本目录 | `tests/installer-programs.ps1` 以真实 `.cmd` 卸载器程序验证顺序、`$dir` 参数和失败保护 |
 | `uninstaller.script` | Main/rclone（实际样本） | 按 `uninstaller` 阶段在真实 PowerShell 中执行原文，`$dir`/`$persist_dir` 与 Scoop 一致 | `tests/installers.ps1` 使用 rclone 原文在卸载时把 `rclone.conf` 保存到 persist；`tests/hooks.ps1` 另用真实模板生成 `.reg` 文件（不 import） |
 | `reg import` 卸载脚本 | Main/7zip、Main/git、Extras/vscode、Extras/notepadplusplus | 脚本文本不再被静态拒绝，`reg import` 会作为真实外部进程执行；注册表属于项目外的用户/系统状态，Coop 不声称可回滚 | Main/git 的 `post_install` 只把 bucket `.reg` 模板渲染进包目录，`tests/hooks.ps1` 执行该原文并核对编码与替换 |
-| Inno Setup / NSIS / 其他 EXE 安装器 | Extras/aider-desk、Main/python 的 setup.exe 等 | 不执行、不解析；Manifest 的 `innosetup` 或安装器进程声明仍拒绝 | 计划诊断 |
+| Inno Setup / NSIS / 其他 EXE 安装器 | Extras/aider-desk、Main/python 的 setup.exe 等 | 不解析厂商安装器结构；`innosetup` 等特殊机制声明仍拒绝，`installer.file/args` 作为普通程序声明已启用（#32） | 计划诊断 |
 | `installer.file` / `installer.args` 进程声明 | Main/groovyserv、Main/vcpkg（真实声明） | 已启用（#32）：程序在版本目录运行，位于 `pre_install` 之后、`current`/入口发布之前；失败使包操作失败并回滚已创建的包状态，项目外副作用不承诺回滚且不自动重试 | `tests/installer-programs.ps1`、`tests/real-scoop-installers.ps1` |
 | `post_uninstall` | Extras/aider-desk、Main/azure-cli | 已启用（#31）：在版本目录移除后由真实 PowerShell 执行，`$dir` 仍指向已移除的版本路径；样本自身删除用户数据的行为是受信脚本副作用，测试只用项目内合成脚本验证阶段语义 | `tests/hooks.ps1` |
 
@@ -63,7 +63,7 @@
 
 - 所有实际执行的安装目标、7z 解压临时目录、脚本日志和事务恢复记录都位于当前项目根目录内；测试根还包含空格和中文路径。
 - MSI 管理安装不执行：`msiexec` 的机器缓存写入位于 `%WINDIR%\Installer`，不是项目内路径。计划把该限制作为 `external_tools[].limitation` 和 `execution-blocked` 诊断输出，默认不提供该生命周期；这符合 AC4“无法隔离时留阻塞”，而不是把系统写入声称为已隔离。
-- 注册表导入、服务控制、用户/系统环境变量、任意外部进程和用户目录写入：脚本文本不再被静态拒绝（#31），真实 PowerShell 会执行它们；这些是受信包内容的外部副作用，Coop 不声称可回滚，也不在测试中执行会修改真实注册表/用户数据的样本。安装器进程声明仍被拒绝。
+- 注册表导入、服务控制、用户/系统环境变量、任意外部进程和用户目录写入：脚本文本不再被静态拒绝（#31），真实 PowerShell 会执行它们；这些是受信包内容的外部副作用，Coop 不声称可回滚，也不在测试中执行会修改真实注册表/用户数据的样本。安装器程序声明（#32）同样会真实执行其声明的程序，因此外部副作用保护与脚本相同。
 - 需要管理员的真实系统安装不进入自动路径；没有绕过 UAC 或写入 HKLM/HKCU 的测试。
 - `installer.file`/`installer.args` 已启用，但仍是“受信外部程序”语义：Coop 不承诺回滚其项目外副作用，也不为失败程序重试。需要管理员权限、会改注册表/服务/系统目录的程序仍不会在自动测试中执行。
 - 真实 Main/Extras 中没有 `uninstaller.file/args` 样本；卸载器程序路径由真实 `.cmd` 程序在隔离根验证，未在真实共用根执行。
@@ -86,4 +86,4 @@
 - 静态/历史结果：真实 7z 产物的 SHA256 与固定样本一致；Scoop 源码顺序和脚本原文来自固定提交；验证者在 `6203f08` 观察到 MSI 机器缓存写入，本轮据此改为阻塞。
 - 未运行：MSI 管理安装生命周期（隔离限制阻塞，需人类批准）、git/vscode/firefox/aider-desk 的真实 `#/dl.7z` 载荷、其他厂商 MSI、lessmsi、NSIS/Inno/WiX 提取、任意 MSI 的完整安装、真实用户目录安装、需要管理员的系统级安装、python installer.script 的实际执行、`Main/vcpkg` 的实际生命周期。
 
-具体命令、退出码和证据位置见 Issue #16 / #31 / #32 报告与 `.local/pi/tasks/16|31|32/evidence`；#32 最终代码构建（`coop.exe` SHA256 `9c1f95b7ce1e…`）的真实共用根证据在 `.local/pi/tasks/32/evidence/real-groovyserv-9c1f95b7ce1e/`，同一二进制在提交 `da62478` 上重跑的证据在 `.local/pi/tasks/32/evidence/real-groovyserv-9c1f95b7ce1e-head-da62478/`（含 `99-head-binding.txt`）；更早的 `real-groovyserv-3aa377072ef3/` 是中间构建的运行记录，仅作追溯。
+具体命令、退出码和证据位置见 Issue #16 / #31 / #32 报告与 `.local/pi/tasks/16|31|32/evidence`；#32 的真实共用根证据：`.local/pi/tasks/32/evidence/real-groovyserv-707adad45c48/`（`coop.exe` SHA256 `707adad4…`，源码头 `3a148a9`，含 `99-head-binding.txt`）；另一份同源构建的记录在 `real-groovyserv-9c1f95b7ce1e/` 与 `real-groovyserv-9c1f95b7ce1e-head-da62478/`，更早的 `real-groovyserv-3aa377072ef3/` 是中间构建。MSVC 同一源码重建会得到不同 PE 摘要，因此按运行目录区分，以源码头与测试日志为准。
