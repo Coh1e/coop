@@ -129,11 +129,15 @@ $index = Read-JsonFile (Join-Path $PSScriptRoot 'corpus/index.json')
 $expectedClasses = @{
     'Main/jq'='executable'; 'Main/ripgrep'='executable'; 'Main/neovim'='executable'; 'Main/cmake'='executable';
     'Main/nodejs'='executable'; 'Main/air'='executable'; 'Main/oh-my-posh'='executable';
-    'Main/git'='unsupported'; 'Main/7zip'='unsupported'; 'Main/python'='unsupported'; 'Main/rclone'='unsupported';
-    'Main/android-clt'='unsupported'; 'Main/azure-cli'='unsupported'; 'Extras/notepadplusplus'='unsupported';
-    'Extras/vscode'='unsupported'; 'Extras/everything'='unsupported';
-    # SHA512 itself is executable since R04; these two now fail on lifecycle/other capability gaps.
-    'Extras/firefox'='unsupported'; 'Extras/aider-desk'='unsupported';
+    # Lifecycle script text no longer decides executability: every sample whose remaining
+    # requirements are supported archives, scripts and entries is executable, and a script that
+    # fails at run time is reported by the lifecycle, not predicted by a text whitelist.
+    'Main/git'='executable'; 'Main/rclone'='executable'; 'Main/python'='executable';
+    'Main/android-clt'='executable'; 'Main/azure-cli'='executable';
+    'Extras/notepadplusplus'='executable'; 'Extras/vscode'='executable'; 'Extras/everything'='executable';
+    'Extras/firefox'='executable'; 'Extras/aider-desk'='executable';
+    # MSI administrative extraction stays blocked by the Windows Installer machine cache.
+    'Main/7zip'='unsupported';
     'Main/wget'='rejected'; 'Extras/adventuregamestudio'='rejected'
 }
 if ($index.samples.Count -ne 20 -or $expectedClasses.Count -ne 20) { throw 'The fixed corpus no longer contains exactly 20 audited samples' }
@@ -179,7 +183,8 @@ foreach ($sample in $index.samples) {
         classification=$class
         execution_available=[bool]$plan.execution_available
         diagnostics=$codes
-        unsupported_scripts=@($plan.package.scripts | Where-Object { -not $_.compatible } | ForEach-Object { $_.phase })
+        script_phases=@($plan.package.scripts | ForEach-Object { $_.phase })
+        script_host=$plan.package.script_support.host
         archives=@($plan.artifacts | ForEach-Object { $_.archive })
         lifecycle='not-run'
     }

@@ -42,8 +42,27 @@ foreach ($entry in $order) {
 }
 if (@($wget.diagnostics | Where-Object code -eq 'dependency-missing').Count) { throw 'available cacert dependency was reported missing' }
 if ((Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop")) { throw 'dependency preview changed product state' }
-$wgetInstall = & $CoopExe --root $root install main/wget --json 2>&1
-if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cacert") -or (Test-Path "$root/apps/wget")) { throw 'unsupported real package installed its dependency before refusing the root' }
+# Main/wget's lifecycle text is ordinary PowerShell now, so it is planned for execution. The
+# dependency-before-root rule is proven with a Manifest whose remaining requirement (an MSI
+# artifact) is still blocked, so no network access or dependency install happens first.
+if ($wget.execution_available -ne $true) { throw 'real Manifest with ordinary PowerShell text stayed blocked' }
+@'
+{
+  "version": "1",
+  "url": "https://invalid.example/blocked.msi#/blocked.msi",
+  "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "depends": "cacert",
+  "bin": "blocked.exe"
+}
+'@ | Set-Content -LiteralPath "$root/buckets/main/bucket/blockedroot.json" -Encoding utf8
+$blockedPreview = & $CoopExe --root $root install main/blockedroot --dry-run --json 2>&1
+if ($LASTEXITCODE -ne 0) { throw 'blocked root preview failed' }
+$blockedPlan = Read-Json $blockedPreview
+if ($blockedPlan.execution_available -ne $false -or @($blockedPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'machine cache' }).Count -eq 0) {
+    throw 'blocked root preview did not disclose the MSI limitation'
+}
+$blockedInstall = & $CoopExe --root $root install main/blockedroot --json 2>&1
+if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cacert") -or (Test-Path "$root/apps/blockedroot")) { throw 'unsupported real package installed its dependency before refusing the root' }
 
 Write-Manifest $root 'test' 'base' '1' $fixture1 'base.exe' $null
 Write-Manifest $root 'test' 'leaf' '1' $fixture2 'leaf.exe' 'base'
@@ -59,10 +78,11 @@ Write-Manifest $root 'test' 'deeper' '1' $fixture2 'deeper.exe' 'deep'
 Write-Manifest $root 'test' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'other' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'test' 'amb' '1' $fixture1 'amb.exe' 'dup'
-$scriptHash = (Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower()
-$scriptManifest = @{version='1';url=(File-Uri $fixture1)+'#/scriptdep.exe';hash=$scriptHash;bin='scriptdep.exe';post_install='Write-Output dependency-script'} | ConvertTo-Json -Depth 5
-[IO.File]::WriteAllText("$root/buckets/test/bucket/scriptdep.json",$scriptManifest,[Text.UTF8Encoding]::new($false))
-Write-Manifest $root 'test' 'needsscript' '1' $fixture1 'needsscript.exe' 'scriptdep'
+$blockedHash = (Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower()
+# A dependency whose remaining requirement is blocked (MSI machine cache), not a script text.
+$blockedDependency = @{version='1';url=(File-Uri $fixture1)+'#/blockeddependency.msi';hash=$blockedHash;extract_dir='Files';bin='blockeddependency.exe'} | ConvertTo-Json -Depth 5
+[IO.File]::WriteAllText("$root/buckets/test/bucket/blockeddependency.json",$blockedDependency,[Text.UTF8Encoding]::new($false))
+Write-Manifest $root 'test' 'needsscript' '1' $fixture1 'needsscript.exe' 'blockeddependency'
 
 # A dependency is installed first in its own transaction, then the requested package is published.
 $preview = & $CoopExe --root $root install leaf --dry-run --json
@@ -158,7 +178,7 @@ if ($LASTEXITCODE -eq 0 -or ($versioned -join "`n") -notmatch 'dependency-versio
 $qualifiedVersioned = & $CoopExe --root $root install qualifiedversion --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($qualifiedVersioned -join "`n") -notmatch 'dependency-version' -or ($qualifiedVersioned -join "`n") -notmatch 'test/base@1') { throw 'bucket-qualified version-constrained dependency was not refused with its source' }
 $unsupported = & $CoopExe --root $root install needsscript --dry-run --json
-if ($LASTEXITCODE -eq 0 -or ($unsupported -join "`n") -notmatch 'dependency-unsupported' -or ($unsupported -join "`n") -notmatch 'script') { throw 'unsupported dependency was not refused with a capability diagnostic' }
+if ($LASTEXITCODE -eq 0 -or ($unsupported -join "`n") -notmatch 'dependency-unsupported' -or ($unsupported -join "`n") -notmatch 'machine cache') { throw 'unsupported dependency was not refused with a capability diagnostic' }
 if (Test-Path "$root/apps/needsscript") { throw 'unsupported dependency preview wrote product state' }
 Write-Manifest $root 'other' 'base' '1' $fixture1 'base.exe' $null
 Write-Manifest $root 'test' 'conflict' '1' $fixture1 'conflict.exe' 'other/base'

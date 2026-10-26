@@ -233,24 +233,22 @@ Json package_json(const Package& package) {
     for (const auto& item : package.persistence) result["persistence"].push_back({{"source",path_text(item.source)},{"target",path_text(item.target)}});
     for (const auto& item : package.environment) result["environment"].push_back({{"name",item.name},{"value",item.value}});
     for (const auto& item : package.path_entries) result["path_entries"].push_back(path_text(item));
-    const auto scripts = check_package_scripts(package);
-    for (std::size_t index = 0; index < package.scripts.size(); ++index) {
-        const auto& script = package.scripts[index];
-        const auto& report = scripts.scripts[index];
+    const auto host = script_host();
+    for (const auto& script : package.scripts) {
         Json entry = {{"phase",script_phase_name(script.phase)},{"text",script.text},
-            {"compatible",report.compatible},{"commands",report.commands},{"helpers",report.helpers},
-            {"required_tools",report.required_tools},
-            {"diagnostics",Json::array()},
+            {"host","real PowerShell child process"},
+            {"declared_by",script.declared_by},
             {"side_effects","trusted Manifest script text; effects outside the managed package and persist roots cannot be predicted or rolled back, and a failed hook is never re-run automatically"}};
-        for (const auto& diagnostic : report.diagnostics) entry["diagnostics"].push_back({{"code",diagnostic.code},{"message",diagnostic.message}});
         result["scripts"].push_back(std::move(entry));
     }
-    result["script_support"] = {{"phases",Json::array({"pre_install","installer","post_install","pre_uninstall","uninstaller"})},
-        {"context",Json::array({"$app","$bucket","$version","$architecture","$fname","$dir","$original_dir","$persist_dir","$bucketsdir","$global","$cmd","$_"})},
-        {"helpers",Json::array({"ensure","info","warn"})},
-        {"commands",Json::array({"Test-Path","Get-Content","Set-Content","New-Item","Copy-Item","Remove-Item","Join-Path","Split-Path","Get-Item","Out-Null","ForEach-Object"})},
-        {"host","real PowerShell child process with the proven context; not an embedded PowerShell interpreter"},
-        {"scope","path arguments must resolve under $dir, $original_dir, $persist_dir or $bucketsdir; no external commands, environment writes or arbitrary .NET calls are enabled"}};
+    result["script_support"] = {{"phases",Json::array({"pre_install","installer","post_install","pre_uninstall","uninstaller","post_uninstall"})},
+        {"context",Json::array({"$app","$bucket","$version","$architecture","$fname","$dir","$original_dir","$persist_dir","$bucketsdir","$scoopdir","$cachedir","$global","$manifest","$purge (uninstall only)"})},
+        {"undefined_context",Json::array({"$cmd (Scoop 0.6.0 never defines it, so `if ($cmd -eq 'uninstall')` blocks behave identically)"})},
+        {"host","real PowerShell child process that loads the pinned Scoop compatibility library; no embedded interpreter and no script-text whitelist"},
+        {"library_version",host.library_version},
+        {"library_path",host.library ? path_text(*host.library) : std::string{}},
+        {"interpreter",host.interpreter ? path_text(*host.interpreter) : std::string{}},
+        {"problem",host.problem}};
     result["external_tools"] = external_tools_json(package);
     result["dependencies"] = package.dependencies;
     const auto process_json = [](const InstallerProcess& process) {
@@ -530,16 +528,18 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
-    const auto package_scripts = check_package_scripts(plan.package);
-    if (!package_scripts.compatible()) {
-        result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
-        result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
-    } else if (!plan.package.scripts.empty()) {
-        result["lifecycle_checks"]["hooks"] = "supported-path; verified with real upstream hook text in tests/hooks.ps1 and real installer/uninstaller script text in tests/installers.ps1";
+    if (!plan.package.scripts.empty()) {
+        const auto host = script_host();
+        if (!host.problem.empty()) {
+            result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
+            result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
+        } else {
+            result["lifecycle_checks"]["hooks"] = "real PowerShell host with the pinned Scoop compatibility library (script text is not whitelisted)";
+        }
     }
-    if (plan.previous && !check_package_scripts(*plan.previous).compatible())
+    if (plan.previous && !plan.previous->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
-    if (plan.update_candidate && !check_package_scripts(*plan.update_candidate).compatible())
+    if (plan.update_candidate && !plan.update_candidate->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
             return !launcher_kind(command.target);
@@ -588,7 +588,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while installer/uninstaller process declarations remain refused"}});
     return result;
 }
 struct PackageOutcome {

@@ -73,7 +73,7 @@ Package project(const ir::Package& definition) {
         if (item.path_entry) package.path_entries.push_back(fs::path(wide(item.value)));
         else package.environment.push_back({item.variable,item.value});
     }
-    for (const auto& item : definition.hooks) package.scripts.push_back({legacy_phase(item.stage),item.text});
+    for (const auto& item : definition.hooks) package.scripts.push_back({legacy_phase(item.stage),item.text,item.declared_by});
     const auto program = [](const ir::InstallerProgram& item) {
         return InstallerProcess{fs::path(wide(item.file)),item.arguments,item.keep};
     };

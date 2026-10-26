@@ -36,7 +36,7 @@ New-Item -ItemType Directory -Path "$globalRoot/apps/system-only/current" -Force
 Copy-Item "$root/apps/fixture/1/scoop-manifest.json" "$globalRoot/apps/system-only/current/scoop-manifest.json"
 Copy-Item "$root/apps/fixture/1/scoop-install.json" "$globalRoot/apps/system-only/current/scoop-install.json"
 $mixed = & $CoopExe --root $root --global-root $globalRoot adopt --dry-run --json | ConvertFrom-Json
-$expected = @{fixture='eligible';scripted='unsupported';unknown='untested';corrupt='inconsistent';future='unsupported';'system-only'='unsupported'}
+$expected = @{fixture='eligible';scripted='untested';unknown='untested';corrupt='inconsistent';future='unsupported';'system-only'='unsupported'}
 foreach ($item in $mixed) { if ($expected[$item.package.name] -ne $item.eligibility) { throw "wrong mixed adoption status for $($item.package.name): $($item.eligibility)" } }
 if ($mixed.Count -ne 6 -or (Test-Path "$root/.coop") -or (Test-Path "$globalRoot/.coop")) { throw 'mixed preview omitted entries or wrote state' }
 $rejected = & $CoopExe --root $root adopt scripted --json 2>&1

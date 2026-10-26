@@ -4,30 +4,25 @@
 #include <optional>
 
 namespace coop {
-// Lifecycle hooks are trusted Manifest script text. Coop runs them in a real PowerShell host
-// that already provides the Scoop context, but only after a static compatibility check confirms
-// that the script stays inside the context, helpers and commands proven by the fixed sample
-// corpus. Anything outside that boundary becomes a capability diagnostic, so adoption and
-// execution are refused before any side effect instead of half-running a script.
-struct ScriptReport {
-    ScriptPhase phase = ScriptPhase::before_install;
-    bool compatible = true;
-    std::vector<std::string> commands;
-    std::vector<std::string> helpers;
-    std::vector<std::string> required_tools;
-    std::vector<Diagnostic> diagnostics;
+// Lifecycle hooks are trusted Manifest script text. Coop does not interpret, rewrite or whitelist
+// that text: a real PowerShell host runs it with the same session Scoop uses. The session is built
+// from the pinned Scoop compatibility library in assets/scoop-lib, so `ensure`, `info`, `warn`,
+// `error`, `abort`, `success`, `appdir`, `env_add_path`, `env_set`, `Expand-*Archive`,
+// `Get-EnvVar`, `Set-EnvVar`, `Invoke-ExternalCommand` and the rest are the upstream helpers rather
+// than a reduced copy. Only host requirements are checked before execution; anything PowerShell
+// accepts runs, and a legitimate edit to a script never turns into a capability refusal.
+struct ScriptHostInfo {
+    // The real PowerShell interpreter, if one is available.
+    std::optional<fs::path> interpreter;
+    // Directory holding the pinned Scoop compatibility library (core.ps1, install.ps1, …).
+    std::optional<fs::path> library;
+    // Pinned upstream version of that library, reported as provenance.
+    std::string library_version;
+    // First missing host requirement; empty when a hook can be started.
+    std::string problem;
 };
-struct ScriptCapability {
-    std::vector<ScriptReport> scripts;
-    bool compatible() const;
-    std::vector<std::string> messages() const;
-};
-// Static part of the capability check, used by preview, execution and adoption.
-ScriptCapability check_package_scripts(const Package& package);
-// Locates the PowerShell host used for hook scripts. COOP_POWERSHELL pins an explicit
-// interpreter for isolated runs; otherwise pwsh.exe is preferred and the Windows PowerShell
-// installed with the operating system is the fallback. No global installation is performed.
-std::optional<fs::path> powershell_interpreter();
+// Resolves the hook host without starting a process: never downloads, installs or writes anything.
+ScriptHostInfo script_host();
 const char* script_phase_name(ScriptPhase phase);
 // Captured script output is arbitrary bytes. JSON records keep a UTF-8 safe representation of
 // the tails while the raw bytes stay in the per-hook log files.
@@ -36,7 +31,13 @@ std::string script_json_text(const std::string& value);
 struct ScriptRun {
     int exit_code = 0;
     fs::path interpreter;
+    // Exact hook text handed to the host; kept as evidence of what ran.
     fs::path hook_path;
+    // Generated host that loaded the Scoop library, bound the context and invoked the hook text.
+    fs::path host_path;
+    fs::path library;
+    // Transaction-local copy of the Manifest bytes this hook session bound to $manifest.
+    fs::path manifest_path;
     fs::path stdout_path;
     fs::path stderr_path;
     std::size_t stdout_bytes = 0;
@@ -44,11 +45,15 @@ struct ScriptRun {
     std::string stdout_tail;
     std::string stderr_tail;
 };
-// Runs one hook script in a child PowerShell process. stdout and stderr are drained on separate
-// threads into the per-hook log files (every byte) while a bounded tail is kept for JSON records.
-// A non-zero exit code is reported to the caller; the script is never retried automatically and
-// its external effects are not claimed as reversible.
+// Runs one hook in a child PowerShell process. The host sets the Scoop context ($app, $bucket,
+// $version, $architecture, $fname, $dir, $original_dir, $persist_dir, $bucketsdir, $global,
+// $manifest, $purge for uninstall) and its working directory, then executes the hook text through
+// Invoke-Command like Scoop's Invoke-HookScript. stdout and stderr are drained on separate threads
+// into per-hook log files (every byte) while a bounded tail is kept for JSON records. A non-zero
+// exit code is reported to the caller; the script is never retried and its external effects are
+// never claimed as reversible.
 ScriptRun run_package_script(const Context& context, const Package& package, std::size_t index,
     const fs::path& directory, const fs::path& original_directory, const fs::path& persist_directory,
-    const fs::path& transaction, const std::string& command_name);
+    const fs::path& transaction, const std::string& command_name, bool purge,
+    const fs::path& manifest_path);
 }

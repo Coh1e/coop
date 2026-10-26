@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <iterator>
 #include <fstream>
+#include <map>
 
 namespace coop {
 namespace {
@@ -36,14 +37,10 @@ void require_capabilities(const Package& package) {
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
     if (package.installer || package.uninstaller)
         throw std::runtime_error("installer/uninstaller process declarations (installer.file/args) are not enabled; no fixed sample requires them, and a failed external program cannot be rolled back safely");
-    const auto scripts = check_package_scripts(package);
-    if (!scripts.compatible()) {
-        const auto messages = scripts.messages();
-        throw std::runtime_error("Lifecycle hook script is outside the proven PowerShell subset: "+
-            (messages.empty() ? std::string("unknown script capability") : messages.front()));
+    if (!package.scripts.empty()) {
+        const auto host = script_host();
+        if (!host.problem.empty()) throw std::runtime_error(host.problem);
     }
-    if (!package.scripts.empty() && !powershell_interpreter())
-        throw std::runtime_error("A PowerShell runtime (pwsh.exe or Windows PowerShell) is required for lifecycle hook scripts");
     const auto lower_name = [](std::string value) {
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
@@ -673,6 +670,22 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     const auto transaction = state/L"transactions"/(std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     ordinary_parents(context.root,transaction);
     fs::create_directories(transaction);
+    // Hook sessions bind $manifest to a byte-identical copy inside the transaction. The live path
+    // is not usable for every phase: post_uninstall runs after the version directory (and with it
+    // the saved Manifest) was removed, exactly as in Scoop, where the Manifest object is already in
+    // memory. Staging also records which Manifest bytes the scripts saw.
+    const auto scripts_directory = transaction/L"scripts";
+    fs::create_directories(scripts_directory);
+    std::map<std::wstring,fs::path> staged_manifests;
+    const auto staged_manifest = [&](const Package& target) -> fs::path {
+        if (target.manifest_path.empty() || !fs::is_regular_file(target.manifest_path)) return {};
+        const auto key = target.manifest_path.wstring();
+        if (const auto found = staged_manifests.find(key); found != staged_manifests.end()) return found->second;
+        const auto destination = scripts_directory/(wide(target.name)+L"-"+wide(target.version)+L".manifest.json");
+        fs::copy_file(target.manifest_path,destination,fs::copy_options::overwrite_existing);
+        staged_manifests.emplace(key,destination);
+        return destination;
+    };
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still
@@ -739,7 +752,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             save();
             ScriptRun run;
             try { run = run_package_script(context,hooks,index,directory,original_directory,
-                context.root/L"persist"/wide(hooks.name),transaction,command); }
+                context.root/L"persist"/wide(hooks.name),transaction,command,plan.purge,staged_manifest(hooks)); }
             catch (const std::exception& error) {
                 journal["scripts"].back()["status"] = "failed";
                 journal["scripts"].back()["error"] = error.what();
@@ -751,6 +764,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             record["exit_code"] = run.exit_code;
             record["interpreter"] = path_text(run.interpreter);
             record["hook"] = path_text(run.hook_path);
+            record["host"] = path_text(run.host_path);
+            record["manifest"] = path_text(run.manifest_path);
+            record["scoop_library"] = path_text(run.library);
+            record["scoop_library_version"] = script_host().library_version;
+            record["context"] = {{"app",hooks.name},{"bucket",hooks.bucket},{"version",hooks.version},
+                {"architecture",hooks.architecture},
+                {"fname",hooks.artifacts.empty() ? std::string{} : hooks.artifacts.front().filename},
+                {"dir",path_text(directory)},{"original_dir",path_text(original_directory)},
+                {"persist_dir",path_text(context.root/L"persist"/wide(hooks.name))},
+                {"bucketsdir",path_text(context.root/L"buckets")},{"scoopdir",path_text(context.root)},
+                {"global",false},{"purge",plan.action == Action::uninstall && plan.purge}};
             record["stdout_log"] = path_text(run.stdout_path);
             record["stderr_log"] = path_text(run.stderr_path);
             record["stdout_bytes"] = run.stdout_bytes;

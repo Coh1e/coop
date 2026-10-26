@@ -24,4 +24,6 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **生命周期 Hook（Lifecycle Hook）**：Manifest 在安装、更新和卸载阶段声明的脚本，包括 `pre_install`、`post_install`、`pre_uninstall`、`post_uninstall`、`installer.script`、`uninstaller.script`。其阶段含义、上下文和先后关系以约定的 Scoop 兼容基准为准。
 
+**Scoop 兼容库（Scoop Compatibility Library）**：随 Coop 分发、与固定 Scoop 修订逐字节一致的 PowerShell 库副本，为生命周期 Hook 提供 Scoop 的上下文变量与辅助函数语义，而不是另建一套缩水实现。
+
 **已验证行为（Verified Behavior）**：已有可复现证据证明符合约定兼容语义的软件管理行为。它描述当前验证状态，不定义产品的目标兼容上限。

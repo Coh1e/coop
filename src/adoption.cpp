@@ -3,7 +3,6 @@
 #include "persist.hpp"
 #include "versions.hpp"
 #include "exposure.hpp"
-#include "script.hpp"
 #include "shim.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -64,17 +63,13 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
             reject(AdoptionEligibility::inconsistent,DiagnosticKind::validation,"invalid-installation-manifest","Installed Manifest has invalid or unsupported fields"); return result;
         }
         if (!plan.package.scripts.empty()) {
-            const auto hooks = check_package_scripts(plan.package);
-            if (!hooks.compatible()) {
-                const auto messages = hooks.messages();
-                reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"script-adoption-unsupported",
-                    "Installed lifecycle hook is outside the proven PowerShell subset: "+(messages.empty() ? std::string("unknown script capability") : messages.front())); return result;
-            }
-            // Executing supported hooks is verified for fresh installs, updates and uninstalls in
-            // tests/hooks.ps1, but taking over a live installation and continuing to update it has
-            // not been demonstrated with real package evidence. Do not promote this class yet.
+            // Hooks now run in a real PowerShell host with the pinned Scoop library for install,
+            // update and uninstall. Taking over a live installation, and then running those hooks
+            // against the adopted records, still needs real-package evidence before this class is
+            // promoted; that evidence belongs to the shared 15-package acceptance, not to a
+            // script-text judgement.
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"script-adoption-unverified",
-                "In-place adoption of a package with lifecycle hooks is not verified; supported hooks can run for install, update and uninstall, but taking over this class needs real-package evidence first"); return result;
+                "In-place adoption of a package with lifecycle hooks is not verified yet: hooks execute in a real PowerShell host, but taking over an existing installation and continuing to update it needs real-package evidence first"); return result;
         }
         if (std::any_of(plan.package.artifacts.begin(),plan.package.artifacts.end(),[](const Artifact& artifact) { return artifact.archive != ArchiveKind::none; })) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"archive-adoption-unverified","Adoption of archived package layouts is not verified; only direct single-file installations are eligible"); return result;

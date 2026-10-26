@@ -181,7 +181,7 @@ Check ((($transactionsAfterMissingInstall -join ',') -eq ($transactionsBeforeMis
 $installerZip = New-PayloadZip 'installerpkg' @{'app.exe'=[IO.File]::ReadAllBytes($fixture1);'payload/inner.txt'='inner'}
 $installerScript = @(
     '$marker = Join-Path -Path $dir -ChildPath ''installer-context.txt''',
-    'Set-Content -Path $marker -Value "$cmd|$app|$version|$architecture|$fname" -Encoding Ascii'
+    'Set-Content -Path $marker -Value "cmd_defined=$($null -ne $cmd)|$app|$version|$architecture|$fname" -Encoding Ascii'
 )
 $preInstallScript = @('Set-Content -Path "$dir\pre.txt" -Value "pre" -Encoding Ascii')
 $postInstallScript = @('Copy-Item "$dir\installer-context.txt" "$dir\post-seen.txt"')
@@ -192,7 +192,9 @@ Check ($installerPreview.exit -eq 0) "installer script preview failed: $($instal
 $installerPlan = Parse-Json 'installer-preview' $installerPreview
 Check ($installerPlan.execution_available -eq $true) 'installer script path stayed disabled'
 $installerReport = @($installerPlan.package.scripts | Where-Object { $_.phase -eq 'installer' })
-Check ($installerReport.Count -eq 1 -and $installerReport[0].compatible -eq $true -and 'Set-Content' -in $installerReport[0].commands) 'installer script compatibility report is wrong'
+Check ($installerReport.Count -eq 1 -and $installerReport[0].host -match 'PowerShell' -and
+    $installerReport[0].text -match 'cmd_defined') 'installer script report does not show the real PowerShell host and text'
+Check ($installerPlan.package.script_support.library_version -match 'v0\.6\.0') 'installer script preview did not name the pinned Scoop library'
 $order = Operations-After $installerPlan 'publish-current' @()
 Check ($order.positions['pre_install'] -lt $order.positions['installer'] -and $order.positions['installer'] -lt $order.publish -and
     $order.publish -lt $order.positions['post_install']) 'installer script did not stay between pre_install and current publication'
@@ -204,7 +206,7 @@ $installerRun = @($installerResult.scripts | Where-Object { $_.phase -eq 'instal
 Check ($installerRun.command -eq 'install' -and $installerRun.exit_code -eq 0 -and
     [IO.Path]::GetFullPath($installerRun.directory) -eq [IO.Path]::GetFullPath("$root/apps/installerscript/1")) 'installer script context or exit code is wrong'
 $contextText = (Get-Content -LiteralPath "$root/apps/installerscript/1/installer-context.txt" -Raw).Trim()
-Check ($contextText -eq 'install|installerscript|1|64bit|installerpkg.zip') "installer script context is wrong: $contextText"
+Check ($contextText -eq 'cmd_defined=False|installerscript|1|64bit|installerpkg.zip') "installer script context is wrong: $contextText"
 Check ((Test-Path -LiteralPath "$root/apps/installerscript/1/pre.txt") -and
     ((Get-Content -LiteralPath "$root/apps/installerscript/current/post-seen.txt" -Raw).Trim() -eq $contextText)) 'installer script was not visible to later phases'
 $installerJournal = Last-Journal 'installerscript'
@@ -220,7 +222,7 @@ Check ((@($installerUpdateResult.scripts | ForEach-Object { $_.phase }) -join ',
 $installerUpdateRun = @($installerUpdateResult.scripts | Where-Object { $_.phase -eq 'installer' })[0]
 $updateContext = (Get-Content -LiteralPath "$root/apps/installerscript/2/installer-context.txt" -Raw).Trim()
 Check ($installerUpdateRun.command -eq 'update' -and $installerUpdateRun.exit_code -eq 0 -and
-    $updateContext -eq 'update|installerscript|2|64bit|installerscript2.zip') 'installer script update context is wrong'
+    $updateContext -eq 'cmd_defined=False|installerscript|2|64bit|installerscript2.zip') 'installer script update context is wrong'
 Check ((Test-Path -LiteralPath "$root/apps/installerscript/1/app.exe") -and ($installerUpdateResult.retained_versions -contains '1')) 'installer script update did not retain the old version'
 
 $installerFailureZip = New-PayloadZip 'installerfail' @{'installerfail.exe'=[IO.File]::ReadAllBytes($fixture1)}
@@ -253,8 +255,8 @@ Check ($rclonePreview.exit -eq 0) "rclone uninstaller preview failed: $($rcloneP
 Check ($rclonePreview.error -match 'Observed workload processes: 1') 'rclone uninstaller preview started PowerShell'
 $rclonePlan = Parse-Json 'rclone-preview' $rclonePreview
 $rcloneReport = @($rclonePlan.package.scripts | Where-Object { $_.phase -eq 'uninstaller' })
-Check ($rclonePlan.execution_available -eq $true -and $rcloneReport.Count -eq 1 -and $rcloneReport[0].compatible -eq $true -and
-    'Get-Item' -in $rcloneReport[0].commands -and $rcloneReport[0].diagnostics.Count -eq 0) 'real rclone uninstaller script was not accepted'
+Check ($rclonePlan.execution_available -eq $true -and $rcloneReport.Count -eq 1 -and
+    $rcloneReport[0].host -match 'PowerShell' -and $rcloneReport[0].text -match 'LinkType') 'real rclone uninstaller script was not accepted'
 $rcloneInstall = Invoke-Coop 'rclone-install' @('--root',$root,'install','main/rclonepkg','--json')
 Check ($rcloneInstall.exit -eq 0) "rclone package install failed: $($rcloneInstall.error)"
 Check (Test-Path -LiteralPath "$root/persist/rclonepkg/data/config.txt") 'rclone persist directory was not created'
@@ -289,7 +291,7 @@ Check ($uninstallFailureJournal.state -eq 'rolled-back' -and @($uninstallFailure
 Check ((Test-Path -LiteralPath "$root/apps/uninstallfail/current") -and (Test-Path -LiteralPath "$root/shims/uninstallfail.exe") -and
     (Test-Path -LiteralPath "$root/.coop/packages/uninstallfail.json")) 'uninstaller failure removed the installed package'
 
-# --- 7. Fixed sample scripts outside the isolated subset stay blocked. ------
+# --- 7. Real samples: remaining blockers are mechanisms, not script text. -----
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/main/7zip.json" "$root/buckets/main/bucket/7zip.json"
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/main/python.json" "$root/buckets/main/bucket/python.json"
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/extras/notepadplusplus.json" "$root/buckets/extras/bucket/notepadplusplus.json"
@@ -297,9 +299,9 @@ $sevenSample = Invoke-Guard 'seven-sample-preview' @('--root',$root,'install','m
 Check ($sevenSample.exit -eq 0) "Main/7zip preview failed: $($sevenSample.error)"
 Check ($sevenSample.error -match 'Observed workload processes: 1') 'Main/7zip preview started PowerShell or msiexec'
 $sevenPlan = Parse-Json 'seven-sample-preview' $sevenSample
-Check ($sevenPlan.execution_available -eq $false) 'Main/7zip stayed executable despite its real uninstaller script'
-Check (@($sevenPlan.package.scripts | Where-Object { -not $_.compatible }).Count -eq 2) 'Main/7zip post_install/uninstaller scripts were not diagnosed'
-Check (@($sevenPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' }).Count -eq 1) 'Main/7zip blocking diagnostic is absent'
+Check ($sevenPlan.execution_available -eq $false) 'Main/7zip MSI artifact was not blocked by the machine-cache limitation'
+Check (@($sevenPlan.package.scripts).Count -eq 2 -and @($sevenPlan.package.scripts | Where-Object { $_.text -match 'reg' }).Count -eq 2) 'Main/7zip script text was refused instead of being reported as executable text'
+Check (@($sevenPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'machine cache' }).Count -eq 1) 'Main/7zip blocking diagnostic does not name the MSI limitation'
 $sevenSampleInstall = Invoke-Guard 'seven-sample-install' @('--root',$root,'install','main/7zip','--json')
 Check ($sevenSampleInstall.exit -ne 0 -and $sevenSampleInstall.error -match 'Observed workload processes: 1') 'Main/7zip execution was not refused before msiexec/PowerShell'
 
@@ -308,8 +310,8 @@ Check ($nppSample.exit -eq 0) "Extras/notepadplusplus preview failed: $($nppSamp
 Check ($nppSample.error -match 'Observed workload processes: 1') 'notepadplusplus preview started PowerShell or reg.exe'
 $nppPlan = Parse-Json 'npp-sample-preview' $nppSample
 $nppUninstaller = @($nppPlan.package.scripts | Where-Object { $_.phase -eq 'uninstaller' })[0]
-Check ($nppPlan.execution_available -eq $false) 'notepadplusplus uninstaller script stayed executable'
-Check ($nppUninstaller.compatible -eq $false -and @($nppUninstaller.required_tools | Where-Object { $_ -match 'registry' }).Count -eq 1) 'notepadplusplus uninstaller did not disclose the registry requirement'
+Check ($nppPlan.execution_available -eq $true) 'notepadplusplus stayed blocked even though only script text was the old reason'
+Check ($nppUninstaller.host -match 'PowerShell' -and $nppUninstaller.text -match 'reg import') 'notepadplusplus uninstaller did not report the real PowerShell text'
 
 $pythonSample = Invoke-Guard 'python-sample-preview' @('--root',$root,'install','main/python','--dry-run','--json')
 Check ($pythonSample.exit -eq 0) "Main/python preview failed: $($pythonSample.error)"
@@ -317,9 +319,12 @@ Check ($pythonSample.error -match 'Observed workload processes: 1') 'Main/python
 $pythonPlan = Parse-Json 'python-sample-preview' $pythonSample
 $pythonInstaller = @($pythonPlan.package.scripts | Where-Object { $_.phase -eq 'installer' })[0]
 $pythonUninstaller = @($pythonPlan.package.scripts | Where-Object { $_.phase -eq 'uninstaller' })[0]
-Check ($pythonPlan.execution_available -eq $false) 'Main/python installer script stayed executable'
-Check ($pythonInstaller.compatible -eq $false -and @($pythonInstaller.diagnostics | Where-Object { $_.message -match 'subexpression' }).Count -eq 1) 'Main/python installer script was not diagnosed'
-Check ($pythonUninstaller.compatible -eq $false -and @($pythonUninstaller.required_tools | Where-Object { $_ -match 'environment' }).Count -eq 1) 'Main/python uninstaller did not disclose the environment-variable requirement'
+Check ($pythonPlan.execution_available -eq $true) 'Main/python installer script stayed blocked by its text'
+Check ($pythonInstaller.host -match 'PowerShell' -and $pythonInstaller.text -match 'Expand-DarkArchive') 'Main/python installer script text was not reported for the real host'
+Check ($pythonUninstaller.host -match 'PowerShell' -and $pythonUninstaller.text -match 'Set-EnvVar') 'Main/python uninstaller script text was not reported for the real host'
+# The interpreter and helper library are real; the MSI/Inno/NSIS mechanics behind the text remain
+# separate tickets, so no sample is executed here.
+Check ($pythonPlan.package.script_support.problem -eq '') 'Main/python preview reported a missing hook host'
 
 # --- 8. Measured system state and evidence paths. ----------------------------
 $installerCacheAfter = @(Get-WindowsInstallerCacheState)
@@ -345,7 +350,8 @@ Check ($rcloneJournal.scripts[1].stdout_log.StartsWith($root)) 'script evidence 
         sample_before=@($installerCacheBefore | Select-Object -First 3)
         sample_after=@($installerCacheAfter | Select-Object -First 3)
     }
-    real_script_sources=@('Main/7zip MSI artifact (preview/refusal only) and uninstaller.script','Main/nodejs 7z artifact','Main/rclone uninstaller.script','Extras/notepadplusplus uninstaller.script','Main/python installer.script')
+    real_script_sources=@('Main/7zip MSI artifact (preview/refusal only) and post_install/uninstaller script text','Main/nodejs 7z artifact','Main/rclone uninstaller.script (executed)','Extras/notepadplusplus uninstaller.script text','Main/python installer.script text and uninstaller.script text')
+    script_text_policy='Script text is no longer classified as compatible or incompatible; the remaining blocks are MSI/MSI-cache mechanisms and installer/uninstaller process declarations.'
     node_program_version=$nodeVersion
     fixture_artifacts='project fixture programs; no external tool stand-in was executed'
     system_writes='measured C:\Windows\Installer SourceHash entries before/after MSI preview and refusal; unchanged. MSI execution is blocked because msiexec writes that machine cache outside the project root.'

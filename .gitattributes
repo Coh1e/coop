@@ -2,3 +2,8 @@
 tests/corpus/**/*.json -text
 tests/corpus/**/LICENSE -text
 tests/corpus/extras-scripts/**/*.reg -text
+tests/corpus/main-scripts/**/*.reg -text
+# Keep the vendored Scoop compatibility library and the copied bucket scripts byte-identical to the
+# pinned upstream blobs (LF) regardless of the local core.autocrlf setting, so the documented Git
+# blob ids and SHA256 values keep matching the committed and runtime bytes.
+assets/scoop-lib/** -text

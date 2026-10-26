@@ -25,7 +25,7 @@ struct ShortcutExposure { fs::path target; std::string name; std::string argumen
 struct Persistence { fs::path source; fs::path target; };
 struct EnvironmentSetting { std::string name; std::string value; };
 enum class ScriptPhase { before_install, installer, after_install, before_uninstall, uninstaller, after_uninstall };
-struct ScriptOperation { ScriptPhase phase; std::string text; };
+struct ScriptOperation { ScriptPhase phase; std::string text; std::string declared_by; };
 struct InstallerProcess { fs::path file; std::vector<std::string> arguments; bool keep = false; };
 struct Package {
     std::string name;

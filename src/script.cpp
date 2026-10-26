@@ -1,12 +1,8 @@
 #include "script.hpp"
 #include <windows.h>
-#include <algorithm>
 #include <array>
-#include <cctype>
 #include <cstdio>
 #include <fstream>
-#include <map>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -14,668 +10,70 @@
 
 namespace coop {
 namespace {
-constexpr std::size_t max_script_bytes = 1024*1024;
 constexpr std::size_t max_tail_bytes = 8192;
+// Pinned upstream version of assets/scoop-lib. Recorded in the host, the journal and the preview
+// so hook evidence names the exact compatibility baseline instead of "current Scoop".
+constexpr const char* scoop_compat_version = "Scoop v0.6.0 (e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f)";
+// Library prelude order: bin/scoop.ps1 first, then the libraries that scoop-install.ps1,
+// scoop-update.ps1 and scoop-uninstall.ps1 load before running a hook.
+constexpr const char* scoop_compat_modules[] = {
+    "core", "buckets", "commands", "help",
+    "getopt", "json", "autoupdate", "manifest", "system", "install", "download",
+    "decompress", "shortcuts", "psmodules", "versions", "depends"};
 
-std::string lower_text(std::string value) {
-    for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-    return value;
+fs::path executable_directory() {
+    std::vector<wchar_t> buffer(32768);
+    const auto length = GetModuleFileNameW(nullptr,buffer.data(),static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= buffer.size()) return {};
+    return fs::path(buffer.data(),buffer.data()+length).parent_path();
 }
-
-// --- lexer -------------------------------------------------------------------
-enum class Tok { word, variable, string, parameter, op, pipe, lparen, array_lparen, rparen, lbrace, rbrace,
-                 comma, semicolon, newline, assign, bang, dot, end };
-struct Segment { bool variable = false; std::string text; };
-struct Token { Tok kind = Tok::end; std::string text; std::vector<Segment> segments; int line = 1; };
-
-bool is_name_start(char value) {
-    return std::isalpha(static_cast<unsigned char>(value)) != 0 || value == '_';
+std::optional<std::wstring> environment_value(const wchar_t* name) {
+    wchar_t value[32768]{};
+    const auto length = GetEnvironmentVariableW(name,value,static_cast<DWORD>(std::size(value)));
+    if (!length || length >= std::size(value)) return std::nullopt;
+    return std::wstring(value,length);
 }
-bool is_name_char(char value) {
-    return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '_';
-}
-bool is_word_char(char value) {
-    return std::isalnum(static_cast<unsigned char>(value)) != 0 || value == '_' || value == '-';
-}
-
-bool lex(const std::string& text, std::vector<Token>& tokens, std::string& error) {
-    const auto fail = [&](const char* reason) {
-        error = reason;
-        return false;
-    };
-    std::size_t index = 0;
-    int line = 1;
-    while (index < text.size()) {
-        const char current = text[index];
-        if (current == '\r') { ++index; continue; }
-        if (current == '\n') { tokens.push_back({Tok::newline,{}, {}, line}); ++line; ++index; continue; }
-        if (current == ' ' || current == '\t') { ++index; continue; }
-        if (current == '#' || (current == '<' && index+1 < text.size() && text[index+1] == '#')) {
-            // The sample corpus only uses single-line comments; block comments are outside the
-            // proven subset and are reported instead of silently skipped.
-            if (current == '<') return fail("block comments are outside the proven hook subset");
-            while (index < text.size() && text[index] != '\n') ++index;
-            continue;
-        }
-        if (current == '(') { tokens.push_back({Tok::lparen,{}, {}, line}); ++index; continue; }
-        if (current == ')') { tokens.push_back({Tok::rparen,{}, {}, line}); ++index; continue; }
-        if (current == '{') { tokens.push_back({Tok::lbrace,{}, {}, line}); ++index; continue; }
-        if (current == '}') { tokens.push_back({Tok::rbrace,{}, {}, line}); ++index; continue; }
-        if (current == ',') { tokens.push_back({Tok::comma,{}, {}, line}); ++index; continue; }
-        if (current == ';') { tokens.push_back({Tok::semicolon,{}, {}, line}); ++index; continue; }
-        if (current == '|') { tokens.push_back({Tok::pipe,{}, {}, line}); ++index; continue; }
-        if (current == '=') { tokens.push_back({Tok::assign,{}, {}, line}); ++index; continue; }
-        if (current == '!') { tokens.push_back({Tok::bang,{}, {}, line}); ++index; continue; }
-        if (current == '.') { tokens.push_back({Tok::dot,{}, {}, line}); ++index; continue; }
-        if (current == '@') {
-            if (index+1 >= text.size() || text[index+1] != '(') return fail("hashtables and splatting are outside the proven hook subset");
-            tokens.push_back({Tok::array_lparen,{}, {}, line});
-            index += 2;
-            continue;
-        }
-        if (current == '$') {
-            std::size_t cursor = index+1;
-            if (cursor < text.size() && (text[cursor] == '(' || text[cursor] == '{'))
-                return fail("PowerShell subexpressions and braced variables are outside the proven hook subset");
-            if (cursor >= text.size() || !is_name_start(text[cursor]))
-                return fail("lone '$' is outside the proven hook subset");
-            const auto start = cursor;
-            while (cursor < text.size() && is_name_char(text[cursor])) ++cursor;
-            std::string name = text.substr(start,cursor-start);
-            if (name == "env" && cursor < text.size() && text[cursor] == ':') {
-                ++cursor;
-                const auto env_start = cursor;
-                while (cursor < text.size() && is_name_char(text[cursor])) ++cursor;
-                if (cursor == env_start) return fail("environment variable name is empty");
-                name = "env:"+text.substr(env_start,cursor-env_start);
-            }
-            tokens.push_back({Tok::variable,name, {}, line});
-            index = cursor;
-            continue;
-        }
-        if (current == '-') {
-            if (index+1 >= text.size() || !is_name_start(text[index+1])) return fail("'-' is only accepted for named parameters and comparison operators");
-            std::size_t cursor = index+1;
-            while (cursor < text.size() && is_name_char(text[cursor])) ++cursor;
-            auto name = lower_text(text.substr(index+1,cursor-index-1));
-            index = cursor;
-            static const std::set<std::string> operators = {"eq","ne","and","or","not","match","notmatch","like","notlike"};
-            if (operators.contains(name)) tokens.push_back({Tok::op,name, {}, line});
-            else tokens.push_back({Tok::parameter,name, {}, line});
-            continue;
-        }
-        if (current == '\'') {
-            std::size_t cursor = index+1;
-            std::string literal;
-            bool closed = false;
-            while (cursor < text.size()) {
-                if (text[cursor] == '\n') break;
-                if (text[cursor] == '\'') {
-                    if (cursor+1 < text.size() && text[cursor+1] == '\'') { literal += '\''; cursor += 2; continue; }
-                    closed = true; ++cursor; break;
-                }
-                literal += text[cursor]; ++cursor;
-            }
-            if (!closed) return fail("unterminated single-quoted string");
-            Token token{Tok::string,{}, {}, line};
-            token.segments.push_back({false,literal});
-            tokens.push_back(std::move(token));
-            index = cursor;
-            continue;
-        }
-        if (current == '"') {
-            std::size_t cursor = index+1;
-            std::vector<Segment> segments;
-            std::string literal;
-            const auto flush = [&]() {
-                if (literal.empty()) return;
-                segments.push_back({false,literal});
-                literal.clear();
-            };
-            bool closed = false;
-            while (cursor < text.size()) {
-                const char value = text[cursor];
-                if (value == '\n') break;
-                if (value == '`') {
-                    if (cursor+1 >= text.size()) return fail("unterminated escape sequence");
-                    const char escaped = text[cursor+1];
-                    switch (escaped) {
-                    case 'n': literal += '\n'; break;
-                    case 'r': literal += '\r'; break;
-                    case 't': literal += '\t'; break;
-                    case '0': literal += '\0'; break;
-                    case 'a': literal += '\a'; break;
-                    case 'b': literal += '\b'; break;
-                    case 'f': literal += '\f'; break;
-                    case 'v': literal += '\v'; break;
-                    default: literal += escaped; break;
-                    }
-                    cursor += 2;
-                    continue;
-                }
-                if (value == '"') {
-                    if (cursor+1 < text.size() && text[cursor+1] == '"') { literal += '"'; cursor += 2; continue; }
-                    closed = true; ++cursor; break;
-                }
-                if (value == '$') {
-                    std::size_t name_start = cursor+1;
-                    if (name_start < text.size() && (text[name_start] == '(' || text[name_start] == '{'))
-                        return fail("PowerShell subexpressions in strings are outside the proven hook subset");
-                    if (name_start >= text.size() || !is_name_start(text[name_start])) { literal += '$'; ++cursor; continue; }
-                    while (name_start < text.size() && is_name_char(text[name_start])) ++name_start;
-                    std::string name = text.substr(cursor+1,name_start-cursor-1);
-                    cursor = name_start;
-                    if (name == "env" && cursor < text.size() && text[cursor] == ':') {
-                        ++cursor;
-                        const auto env_start = cursor;
-                        while (cursor < text.size() && is_name_char(text[cursor])) ++cursor;
-                        if (cursor == env_start) return fail("environment variable name is empty");
-                        name = "env:"+text.substr(env_start,cursor-env_start);
-                    }
-                    flush();
-                    segments.push_back({true,name});
-                    continue;
-                }
-                literal += value; ++cursor;
-            }
-            if (!closed) return fail("unterminated double-quoted string");
-            flush();
-            Token token{Tok::string,{}, {}, line};
-            token.segments = std::move(segments);
-            tokens.push_back(std::move(token));
-            index = cursor;
-            continue;
-        }
-        if (is_name_start(current)) {
-            std::size_t cursor = index;
-            while (cursor < text.size() && is_word_char(text[cursor])) ++cursor;
-            tokens.push_back({Tok::word,text.substr(index,cursor-index), {}, line});
-            index = cursor;
-            continue;
-        }
-        return fail("character is outside the proven hook subset");
-    }
-    tokens.push_back({Tok::end,{}, {}, line});
-    return true;
-}
-
-// --- static compatibility checker -------------------------------------------
-struct Value {
-    enum class Kind { path, text } kind = Kind::text;
-    bool parent = false;
-    static Value rooted(bool has_parent = false) { return {Kind::path,has_parent}; }
-    static Value plain(bool has_parent = false) { return {Kind::text,has_parent}; }
+struct LibraryLookup {
+    std::optional<fs::path> path;
+    // An explicit COOP_SCOOP_LIB that does not contain core.ps1 is a configuration error, not a
+    // reason to silently fall back to the copy beside the executable.
+    bool override_invalid = false;
 };
-
-// Rebuilds the literal shape of a string token with variables replaced by a placeholder so a
-// literal `..` path component can be detected without trying to evaluate the script.
-bool parent_component(const Token& token) {
-    std::string shape;
-    for (const auto& segment : token.segments) shape += segment.variable ? std::string("V") : segment.text;
-    std::string component;
-    const auto flush = [&]() -> bool {
-        const bool result = component == "..";
-        component.clear();
-        return result;
-    };
-    for (const auto character : shape) {
-        if (character == '\\' || character == '/') { if (flush()) return true; }
-        else component += character;
+LibraryLookup scoop_library() {
+    if (const auto configured = environment_value(L"COOP_SCOOP_LIB")) {
+        const fs::path candidate(*configured);
+        if (!fs::is_regular_file(candidate/L"core.ps1")) return {std::nullopt,true};
+        return {candidate,false};
     }
-    return flush();
+    const auto directory = executable_directory();
+    if (!directory.empty()) {
+        const auto candidate = directory/L"scoop-lib";
+        if (fs::is_regular_file(candidate/L"core.ps1")) return {candidate,false};
+    }
+    return {std::nullopt,false};
 }
-
-class Checker {
-public:
-    Checker(const std::vector<Token>& tokens, std::string& error) : tokens_(tokens), error_(error) {}
-    bool run() {
-        skip_separators();
-        while (!at(Tok::end)) {
-            if (!statement()) return false;
-            skip_separators();
-        }
-        return true;
+std::optional<fs::path> powershell_interpreter() {
+    wchar_t configured[32768]{};
+    const auto configured_length = GetEnvironmentVariableW(L"COOP_POWERSHELL",configured,static_cast<DWORD>(std::size(configured)));
+    if (configured_length && configured_length < std::size(configured)) {
+        const fs::path candidate(configured);
+        if (fs::is_regular_file(candidate)) return candidate;
+        return std::nullopt;
     }
-    const std::set<std::string>& commands() const { return commands_; }
-    const std::set<std::string>& helpers() const { return helpers_; }
-    const std::set<std::string>& required_tools() const { return external_tools_; }
-
-private:
-    const Token& peek(std::size_t offset = 0) const {
-        const auto position = index_+offset < tokens_.size() ? index_+offset : tokens_.size()-1;
-        return tokens_[position];
+    std::vector<wchar_t> buffer(32768);
+    const auto length = SearchPathW(nullptr,L"pwsh.exe",nullptr,static_cast<DWORD>(buffer.size()),buffer.data(),nullptr);
+    if (length && length < buffer.size()) {
+        const fs::path candidate(buffer.data());
+        if (fs::is_regular_file(candidate)) return candidate;
     }
-    bool at(Tok kind) const { return peek().kind == kind; }
-    bool at_word(const char* value) const { return peek().kind == Tok::word && lower_text(peek().text) == lower_text(value); }
-    const Token& advance() { const auto& token = tokens_[index_]; if (index_+1 < tokens_.size()) ++index_; return token; }
-    bool accept(Tok kind) { if (!at(kind)) return false; advance(); return true; }
-    bool expect(Tok kind, const char* what) {
-        if (accept(kind)) return true;
-        return fail(std::string("expected ")+what);
+    wchar_t windows[32768]{};
+    const auto windows_length = GetWindowsDirectoryW(windows,static_cast<UINT>(std::size(windows)));
+    if (windows_length && windows_length < std::size(windows)) {
+        const fs::path candidate = fs::path(windows)/L"System32"/L"WindowsPowerShell"/L"v1.0"/L"powershell.exe";
+        if (fs::is_regular_file(candidate)) return candidate;
     }
-    bool fail(const std::string& message) {
-        if (error_.empty()) error_ = "line "+std::to_string(peek().line)+": "+message;
-        return false;
-    }
-    static bool is_separator(Tok kind) {
-        return kind == Tok::newline || kind == Tok::semicolon || kind == Tok::pipe ||
-               kind == Tok::rparen || kind == Tok::rbrace || kind == Tok::end;
-    }
-    void skip_separators() { while (at(Tok::newline) || at(Tok::semicolon)) advance(); }
-
-    bool statement() {
-        if (at_word("if")) return if_statement();
-        if (at_word("else") || at_word("elseif") || at_word("foreach") || at_word("while") || at_word("function") ||
-            at_word("try") || at_word("catch") || at_word("switch") || at_word("return") || at_word("throw") ||
-            at_word("break") || at_word("continue") || at_word("exit") || at_word("param") || at_word("Set-StrictMode"))
-            return fail("'"+peek().text+"' is outside the proven hook subset");
-        if (at(Tok::variable) && peek(1).kind == Tok::assign) return assignment();
-        Value ignored;
-        return pipeline(ignored);
-    }
-    bool assignment() {
-        const auto name = advance().text;
-        advance(); // '='
-        if (name == "null") {
-            Value ignored;
-            return pipeline(ignored);
-        }
-        if (rooted_context(name) || name == "app" || name == "bucket" || name == "version" ||
-            name == "architecture" || name == "fname" || name == "global" || name == "cmd")
-            return fail("the hook context variable $"+name+" is read-only");
-        Value value;
-        if (!pipeline(value)) return false;
-        variables_[name] = value.kind == Value::Kind::path;
-        parents_[name] = value.parent;
-        return true;
-    }
-    bool if_statement() {
-        advance(); // if
-        if (!expect(Tok::lparen,"'(' after if")) return false;
-        Value condition;
-        if (!pipeline(condition)) return false;
-        if (!expect(Tok::rparen,"')' after the if condition")) return false;
-        if (!block()) return false;
-        for (;;) {
-            if (at_word("elseif")) {
-                advance();
-                if (!expect(Tok::lparen,"'(' after elseif")) return false;
-                if (!pipeline(condition)) return false;
-                if (!expect(Tok::rparen,"')' after the elseif condition")) return false;
-                if (!block()) return false;
-                continue;
-            }
-            if (at_word("else")) {
-                advance();
-                if (!block()) return false;
-            }
-            break;
-        }
-        return true;
-    }
-    bool block() {
-        if (!expect(Tok::lbrace,"'{'")) return false;
-        skip_separators();
-        while (!at(Tok::rbrace)) {
-            if (at(Tok::end)) return fail("unterminated block");
-            if (!statement()) return false;
-            skip_separators();
-        }
-        advance(); // '}'
-        return true;
-    }
-    bool pipeline(Value& result) {
-        if (!item(result)) return false;
-        while (accept(Tok::pipe)) {
-            if (at_word("ForEach-Object")) {
-                advance();
-                const auto saved = variables_;
-                const auto saved_parents = parents_;
-                variables_["_"] = false;
-                variables_["PSItem"] = false;
-                parents_["_"] = false;
-                parents_["PSItem"] = false;
-                if (!block()) return false;
-                variables_ = saved;
-                parents_ = saved_parents;
-                result = Value::plain();
-                continue;
-            }
-            if (at_word("Out-Null")) {
-                advance();
-                result = Value::plain();
-                continue;
-            }
-            return fail("only ForEach-Object and Out-Null are supported after '|'");
-        }
-        return true;
-    }
-    bool item(Value& result) {
-        if (at(Tok::word)) {
-            const auto name = peek().text;
-            return command(name,result);
-        }
-        return expression(result);
-    }
-    bool expression(Value& result) {
-        if (!or_expression(result)) return false;
-        while (accept(Tok::comma)) {
-            Value next;
-            if (!or_expression(next)) return false;
-            result = Value::plain();
-        }
-        return true;
-    }
-    bool or_expression(Value& result) {
-        if (!and_expression(result)) return false;
-        while (at(Tok::op) && peek().text == "or") {
-            advance();
-            Value next;
-            if (!and_expression(next)) return false;
-            result = Value::plain();
-        }
-        return true;
-    }
-    bool and_expression(Value& result) {
-        if (!not_expression(result)) return false;
-        while (at(Tok::op) && peek().text == "and") {
-            advance();
-            Value next;
-            if (!not_expression(next)) return false;
-            result = Value::plain();
-        }
-        return true;
-    }
-    bool not_expression(Value& result) {
-        if (at(Tok::bang) || (at(Tok::op) && peek().text == "not")) {
-            advance();
-            Value inner;
-            if (!not_expression(inner)) return false;
-            result = Value::plain();
-            return true;
-        }
-        return comparison_expression(result);
-    }
-    bool comparison_expression(Value& result) {
-        if (!primary(result)) return false;
-        static const std::set<std::string> comparisons = {"eq","ne","match","notmatch","like","notlike"};
-        while (at(Tok::op) && comparisons.contains(peek().text)) {
-            advance();
-            Value right;
-            if (!primary(right)) return false;
-            result = Value::plain();
-        }
-        return true;
-    }
-    bool primary(Value& result) {
-        if (at(Tok::string)) {
-            const auto& token = advance();
-            result = string_value(token);
-        } else if (at(Tok::variable)) {
-            const auto name = advance().text;
-            if (name.starts_with("env:"))
-                return fail("environment variable $"+name+" is outside the proven hook context");
-            if (name == "_" || name == "PSItem") result = Value::plain();
-            else {
-                const auto found = variables_.find(name);
-                if (found == variables_.end())
-                    return fail("variable $"+name+" is outside the proven hook context");
-                const auto parent = parents_.find(name);
-                const bool has_parent = parent != parents_.end() && parent->second;
-                result = found->second ? Value::rooted(has_parent) : Value::plain(has_parent);
-            }
-        } else if (accept(Tok::lparen)) {
-            if (!pipeline(result)) return false;
-            if (!expect(Tok::rparen,"')'")) return false;
-        } else if (accept(Tok::array_lparen)) {
-            if (!expression(result)) return false;
-            if (!expect(Tok::rparen,"')' after the array")) return false;
-            result = Value::plain();
-        } else if (at(Tok::word)) {
-            advance();
-            result = Value::plain();
-        } else {
-            return fail("expression is outside the proven hook subset");
-        }
-        for (;;) {
-            if (!accept(Tok::dot)) break;
-            if (!at(Tok::word)) return fail("member access requires a name");
-            const auto member = advance().text;
-            if (member == "Replace") {
-                if (!expect(Tok::lparen,"'(' after .Replace")) return false;
-                Value first;
-                if (!or_expression(first)) return false;
-                if (!expect(Tok::comma,"',' between .Replace arguments")) return false;
-                Value second;
-                if (!or_expression(second)) return false;
-                if (!expect(Tok::rparen,"')' after .Replace arguments")) return false;
-                result = Value::plain();
-            } else if (member == "LinkType" || member == "Length") {
-                // Read-only file properties used by the fixed rclone uninstaller script. The
-                // referenced path is still root-restricted through Get-Item above.
-                if (at(Tok::lparen)) return fail("member '"+member+"' does not accept arguments in the proven hook subset");
-                result = Value::plain();
-            } else {
-                return fail("member '"+member+"' is outside the proven hook subset");
-            }
-        }
-        return true;
-    }
-    Value string_value(const Token& token) const {
-        const bool has_parent = parent_component(token);
-        if (!token.segments.empty() && token.segments.front().variable) {
-            const auto& name = token.segments.front().text;
-            if (rooted_context(name)) return Value::rooted(has_parent);
-            const auto found = variables_.find(name);
-            if (found != variables_.end() && found->second) return Value::rooted(has_parent);
-        }
-        return Value::plain(has_parent);
-    }
-    bool rooted_context(const std::string& name) const {
-        return name == "dir" || name == "original_dir" || name == "persist_dir" || name == "bucketsdir";
-    }
-    bool require_path(const Value& value, const std::string& what) {
-        if (value.kind != Value::Kind::path)
-            return fail(what+" must resolve under $dir, $original_dir, $persist_dir or $bucketsdir");
-        if (value.parent)
-            return fail(what+" must not contain a parent-directory component");
-        return true;
-    }
-    bool allowed(const std::string& name, const std::map<std::string,Value>& named, const std::set<std::string>& allowed_names) {
-        for (const auto& [key,value] : named) {
-            (void)value;
-            if (!allowed_names.contains(key)) return fail(name+" parameter -"+key+" is outside the proven subset");
-        }
-        return true;
-    }
-    const Value* find(const std::map<std::string,Value>& named, const char* first, const char* second = nullptr) const {
-        for (const auto* key : {first,second}) {
-            if (!key) continue;
-            const auto found = named.find(key);
-            if (found != named.end()) return &found->second;
-        }
-        return nullptr;
-    }
-    bool command(const std::string& raw, Value& result) {
-        const auto name = lower_text(raw);
-        static const std::set<std::string> commands = {"test-path","get-content","set-content","new-item","copy-item",
-            "remove-item","join-path","split-path","get-item","out-null"};
-        static const std::set<std::string> helpers = {"ensure","info","warn"};
-        const bool known_command = commands.contains(name);
-        const bool known_helper = helpers.contains(name);
-        if (!known_command && !known_helper) {
-            // These names need a real external program, host feature or system state. They are
-            // reported together with the required tool so a preview never looks like it could
-            // silently download or install the missing capability.
-            static const std::map<std::string,std::string> external = {
-                {"reg","reg.exe and the real user/system registry"},
-                {"sc","the Windows Service Control Manager (sc.exe)"},
-                {"expand-darkarchive","WiX Dark (dark.exe) for Windows Installer dark archives"},
-                {"expand-msiarchive","Windows Installer (msiexec.exe) or lessmsi"},
-                {"get-envvar","real user/system environment variables"},
-                {"set-envvar","real user/system environment variables"},
-                {"start-process","an arbitrary external program"},
-                {"invoke-webrequest","network access and an external download"},
-                {"stop-process","another running program"},
-                {"stop-service","the Windows Service Control Manager"},
-                {"get-service","the Windows Service Control Manager"},
-                {"write-host","an interactive host console"}};
-            if (const auto found = external.find(name); found != external.end()) {
-                external_tools_.insert(found->second);
-                return fail("command '"+raw+"' requires "+found->second+
-                    ", which is outside the isolated lifecycle and is not executed; Coop does not download or install external tools automatically");
-            }
-            return fail("command '"+raw+"' is not in the proven hook helper set");
-        }
-        advance(); // command name
-        std::map<std::string,Value> named;
-        std::vector<Value> positional;
-        while (!is_separator(peek().kind)) {
-            if (at(Tok::parameter)) {
-                auto parameter = advance().text;
-                static const std::set<std::string> flags = {"force","recurse","raw","parent","nonewline","leaf"};
-                if (flags.contains(parameter)) { named[parameter] = Value::plain(); continue; }
-                Value value;
-                if (!expression(value)) return false;
-                named[parameter] = value;
-                continue;
-            }
-            Value value;
-            if (!expression(value)) return false;
-            positional.push_back(value);
-        }
-        if (known_helper) {
-            if (name == "ensure") {
-                if (positional.size() != 1) return fail("ensure requires exactly one directory");
-                if (!require_path(positional.front(),"ensure path")) return false;
-            } else {
-                if (positional.size() != 1) return fail(name+" requires exactly one message");
-                if (!named.empty()) return fail(name+" does not accept named parameters in the proven subset");
-            }
-            helpers_.insert(name);
-            result = Value::plain();
-            return true;
-        }
-        commands_.insert(raw);
-        const auto positional_path = [&](std::size_t position) -> const Value* {
-            return position < positional.size() ? &positional[position] : nullptr;
-        };
-        if (name == "out-null") {
-            if (!positional.empty() || !named.empty()) return fail("Out-Null does not accept arguments");
-            result = Value::plain();
-            return true;
-        }
-        if (name == "test-path") {
-            if (!allowed(raw,named,{"path","literalpath","pathtype"})) return false;
-            if (positional.size() > 1) return fail("Test-Path accepts at most one positional path");
-            const auto* path = find(named,"path","literalpath");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("Test-Path requires a path");
-            if (!require_path(*path,"Test-Path path")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "get-item") {
-            if (!allowed(raw,named,{"path","literalpath","force"})) return false;
-            if (positional.size() > 1) return fail("Get-Item accepts at most one positional path");
-            const auto* path = find(named,"path","literalpath");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("Get-Item requires a path");
-            if (!require_path(*path,"Get-Item path")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "get-content") {
-            if (!allowed(raw,named,{"path","literalpath","encoding","raw"})) return false;
-            if (positional.size() > 1) return fail("Get-Content accepts at most one positional path");
-            const auto* path = find(named,"path","literalpath");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("Get-Content requires a path");
-            if (!require_path(*path,"Get-Content path")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "set-content") {
-            if (!allowed(raw,named,{"path","value","encoding","force","nonewline"})) return false;
-            const auto* path = find(named,"path");
-            if (!path) {
-                if (positional.empty()) return fail("Set-Content requires a path");
-                path = positional_path(0);
-            }
-            if (!require_path(*path,"Set-Content path")) return false;
-            if (positional.size() > 2) return fail("Set-Content accepts at most a path and a value");
-            result = Value::plain();
-            return true;
-        }
-        if (name == "new-item") {
-            if (!allowed(raw,named,{"path","itemtype","force","value"})) return false;
-            if (positional.size() > 1) return fail("New-Item accepts at most one positional path");
-            const auto* path = find(named,"path");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("New-Item requires a path");
-            if (!require_path(*path,"New-Item path")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "copy-item") {
-            if (!allowed(raw,named,{"path","destination","force","recurse"})) return false;
-            if (positional.size() > 2) return fail("Copy-Item accepts at most a source and a destination");
-            const auto* source = find(named,"path");
-            if (!source) source = positional_path(0);
-            const auto* destination = find(named,"destination");
-            if (!destination) destination = positional_path(1);
-            if (!source || !destination) return fail("Copy-Item requires a source and a destination");
-            if (!require_path(*source,"Copy-Item source") || !require_path(*destination,"Copy-Item destination")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "remove-item") {
-            if (!allowed(raw,named,{"path","literalpath","recurse","force"})) return false;
-            if (positional.size() > 1) return fail("Remove-Item accepts at most one positional path");
-            const auto* path = find(named,"path","literalpath");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("Remove-Item requires a path");
-            if (!require_path(*path,"Remove-Item path")) return false;
-            result = Value::plain();
-            return true;
-        }
-        if (name == "join-path") {
-            if (!allowed(raw,named,{"path","childpath"})) return false;
-            if (positional.size() > 2) return fail("Join-Path accepts at most a path and a child path");
-            const auto* base = find(named,"path");
-            if (!base) base = positional_path(0);
-            const auto* child = find(named,"childpath");
-            if (!child) child = positional_path(1);
-            if (!base || !child) return fail("Join-Path requires a path and a child path");
-            if (!require_path(*base,"Join-Path path")) return false;
-            result = base->kind == Value::Kind::path ? Value::rooted(base->parent || child->parent) : Value::plain();
-            return true;
-        }
-        if (name == "split-path") {
-            if (!allowed(raw,named,{"path","parent","leaf"})) return false;
-            if (positional.size() > 1) return fail("Split-Path accepts at most one positional path");
-            const auto* path = find(named,"path");
-            if (!path) path = positional_path(0);
-            if (!path) return fail("Split-Path requires a path");
-            if (!require_path(*path,"Split-Path path")) return false;
-            result = path->kind == Value::Kind::path ? Value::rooted(path->parent) : Value::plain();
-            return true;
-        }
-        return fail("command '"+raw+"' is not implemented by the proven hook subset");
-    }
-    const std::vector<Token>& tokens_;
-    std::string& error_;
-    std::size_t index_ = 0;
-    std::map<std::string,bool> variables_ = {
-        {"app",false},{"bucket",false},{"version",false},{"architecture",false},{"fname",false},
-        {"global",false},{"cmd",false},
-        {"dir",true},{"original_dir",true},{"persist_dir",true},{"bucketsdir",true}};
-    std::map<std::string,bool> parents_;
-    std::set<std::string> commands_;
-    std::set<std::string> helpers_;
-    std::set<std::string> external_tools_;
-};
-
+    return std::nullopt;
+}
 std::wstring quote_argument(const std::wstring& value) {
     if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos) return value;
     std::wstring result = L"\"";
@@ -700,21 +98,27 @@ std::string ps_literal(const std::string& value) {
     result += '\'';
     return result;
 }
-std::string bootstrap(const Package& package, const fs::path& directory, const fs::path& original_directory,
-                      const fs::path& persist_directory, const fs::path& buckets_directory, const std::string& command_name) {
+// The generated host binds exactly the context Scoop's install_app/scoop-uninstall place in the
+// scope of Invoke-HookScript and then runs the hook text with the upstream libs already loaded.
+// $cmd is deliberately not defined: Scoop 0.6.0 never sets it either (verified by running its own
+// Invoke-HookScript), so `if ($cmd -eq 'uninstall')` blocks in Manifests evaluate the same way.
+// $purge exists only for uninstall, also matching scoop-uninstall.ps1's scope.
+std::string host_script(const Context& context, const Package& package, const fs::path& hook_path,
+                        const fs::path& directory, const fs::path& original_directory,
+                        const fs::path& persist_directory, const fs::path& library,
+                        const std::string& command_name, bool purge, const fs::path& manifest_path) {
     const auto fname = package.artifacts.empty() ? std::string{} : package.artifacts.front().filename;
     std::string text =
         "$ErrorActionPreference = 'Stop'\n"
         "$ProgressPreference = 'SilentlyContinue'\n"
-        "try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }\n"
-        "function ensure([string] $path) {\n"
-        "    if (!(Test-Path -Path $path)) { New-Item -Path $path -ItemType Directory | Out-Null }\n"
-        "    Convert-Path -Path $path\n"
-        "}\n"
-        "function info([string] $message) { Write-Host ('INFO  ' + $message) }\n"
-        // Warnings keep the pinned Scoop text prefix but go to the child's stderr instead of a
-        // coloured host, so the two output channels stay distinguishable for automation.
-        "function warn([string] $message) { [Console]::Error.WriteLine('WARN  ' + $message) }\n";
+        "Set-StrictMode -Off\n"
+        "try { [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false) } catch { }\n";
+    // core.ps1 resolves $scoopdir from $env:SCOOP first, so the selected management root is the
+    // Scoop root for the whole hook session. The variable is set inside the child only.
+    text += std::string("$env:SCOOP = ")+ps_literal(path_text(context.root))+"\n";
+    text += std::string("$scoopLib = ")+ps_literal(path_text(library))+"\n";
+    for (const auto* module : scoop_compat_modules)
+        text += ". (Join-Path $scoopLib '"+std::string(module)+".ps1')\n";
     const auto emit = [&](const char* name, const std::string& value) {
         text += "$"+std::string(name)+" = "+ps_literal(value)+"\n";
     };
@@ -726,9 +130,21 @@ std::string bootstrap(const Package& package, const fs::path& directory, const f
     emit("dir",path_text(directory));
     emit("original_dir",path_text(original_directory));
     emit("persist_dir",path_text(persist_directory));
-    emit("bucketsdir",path_text(buckets_directory));
-    emit("cmd",command_name);
+    text += "$url = $null\n";
     text += "$global = $false\n";
+    if (command_name == "uninstall") text += std::string("$purge = ")+(purge ? "$true\n" : "$false\n");
+    if (!manifest_path.empty()) {
+        text += "$manifest = Get-Content -Raw -LiteralPath "+ps_literal(path_text(manifest_path))+
+            " | ConvertFrom-Json\n";
+    } else {
+        text += "$manifest = $null\n";
+    }
+    text += "$hookScript = Get-Content -Raw -LiteralPath "+ps_literal(path_text(hook_path))+"\n";
+    // A terminating error inside the hook must fail the package instead of being reported as a
+    // successful lifecycle; the message reaches the hook's stderr log. `exit N`, `abort` and
+    // `throw` therefore propagate, and the hook is never retried.
+    text += "try { Invoke-Command ([scriptblock]::Create($hookScript)) } "
+            "catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }\n";
     return text;
 }
 struct FileHandle {
@@ -785,6 +201,20 @@ void write_script_file(const fs::path& path, const std::string& text) {
     if (!output) throw std::runtime_error("Cannot finish hook script");
 }
 }
+ScriptHostInfo script_host() {
+    ScriptHostInfo info;
+    info.interpreter = powershell_interpreter();
+    const auto library = scoop_library();
+    info.library = library.path;
+    info.library_version = scoop_compat_version;
+    if (!info.interpreter)
+        info.problem = "A PowerShell runtime (pwsh.exe or Windows PowerShell) is required for lifecycle hook scripts; Coop does not install PowerShell automatically";
+    else if (library.override_invalid)
+        info.problem = "COOP_SCOOP_LIB is set but does not contain core.ps1, so the pinned Scoop compatibility library needed by hook scripts is not available";
+    else if (!info.library)
+        info.problem = "The pinned Scoop compatibility library (scoop-lib/core.ps1) was not found beside coop.exe and COOP_SCOOP_LIB is not set, so hook scripts cannot get the Scoop context and helpers";
+    return info;
+}
 const char* script_phase_name(ScriptPhase phase) {
     switch (phase) {
     case ScriptPhase::before_install: return "pre_install";
@@ -822,87 +252,15 @@ std::string script_json_text(const std::string& value) {
     }
     return result;
 }
-bool ScriptCapability::compatible() const {
-    return std::all_of(scripts.begin(),scripts.end(),[](const ScriptReport& report) { return report.compatible; });
-}
-std::vector<std::string> ScriptCapability::messages() const {
-    std::vector<std::string> result;
-    for (const auto& report : scripts)
-        for (const auto& diagnostic : report.diagnostics) result.push_back(diagnostic.message);
-    return result;
-}
-ScriptCapability check_package_scripts(const Package& package) {
-    ScriptCapability capability;
-    for (const auto& script : package.scripts) {
-        ScriptReport report;
-        report.phase = script.phase;
-        const auto phase = std::string(script_phase_name(script.phase));
-        if (script.phase != ScriptPhase::before_install && script.phase != ScriptPhase::installer &&
-            script.phase != ScriptPhase::after_install && script.phase != ScriptPhase::before_uninstall &&
-            script.phase != ScriptPhase::uninstaller) {
-            report.compatible = false;
-            report.diagnostics.push_back({DiagnosticKind::capability,"unsupported-script-phase",
-                "The "+phase+" script phase is not enabled; only pre_install, installer, post_install, pre_uninstall and uninstaller hooks are supported"});
-        } else if (script.text.empty()) {
-            report.compatible = false;
-            report.diagnostics.push_back({DiagnosticKind::capability,"empty-script","The "+phase+" hook is empty"});
-        } else if (script.text.size() > max_script_bytes) {
-            report.compatible = false;
-            report.diagnostics.push_back({DiagnosticKind::capability,"oversized-script",
-                "The "+phase+" hook exceeds the "+std::to_string(max_script_bytes)+" byte limit"});
-        } else {
-            std::vector<Token> tokens;
-            std::string error;
-            if (!lex(script.text,tokens,error)) {
-                report.compatible = false;
-                report.diagnostics.push_back({DiagnosticKind::capability,"unsupported-script",
-                    phase+" hook: "+error});
-            } else {
-                Checker checker(tokens,error);
-                const bool checked = checker.run();
-                report.required_tools.assign(checker.required_tools().begin(),checker.required_tools().end());
-                if (!checked) {
-                    report.compatible = false;
-                    report.diagnostics.push_back({DiagnosticKind::capability,"unsupported-script",
-                        phase+" hook "+error});
-                } else {
-                    report.commands.assign(checker.commands().begin(),checker.commands().end());
-                    report.helpers.assign(checker.helpers().begin(),checker.helpers().end());
-                }
-            }
-        }
-        capability.scripts.push_back(std::move(report));
-    }
-    return capability;
-}
-std::optional<fs::path> powershell_interpreter() {
-    wchar_t configured[32768]{};
-    const auto configured_length = GetEnvironmentVariableW(L"COOP_POWERSHELL",configured,static_cast<DWORD>(std::size(configured)));
-    if (configured_length && configured_length < std::size(configured)) {
-        const fs::path candidate(configured);
-        if (fs::is_regular_file(candidate)) return candidate;
-        return std::nullopt;
-    }
-    std::vector<wchar_t> buffer(32768);
-    const auto length = SearchPathW(nullptr,L"pwsh.exe",nullptr,static_cast<DWORD>(buffer.size()),buffer.data(),nullptr);
-    if (length && length < buffer.size()) {
-        const fs::path candidate(buffer.data());
-        if (fs::is_regular_file(candidate)) return candidate;
-    }
-    wchar_t windows[32768]{};
-    const auto windows_length = GetWindowsDirectoryW(windows,static_cast<UINT>(std::size(windows)));
-    if (windows_length && windows_length < std::size(windows)) {
-        const fs::path candidate = fs::path(windows)/L"System32"/L"WindowsPowerShell"/L"v1.0"/L"powershell.exe";
-        if (fs::is_regular_file(candidate)) return candidate;
-    }
-    return std::nullopt;
-}
 ScriptRun run_package_script(const Context& context, const Package& package, std::size_t index,
                              const fs::path& directory, const fs::path& original_directory,
                              const fs::path& persist_directory, const fs::path& transaction,
-                             const std::string& command_name) {
-    const auto interpreter = powershell_interpreter();
-    if (!interpreter) throw std::runtime_error("A PowerShell runtime (pwsh.exe or Windows PowerShell) is required for lifecycle hook scripts");
+                             const std::string& command_name, bool purge, const fs::path& manifest_path) {
+    const auto host = script_host();
+    if (!host.interpreter || !host.library)
+        throw std::runtime_error(host.problem.empty() ?
+            "A real PowerShell hook host and the pinned Scoop compatibility library are required for lifecycle hook scripts" :
+            host.problem);
     const auto script = package.scripts.at(index);
     const auto phase = std::string(script_phase_name(script.phase));
     const auto scripts = transaction/L"scripts";
@@ -911,13 +269,16 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     if (error) throw std::runtime_error("Cannot create the hook script directory");
     const auto base = scripts/(std::to_wstring(index)+L"-"+wide(phase));
     ScriptRun result;
-    result.interpreter = *interpreter;
+    result.interpreter = *host.interpreter;
+    result.library = *host.library;
+    result.manifest_path = manifest_path;
     result.hook_path = fs::path(base.wstring()+L".ps1");
+    result.host_path = fs::path(base.wstring()+L".host.ps1");
     result.stdout_path = fs::path(base.wstring()+L".stdout.log");
     result.stderr_path = fs::path(base.wstring()+L".stderr.log");
-    write_script_file(result.hook_path,
-        bootstrap(package,directory,original_directory,persist_directory,
-                  context.root/L"buckets",command_name)+script.text+"\n");
+    write_script_file(result.hook_path,script.text+"\n");
+    write_script_file(result.host_path,host_script(context,package,result.hook_path,directory,
+        original_directory,persist_directory,*host.library,command_name,purge,manifest_path));
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};
     FileHandle out_read, out_write, err_read, err_write;
     if (!CreatePipe(&out_read.value,&out_write.value,&attributes,0)) throw std::runtime_error("Cannot create the hook stdout pipe");
@@ -933,8 +294,8 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     startup.hStdInput = input.value;
     startup.hStdOutput = out_write.value;
     startup.hStdError = err_write.value;
-    auto command_line = quote_argument(interpreter->wstring())+L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "+
-        quote_argument(result.hook_path.wstring());
+    auto command_line = quote_argument(result.interpreter.wstring())+L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "+
+        quote_argument(result.host_path.wstring());
     std::wstring working_directory;
     if (fs::is_directory(directory)) working_directory = directory.wstring();
     else working_directory = context.root.wstring();

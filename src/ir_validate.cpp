@@ -93,14 +93,9 @@ void validate(Package& package) {
         capability(package,"installer-process",false,
             "Installer programs declared by installer.file/args are refused until their external effects can be verified");
     }
-    bool post_uninstall = false;
-    for (const auto& hook : package.hooks) {
-        if (hook.stage == HookStage::post_uninstall) post_uninstall = true;
-    }
     if (!package.hooks.empty()) {
-        capability(package,"lifecycle-hooks",!post_uninstall,
-            post_uninstall ? "post_uninstall declarations are outside the supported lifecycle phases" :
-            "Declared lifecycle hooks in the supported order with the real PowerShell host");
+        capability(package,"lifecycle-hooks",true,
+            "Declared lifecycle hooks run as trusted script text in the fixed Scoop order with a real PowerShell host that loads the pinned Scoop compatibility library and the Scoop context");
     }
     if (!package.entries.empty()) {
         capability(package,"command-entry",true,
