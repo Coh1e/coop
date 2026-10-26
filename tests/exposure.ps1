@@ -471,7 +471,21 @@ if ($scriptRecord.origin -ne 'scoop') { throw 'updating a Scoop script-host inst
 $scriptUninstall = & $CoopExe --root $scriptRoot uninstall scopebat --json
 Assert-Exit "Scoop script-host uninstall failed: $($scriptUninstall -join "`n")"
 if ((Test-Path "$scriptRoot/apps/scopebat/current") -or (Test-Path "$scriptRoot/shims/scopebat-run.exe") -or (Test-Path "$scriptRoot/shims/scopebat-run.coop-shim.json")) { throw 'Scoop script-host uninstall left published state' }
+# A wrapper-only Scoop installation is also removable directly, without first being updated.
+$directRoot = New-TestRoot
+$env:COOP_PROGRAMS_DIR = Join-Path $directRoot 'programs'
+New-Item -ItemType Directory -Path "$directRoot/apps/scopebat/1","$directRoot/shims" -Force | Out-Null
+[IO.File]::WriteAllText("$directRoot/apps/scopebat/1/tool.bat","@echo off`r`nexit /b 0")
+$directBin = ,@('tool.bat','scopebat-run')
+[IO.File]::WriteAllText("$directRoot/apps/scopebat/1/manifest.json",(@{version='1';url='http://127.0.0.1:1/unused.zip';hash=('0'*64);bin=$directBin} | ConvertTo-Json -Depth 8))
+'{"bucket":"test","architecture":"64bit"}' | Set-Content "$directRoot/apps/scopebat/1/install.json" -Encoding utf8
+New-Item -ItemType Junction -Path "$directRoot/apps/scopebat/current" -Target "$directRoot/apps/scopebat/1" | Out-Null
+$directTarget = [IO.Path]::GetFullPath("$directRoot/apps/scopebat/current/tool.bat")
+[IO.File]::WriteAllText("$directRoot/shims/scopebat-run.cmd","@rem $directTarget`r`n@`"$directTarget`" %*`r`n")
+$directUninstall = & $CoopExe --root $directRoot uninstall scopebat --json
+Assert-Exit "direct Scoop script-host uninstall failed: $($directUninstall -join "`n")"
+if ((Test-Path "$directRoot/apps/scopebat/current") -or (Test-Path "$directRoot/shims/scopebat-run.cmd")) { throw 'direct Scoop script-host uninstall left published state' }
 
-@{coop=$CoopExe;root=$root;adopt_root=$adoptRoot;jar_available=$jarAvailable;jar=$jarPath;programs=$programs;script_root=$scriptRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'exposure-evidence.json') -Encoding utf8
+@{coop=$CoopExe;root=$root;adopt_root=$adoptRoot;jar_available=$jarAvailable;jar=$jarPath;programs=$programs;script_root=$scriptRoot;direct_root=$directRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'exposure-evidence.json') -Encoding utf8
 Write-Output "PASS complex command entries, shortcuts and environment exposure: $TestRoot"
 exit 0
