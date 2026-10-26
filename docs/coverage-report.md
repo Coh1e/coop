@@ -47,7 +47,7 @@
 
 ## 机制状态
 
-机制扫描覆盖 Manifest 根对象和每个架构对象；`checkver`/`autoupdate` 不计。同一份 Manifest 对同一字段只计一次，因此同一 Manifest 可出现在多行。“计划可执行”是整包计划，被无关缺口阻塞的包也会使该行计数减少。
+机制扫描覆盖 Manifest 根对象和每个架构对象；`checkver`/`autoupdate` 不计。同一份 Manifest 对同一字段只计一次，因此同一 Manifest 可出现在多行。“计划可执行”是整包计划，被无关缺口阻塞的包也会使该行计数减少。下表“真机已验证”为 0 的行就是本轮**没有运行验证**的机制（例如 tar、Inno Setup、NSIS 载荷、全部非 EXE/BAT 命令宿主、`post_uninstall`、`extract_to`、多下载项），这不等于机制不受支持，也不能用计划成功替代。
 
 ### 产物与校验
 
