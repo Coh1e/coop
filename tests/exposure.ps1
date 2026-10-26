@@ -328,6 +328,41 @@ if ((Test-Path (Join-Path $programs "Coop $tag")) -or (Test-Path (Join-Path $pro
 if (-not (Test-Path -LiteralPath $foreignLink)) { throw 'uninstall removed a shortcut Coop does not own' }
 Remove-Item -LiteralPath $foreignLink -Force
 
+# Coop publishes both a Scoop-readable .shim view and its richer .coop-shim.json for packages that
+# need host or environment details. The other client republishes its .shim view (for example after
+# `scoop reset`), and version switching must keep accepting that shared entry and republish both
+# views instead of refusing it as conflicting metadata.
+$sharedRoot = New-TestRoot
+$env:COOP_PROGRAMS_DIR = Join-Path $sharedRoot 'programs'
+Build-EnvironmentPackage $sharedRoot '1' $jarPath 'declared-v1' @() @(@('tool.exe','tool'),@('tool.exe','tool-alt'))
+$sharedInstall = & $CoopExe --root $sharedRoot install envapp --json
+Assert-Exit "shared entry fixture install failed: $($sharedInstall -join "`n")"
+Build-EnvironmentPackage $sharedRoot '2' $jarPath 'declared-v2' @() @(@('tool.exe','tool'),@('tool.exe','tool-alt'))
+$sharedUpdate = & $CoopExe --root $sharedRoot update envapp --json
+Assert-Exit "shared entry fixture update failed: $($sharedUpdate -join "`n")"
+$sharedScoopView = Join-Path $sharedRoot 'shims/tool.shim'
+$sharedCoopView = Join-Path $sharedRoot 'shims/tool.coop-shim.json'
+if (-not (Test-Path -LiteralPath $sharedScoopView) -or -not (Test-Path -LiteralPath $sharedCoopView)) { throw 'Coop did not publish both shared command views for an environment-declaring package' }
+$sharedScoopText = 'path = "' + (Join-Path $sharedRoot 'apps/envapp/current/tool.exe') + '"' + "`r`n"
+[IO.File]::WriteAllText($sharedScoopView,$sharedScoopText)
+$sharedResetOne = & $CoopExe --root $sharedRoot reset envapp@1 --json
+Assert-Exit "reset with a coexisting Scoop shim view failed: $($sharedResetOne -join "`n")"
+$null = & (Join-Path $sharedRoot 'shims/tool.exe')
+if ($LASTEXITCODE -ne 0) { throw 'reset with a coexisting Scoop shim view left a broken entry' }
+if ((Get-Item -LiteralPath (Join-Path $sharedRoot 'apps/envapp/current')).Target -notmatch '\\1$') { throw 'reset with a coexisting Scoop shim view did not publish the retained version' }
+[IO.File]::WriteAllText($sharedScoopView,$sharedScoopText)
+$sharedResetTwo = & $CoopExe --root $sharedRoot reset envapp@2 --json
+Assert-Exit "reset back with a coexisting Scoop shim view failed: $($sharedResetTwo -join "`n")"
+$null = & (Join-Path $sharedRoot 'shims/tool.exe')
+if ($LASTEXITCODE -ne 0) { throw 'reset back with a coexisting Scoop shim view left a broken entry' }
+if ((Get-Item -LiteralPath (Join-Path $sharedRoot 'apps/envapp/current')).Target -notmatch '\\2$') { throw 'reset back with a coexisting Scoop shim view did not publish the current version' }
+if (-not (Test-Path -LiteralPath $sharedScoopView) -or -not (Test-Path -LiteralPath $sharedCoopView)) { throw 'Coop did not republish both shared views after the version switch' }
+$sharedUninstall = & $CoopExe --root $sharedRoot uninstall envapp --json
+Assert-Exit "shared entry uninstall failed: $($sharedUninstall -join "`n")"
+foreach ($sharedEntry in @('tool.exe','tool.shim','tool.coop-shim.json')) {
+    if (Test-Path -LiteralPath (Join-Path $sharedRoot "shims/$sharedEntry")) { throw "shared entry uninstall left $sharedEntry" }
+}
+
 # A pre-existing shortcut is a conflict, not something Coop may overwrite.
 $conflictRoot = New-TestRoot
 $conflictPrograms = Join-Path $conflictRoot 'programs'
