@@ -253,12 +253,12 @@ $mainRecord = Get-InventoryRecord 'main'
 $extrasRecord = Get-InventoryRecord 'extras'
 $baseline.buckets = @(
     [ordered]@{
-        name = 'main'; url = $mainUrl; source = 'shared-scoop-worktree'; path = (Get-InventoryBucket 'main')
+        name = 'main'; url = $mainUrl; source = 'shared-scoop-worktree'; path = (Get-ProjectPath (Get-InventoryBucket 'main'))
         branch = if ($inventoryMainHead.reference) { $inventoryMainHead.reference -replace '^refs/heads/','' } else { $null }
         revision = $mainRevision; files_count = if ($mainRecord) { $mainRecord.files_count } else { $null }
     },
     [ordered]@{
-        name = 'extras'; url = $extrasUrl; source = 'official-git-clone-fetched-for-this-inventory'; path = (Get-InventoryBucket 'extras')
+        name = 'extras'; url = $extrasUrl; source = 'official-git-clone-fetched-for-this-inventory'; path = (Get-ProjectPath (Get-InventoryBucket 'extras'))
         branch = if ($inventoryExtrasHead.reference) { $inventoryExtrasHead.reference -replace '^refs/heads/','' } else { $null }
         revision = $extrasRevision; files_count = if ($extrasRecord) { $extrasRecord.files_count } else { $null }
     }
@@ -646,8 +646,8 @@ $baselineProjection = [ordered]@{
     totals = $summary.totals
     mechanisms = $mechanisms
     gaps = $gapList
-    artifacts = $summary.artifact_formats
-    hash_algorithms = $summary.hash_algorithms
+    artifacts = @($summary.artifact_formats | ForEach-Object { [ordered]@{ format = $_.format; artifacts = $_.artifacts; manifests = $_.manifests; verified_manifests = $_.verified_manifests } })
+    hash_algorithms = @($summary.hash_algorithms | ForEach-Object { [ordered]@{ algorithm = $_.algorithm; artifacts = $_.artifacts; manifests = $_.manifests } })
     verified_source = $baseline.verified_source
     verified = @($summary.verified)
     shared_root = $baseline.shared_root
