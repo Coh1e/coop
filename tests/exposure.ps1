@@ -68,7 +68,7 @@ function Build-EnvironmentPackage([string]$root,[string]$version,[string]$jarFil
     $cmdTool = @('@echo off',"echo cmd-args:%*","echo cmd-$version",'exit /b 0') -join "`r`n"
     $cmdFail = @('@echo off','echo fail-args:%*','exit /b 7') -join "`r`n"
     $batTool = @('@echo off','echo bat-args:%*','exit /b 0') -join "`r`n"
-    $cmdShow = @('@echo off','echo env=%FIXTURE_ENV%','echo data=%TOOL_DATA%','echo version=%TOOL_VERSION%','echo path=%PATH%','exit /b 0') -join "`r`n"
+    $cmdShow = @('@echo off','echo env=%FIXTURE_ENV%','echo data=%TOOL_DATA%','echo version=%TOOL_VERSION%','echo args=%*','echo path=%PATH%','exit /b 0') -join "`r`n"
     $ps1 = @('[IO.File]::WriteAllText($env:PS1_MARKER, ($args -join "|"))','exit 3') -join "`r`n"
     $archive = Join-Path $folder 'app.zip'
     New-ZipPackage $archive ([ordered]@{
@@ -124,6 +124,7 @@ $bin = @(
     @('bin/tool.bat','bat-tool','--bat'),
     @('bin/fail.cmd','fail-tool','--boom'),
     @('bin/show.cmd','show-tool'),
+    @('bin/show.cmd','expand-tool','--data=$persist_dir\data --dir=$dir --original=$original_dir'),
     @('ps1/hello.ps1','ps-tool','--flag'),
     @('gui/gui.exe','gui-tool'),
     @('tool.exe','plain-tool'),
@@ -131,7 +132,8 @@ $bin = @(
     @('tool.exe','工具'),
     @('java/app.jar','jar-tool','--jar-default')
 )
-$shortcuts = @(@('tool.exe',$mainShortcut,'','tool.exe'),@('bin/fail.cmd',$failShortcut,'--from-shortcut'),@('tool.exe',$subShortcut))
+$expandShortcut = "Expand-$tag"
+$shortcuts = @(@('tool.exe',$mainShortcut,'','tool.exe'),@('bin/fail.cmd',$failShortcut,'--from-shortcut'),@('tool.exe',$subShortcut),@('bin/show.cmd',$expandShortcut,'--data=$persist_dir\data --dir=$dir'))
 Build-EnvironmentPackage $root '1' $jarPath 'declared-value' $shortcuts $bin
 
 # Preview exposes the forwarded launcher types, shortcut destination and expanded environment
@@ -147,14 +149,16 @@ if (($environment | Where-Object name -eq 'TOOL_DATA').value -ne (Join-Path $roo
 if (($environment | Where-Object name -eq 'TOOL_VERSION').value -ne '1') { throw 'preview did not expand $version' }
 $pathEntries = @($preview.exposure.path_entries)
 if ((Join-Path $root 'apps/envapp/current/bin') -notin $pathEntries -or (Join-Path $root 'apps/envapp/current') -notin $pathEntries) { throw 'preview path entries are wrong' }
-if (@($preview.exposure.shortcuts).Count -ne 3 -or @($preview.exposure.shortcuts | Where-Object name -eq $mainShortcut).Count -ne 1) { throw 'preview shortcut disclosure is incomplete' }
+if (@($preview.exposure.shortcuts).Count -ne 4 -or @($preview.exposure.shortcuts | Where-Object name -eq $mainShortcut).Count -ne 1) { throw 'preview shortcut disclosure is incomplete' }
+$expandPreview = @($preview.exposure.shortcuts | Where-Object name -eq $expandShortcut)[0]
+if ($expandPreview.arguments -ne "--data=$(Join-Path $root 'persist/envapp/data') --dir=$(Join-Path $root 'apps/envapp/current')") { throw "preview did not expand shortcut arguments: $($expandPreview.arguments)" }
 if ((Test-Path $programs) -or (Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop")) { throw 'command preview changed product state' }
 
 $install = & $CoopExe --root $root install test/envapp --json
 Assert-Exit "complex command install failed: $($install -join "`n")"
 $record = Get-Content -LiteralPath "$root/.coop/packages/envapp.json" -Raw | ConvertFrom-Json
-if (@($record.commands).Count -ne 10) { throw 'management record omitted command entries' }
-if (@($record.shortcuts).Count -ne 3) { throw 'management record omitted shortcuts' }
+if (@($record.commands).Count -ne 11) { throw 'management record omitted command entries' }
+if (@($record.shortcuts).Count -ne 4) { throw 'management record omitted shortcuts' }
 if (@($record.environment | Where-Object name -eq 'FIXTURE_ENV').value -ne 'declared-value') { throw 'management record omitted environment ownership' }
 
 $cmdOutput = ((& "$root/shims/cmd-tool.exe" hello 'two words') -join "`n")
@@ -169,8 +173,14 @@ $plainOutput = ((& "$root/shims/plain-tool.exe") -join "`n")
 if ($LASTEXITCODE -ne 0 -or $plainOutput -notmatch 'fixture 1') { throw 'direct EXE entry did not run' }
 $unicodeOutput = ((& "$root/shims/工具.exe") -join "`n")
 if ($LASTEXITCODE -ne 0 -or $unicodeOutput -notmatch 'fixture 1') { throw 'Unicode command alias did not run' }
-$showOutput = ((& "$root/shims/show-tool.exe") -join "`n")
+$showOutput = ((& "$root/shims/show-tool.exe" first 'two words') -join "`n")
 if ($LASTEXITCODE -ne 0 -or $showOutput -notmatch 'env=declared-value' -or $showOutput -notmatch ('data='+[regex]::Escape((Join-Path $root 'persist/envapp/data'))) -or $showOutput -notmatch 'version=1') { throw "declared environment was not applied: $showOutput" }
+if ($showOutput -notmatch 'args="first" "two words"') { throw "caller arguments were not forwarded: $showOutput" }
+$expandOutput = ((& "$root/shims/expand-tool.exe") -join "`n")
+if ($LASTEXITCODE -ne 0) { throw "expanded-argument entry failed: $expandOutput" }
+$expandedData = Join-Path $root 'persist/envapp/data'
+$expandedCurrent = Join-Path $root 'apps/envapp/current'
+if ($expandOutput -notmatch [regex]::Escape("args=--data=$expandedData --dir=$expandedCurrent --original=$expandedCurrent")) { throw "entry arguments were not expanded like Scoop: $expandOutput" }
 if ($showOutput -notmatch [regex]::Escape((Join-Path $root 'apps/envapp/current/bin')) -or $showOutput -notmatch [regex]::Escape("$env:SystemRoot\System32")) { throw 'PATH exposure did not prepend package entries nor keep the existing PATH' }
 $psOutput = ((& "$root/shims/ps-tool.exe" one 'two words') 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 3) { throw "PS1 entry did not propagate the exit code: $psOutput" }
@@ -200,14 +210,24 @@ if ($jarCode -eq 0 -or $jarOutput -notmatch 'Java runtime') { throw "JAR entry w
 Assert-Shortcut (Join-Path $programs "$mainShortcut.lnk") "$root/apps/envapp/current/tool.exe" '' (Join-Path $root 'apps/envapp/current/tool.exe')
 Assert-Shortcut (Join-Path $programs "$failShortcut.lnk") "$root/apps/envapp/current/bin/fail.cmd" '--from-shortcut'
 Assert-Shortcut (Join-Path $programs "$subShortcut.lnk") "$root/apps/envapp/current/tool.exe" ''
+Assert-Shortcut (Join-Path $programs "$expandShortcut.lnk") "$root/apps/envapp/current/bin/show.cmd" "--data=$expandedData --dir=$expandedCurrent"
 $foreignLink = Join-Path $programs "Unrelated-$tag.lnk"
 [IO.File]::WriteAllText($foreignLink,'foreign shortcut')
 if (Test-Path -LiteralPath (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Scoop Apps\Coop $tag")) { throw 'isolated test wrote into the real Start Menu' }
 if ([Environment]::GetEnvironmentVariable('FIXTURE_ENV','User') -eq 'declared-value') { throw 'test wrote a persistent user environment variable' }
 
+$mainLink = Join-Path $programs "$mainShortcut.lnk"
+$rewrite = (New-Object -ComObject WScript.Shell).CreateShortcut($mainLink)
+$rewrite.TargetPath = "$root/apps/envapp/current/tool.exe"
+$rewrite.Arguments = ''
+$rewrite.WorkingDirectory = "$root/apps/envapp/current"
+$rewrite.IconLocation = "$root/apps/envapp/current/tool.exe"
+$rewrite.Description = 'rewritten by the other client with identical launch identity'
+$rewrite.Save()
+
 # Update replaces entries and removes only shortcuts Coop created for the previous version.
 $bin = @($bin | Where-Object { $_[1] -ne 'fail-tool' })
-$shortcuts = @(@('tool.exe',$mainShortcut),@('tool.exe',$subShortcut))
+$shortcuts = @(@('tool.exe',$mainShortcut),@('tool.exe',$subShortcut),@('bin/show.cmd',$expandShortcut,'--data=$persist_dir\data --dir=$dir'))
 Build-EnvironmentPackage $root '2' $jarPath 'declared-v2' $shortcuts $bin
 $update = & $CoopExe --root $root update envapp --json
 Assert-Exit "complex command update failed: $($update -join "`n")"
@@ -218,8 +238,9 @@ if ($showOutput -notmatch 'env=declared-v2' -or $showOutput -notmatch 'version=2
 if (Test-Path -LiteralPath (Join-Path $programs "$failShortcut.lnk")) { throw 'update left the removed shortcut behind' }
 Assert-Shortcut (Join-Path $programs "$mainShortcut.lnk") "$root/apps/envapp/current/tool.exe" ''
 Assert-Shortcut (Join-Path $programs "$subShortcut.lnk") "$root/apps/envapp/current/tool.exe" ''
+Assert-Shortcut (Join-Path $programs "$expandShortcut.lnk") "$root/apps/envapp/current/bin/show.cmd" "--data=$expandedData --dir=$expandedCurrent"
 $record = Get-Content -LiteralPath "$root/.coop/packages/envapp.json" -Raw | ConvertFrom-Json
-if (@($record.shortcuts).Count -ne 2) { throw 'updated management record kept the removed shortcut' }
+if (@($record.shortcuts).Count -ne 3) { throw 'updated management record kept the removed shortcut' }
 
 # A locked shortcut is left in place; the uninstall fails and rolls back instead of killing anything.
 $mainLink = Join-Path $programs "$mainShortcut.lnk"
@@ -239,9 +260,28 @@ if ($LASTEXITCODE -eq 0) { throw 'externally modified shortcut was removed' }
 if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.exe")) { throw 'refused uninstall damaged the installation' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($mainLink)) -ne [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('not a shortcut'))) { throw 'externally modified shortcut was overwritten' }
 [IO.File]::WriteAllBytes($mainLink,[Convert]::FromBase64String($original))
+# Scoop reset recreates its own .cmd/.ps1/sh wrappers beside Coop's launcher. The plan lists the
+# wrappers it can confirm as this package's, and uninstall removes only those.
+$scoopMarker = "$root\apps\envapp\current\bin\tool.cmd"
+foreach ($wrapper in @('cmd-tool.cmd','cmd-tool.ps1','cmd-tool')) {
+    [IO.File]::WriteAllText("$root/shims/$wrapper","@rem $scoopMarker`r`n@`"$scoopMarker`" %*`r`n")
+}
+$foreignWrapper = "$root/shims/foreign-tool.cmd"
+[IO.File]::WriteAllText($foreignWrapper,'@rem C:\other\apps\foreign\current\tool.cmd'+"`r`n@echo foreign`r`n")
+$uninstallPreview = Read-Json (& $CoopExe --root $root uninstall envapp --dry-run --json)
+Assert-Exit 'uninstall preview with Scoop wrappers failed'
+foreach ($wrapper in @('cmd-tool.cmd','cmd-tool.ps1','cmd-tool')) {
+    if ([IO.Path]::GetFullPath((Join-Path $root "shims/$wrapper")) -notin @($uninstallPreview.scoop_entry_wrappers)) { throw "uninstall preview omitted the Scoop wrapper $wrapper" }
+}
+if ([IO.Path]::GetFullPath($foreignWrapper) -in @($uninstallPreview.scoop_entry_wrappers)) { throw 'uninstall preview claimed an unrelated Scoop wrapper' }
+$expandUninstall = @($uninstallPreview.exposure.shortcuts | Where-Object name -eq $expandShortcut)[0]
+if ($expandUninstall.arguments -ne "--data=$expandedData --dir=$expandedCurrent") { throw "uninstall preview did not keep expanded shortcut arguments: $($expandUninstall.arguments)" }
 $uninstall = & $CoopExe --root $root uninstall envapp --json
 Assert-Exit "complex command uninstall failed: $($uninstall -join "`n")"
 if ((Test-Path "$root/apps/envapp/current") -or (Test-Path "$root/apps/envapp/2") -or (Test-Path "$root/shims/cmd-tool.exe") -or (Test-Path -LiteralPath $mainLink)) { throw 'uninstall left published entries or shortcuts' }
+if ((Test-Path "$root/shims/cmd-tool.cmd") -or (Test-Path "$root/shims/cmd-tool.ps1") -or (Test-Path "$root/shims/cmd-tool")) { throw 'uninstall left Scoop-created wrappers for the removed package' }
+if (-not (Test-Path $foreignWrapper)) { throw 'uninstall removed a Scoop-style wrapper that does not belong to the package' }
+Remove-Item -LiteralPath $foreignWrapper -Force
 if ((Test-Path (Join-Path $programs "Coop $tag")) -or (Test-Path (Join-Path $programs "Git $tag"))) { throw 'uninstall left empty shortcut subfolders behind' }
 if (-not (Test-Path -LiteralPath $foreignLink)) { throw 'uninstall removed a shortcut Coop does not own' }
 Remove-Item -LiteralPath $foreignLink -Force
@@ -396,8 +436,42 @@ if ($changedPreview.eligibility -ne 'untested' -or 'shortcut-arguments-mismatch'
 Remove-Item -LiteralPath $changedLink -Force
 $missingPreview = Read-Json (& $CoopExe --root $changedRoot adopt changed --dry-run --json 2>&1)
 if ($missingPreview.eligibility -ne 'untested' -or 'shortcut-evidence-missing' -notin @($missingPreview.diagnostics.code)) { throw "missing legacy shortcut was not reported: $($missingPreview.eligibility)" }
+[IO.File]::AppendAllText("$changedRoot/shims/changed.shim","future = value`r`n")
+$unknownPreview = Read-Json (& $CoopExe --root $changedRoot adopt changed --dry-run --json 2>&1)
+if ($unknownPreview.eligibility -ne 'untested' -or 'untested-shim-option' -notin @($unknownPreview.diagnostics.code)) { throw "unknown Scoop shim option was not surfaced: $($unknownPreview.eligibility)" }
 if ((Test-Path "$changedRoot/.coop") -or (Test-Path "$changedRoot/shims/changed.coop-shim.json")) { throw 'shortcut adoption preview changed state' }
 
-@{coop=$CoopExe;root=$root;adopt_root=$adoptRoot;jar_available=$jarAvailable;jar=$jarPath;programs=$programs} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'exposure-evidence.json') -Encoding utf8
+# A Scoop-installed script-host package has only .cmd/sh wrappers, no .exe/.shim pair. Coop must
+# recognize that evidence, update it without requiring a private record, and remove the wrappers.
+$scriptRoot = New-TestRoot
+$env:COOP_PROGRAMS_DIR = Join-Path $scriptRoot 'programs'
+$scriptArchive = Join-Path $scriptRoot 'scopebat-v2.zip'
+New-ZipPackage $scriptArchive @{ 'tool.bat' = "@echo off`r`necho wrapper-v2 %*`r`nexit /b 0" }
+$scriptHash = (Get-FileHash -LiteralPath $scriptArchive -Algorithm SHA256).Hash.ToLower()
+$scriptBin = ,@('tool.bat','scopebat-run')
+Write-Manifest $scriptRoot 'scopebat' @{version='2';url=(File-Uri $scriptArchive);hash=$scriptHash;bin=$scriptBin}
+New-Item -ItemType Directory -Path "$scriptRoot/apps/scopebat/1","$scriptRoot/shims" -Force | Out-Null
+[IO.File]::WriteAllText("$scriptRoot/apps/scopebat/1/tool.bat","@echo off`r`necho wrapper-v1 %*`r`nexit /b 0")
+[IO.File]::WriteAllText("$scriptRoot/apps/scopebat/1/manifest.json",(@{version='1';url=(File-Uri $scriptArchive);hash=$scriptHash;bin=$scriptBin} | ConvertTo-Json -Depth 8))
+'{"bucket":"test","architecture":"64bit"}' | Set-Content "$scriptRoot/apps/scopebat/1/install.json" -Encoding utf8
+New-Item -ItemType Junction -Path "$scriptRoot/apps/scopebat/current" -Target "$scriptRoot/apps/scopebat/1" | Out-Null
+$scriptTarget = [IO.Path]::GetFullPath("$scriptRoot/apps/scopebat/current/tool.bat")
+[IO.File]::WriteAllText("$scriptRoot/shims/scopebat-run.cmd","@rem $scriptTarget`r`n@`"$scriptTarget`" %*`r`n")
+[IO.File]::WriteAllText("$scriptRoot/shims/scopebat-run","#!/bin/sh`n# $scriptTarget`nMSYS2_ARG_CONV_EXCL=/C cmd.exe /C `"$scriptTarget`" `"`$@`"`n")
+$scriptPreview = Read-Json (& $CoopExe --root $scriptRoot update scopebat --dry-run --json)
+Assert-Exit 'Scoop script-host update preview failed'
+if ($scriptPreview.execution_available -ne $true -or @($scriptPreview.scoop_entry_wrappers).Count -ne 2) { throw 'Scoop script-host wrappers were not recognized in the update plan' }
+$scriptUpdate = & $CoopExe --root $scriptRoot update scopebat --json
+Assert-Exit "Scoop script-host update failed: $($scriptUpdate -join "`n")"
+$scriptOutput = ((& "$scriptRoot/shims/scopebat-run.exe" one) -join "`n")
+if ($LASTEXITCODE -ne 0 -or $scriptOutput -notmatch 'wrapper-v2' -or $scriptOutput -notmatch 'one') { throw "updated Scoop script-host entry did not run: $scriptOutput" }
+if ((Test-Path "$scriptRoot/shims/scopebat-run.cmd") -or (Test-Path "$scriptRoot/shims/scopebat-run")) { throw 'update left the Scoop script-host wrappers behind' }
+$scriptRecord = Get-Content -LiteralPath "$scriptRoot/.coop/packages/scopebat.json" -Raw | ConvertFrom-Json
+if ($scriptRecord.origin -ne 'scoop') { throw 'updating a Scoop script-host installation did not preserve its origin' }
+$scriptUninstall = & $CoopExe --root $scriptRoot uninstall scopebat --json
+Assert-Exit "Scoop script-host uninstall failed: $($scriptUninstall -join "`n")"
+if ((Test-Path "$scriptRoot/apps/scopebat/current") -or (Test-Path "$scriptRoot/shims/scopebat-run.exe") -or (Test-Path "$scriptRoot/shims/scopebat-run.coop-shim.json")) { throw 'Scoop script-host uninstall left published state' }
+
+@{coop=$CoopExe;root=$root;adopt_root=$adoptRoot;jar_available=$jarAvailable;jar=$jarPath;programs=$programs;script_root=$scriptRoot} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'exposure-evidence.json') -Encoding utf8
 Write-Output "PASS complex command entries, shortcuts and environment exposure: $TestRoot"
 exit 0

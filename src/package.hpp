@@ -87,6 +87,9 @@ struct Plan {
     // IR operations this plan was built from. Preview reports them verbatim and the execution
     // backend is migrated onto the same sequence instead of re-deriving package order.
     std::vector<ir::Step> ir_steps;
+    // Scoop-created .cmd/.ps1/sh wrappers for this package's command names. They are removed with
+    // the entries only when their content still points at apps/<package>/.
+    std::vector<fs::path> scoop_entry_wrappers;
 };
 DiagnosticKind diagnostic_kind(ir::Layer layer);
 std::string sha256_file(const fs::path& path);

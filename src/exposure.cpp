@@ -208,6 +208,16 @@ std::string expand_package_value(const Context& context, const Package& package,
     }
     return text;
 }
+std::string expand_exposure_arguments(const Context& context, const std::string& package_name,
+    const fs::path& base, const std::string& value) {
+    // The fixed Scoop baseline substitutes exactly these three variables for bin and shortcut
+    // arguments; environment declarations have their own wider expansion.
+    auto text = value;
+    replace_all(text,"$persist_dir",path_text(context.root/L"persist"/wide(package_name)));
+    replace_all(text,"$original_dir",path_text(base));
+    replace_all(text,"$dir",path_text(base));
+    return text;
+}
 Json expanded_environment(const Context& context, const Package& package, const fs::path& base) {
     Json result = Json::array();
     for (const auto& setting : package.environment)
@@ -231,10 +241,12 @@ Json exposure_plan_json(const Context& context, const Package& package, const fs
         {"environment_scope","Declared values are applied to processes started through Coop command entries; user and system environment variables are not modified"},
         {"shortcuts",Json::array()},{"environment",expanded_environment(context,package,base)},
         {"path_entries",expanded_path_entries(context,package,base)}};
+    const auto argument_base = context.root/L"apps"/wide(package.name)/L"current";
     for (const auto& shortcut : package.shortcuts)
         result["shortcuts"].push_back({{"name",shortcut.name},{"kind","windows-shortcut"},
             {"link",path_text(programs/fs::path(wide(shortcut.name)+L".lnk"))},
-            {"target",path_text(base/shortcut.target)},{"arguments",shortcut.arguments},
+            {"target",path_text(base/shortcut.target)},
+            {"arguments",expand_exposure_arguments(context,package.name,argument_base,shortcut.arguments)},
             {"icon",shortcut.icon.empty() ? std::string{} : path_text(base/shortcut.icon)}});
     return result;
 }

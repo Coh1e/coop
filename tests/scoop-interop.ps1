@@ -197,5 +197,18 @@ $foreignEntry = $foreignPreview | ConvertFrom-Json
 if ($foreignEntry.execution_available -ne $false -or @($foreignEntry.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw "foreign launcher was not blocked in preview: $foreignPreview" }
 $foreignUpdate = & $CoopExe --root $foreignRoot update gui --json 2>&1
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$foreignRoot/.coop/packages/gui.json")) { throw "foreign launcher was accepted: $foreignUpdate" }
-@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_archive=$rootArchive;root_archive_broken=$brokenArchive;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);archive_planned=$archivePlanned;archive_observed=@($archiveJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
-Write-Output "PASS shared Scoop/Coop single-file, multi-artifact and archive update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"
+# A future Scoop shim program may not carry today's marker strings. A launcher whose bytes are
+# shared with another .shim entry in the same root is still Scoop-generated evidence.
+$siblingRoot = New-Root 'shared-sibling-launcher' '1' $fixture1
+Copy-Item -LiteralPath $fixture1 -Destination "$siblingRoot/shims/shared.exe" -Force
+Copy-Item -LiteralPath $fixture1 -Destination "$siblingRoot/shims/sibling.exe"
+[IO.File]::WriteAllText("$siblingRoot/shims/sibling.shim",'path = "'+[IO.Path]::GetFullPath("$siblingRoot/apps/shared/current/shared.exe")+'"'+"`r`n")
+$siblingPreview = & $CoopExe --root $siblingRoot update shared --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "shared-sibling launcher preview failed: $siblingPreview" }
+$siblingEntry = $siblingPreview | ConvertFrom-Json
+if (-not $siblingEntry.execution_available) { throw "shared-sibling launcher preview was not executable: $siblingPreview" }
+$siblingUpdate = & $CoopExe --root $siblingRoot update shared --json
+if ($LASTEXITCODE -ne 0) { throw "shared-sibling launcher update failed: $siblingUpdate" }
+if ((Get-Content -LiteralPath "$siblingRoot/apps/shared/current/scoop-manifest.json" -Raw | ConvertFrom-Json).version -ne '2') { throw 'shared-sibling launcher update did not publish version 2' }
+@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_archive=$rootArchive;root_archive_broken=$brokenArchive;root_gui=$guiRoot;root_foreign=$foreignRoot;root_sibling=$siblingRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);archive_planned=$archivePlanned;archive_observed=@($archiveJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
+Write-Output "PASS shared Scoop/Coop single-file, multi-artifact, archive update, reset, GUI shim, shared-sibling launcher and foreign-launcher refusal: $session/evidence.json"

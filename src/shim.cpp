@@ -3,6 +3,7 @@
 #include "data.hpp"
 #include <windows.h>
 #include <array>
+#include <cctype>
 #include <stdexcept>
 #include <fstream>
 #include <set>
@@ -156,6 +157,42 @@ bool looks_like_scoop_shim(const fs::path& path) {
     for (const auto* marker : markers)
         if (bytes.find(marker) != std::string::npos) return true;
     return false;
+}
+
+bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& package_name) {
+    const auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
+    std::error_code error;
+    const auto size = fs::file_size(path,error);
+    if (error || size == 0 || size > 1024*1024 || !fs::is_regular_file(path,error)) return false;
+    std::ifstream input(path,std::ios::binary);
+    if (!input) return false;
+    std::string text(static_cast<std::size_t>(size),'\0');
+    input.read(text.data(),static_cast<std::streamsize>(text.size()));
+    if (!input && !input.eof()) return false;
+    auto lower = [](std::string value) {
+        for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        return value;
+    };
+    text = lower(std::move(text));
+    const auto name = lower(package_name);
+    return text.find("apps\\"+name+"\\") != std::string::npos ||
+        text.find("apps/"+name+"/") != std::string::npos;
+}
+std::vector<fs::path> scoop_entry_wrappers(const Context& context, const std::string& package_name,
+    const std::vector<std::string>& command_names) {
+    std::vector<fs::path> result;
+    std::set<std::string> seen;
+    const auto shims = context.root/L"shims";
+    for (const auto& name : command_names) {
+        for (const auto& candidate : {shims/(wide(name)+L".cmd"),shims/(wide(name)+L".ps1"),shims/wide(name)}) {
+            if (!scoop_wrapper_belongs_to_package(candidate,package_name)) continue;
+            if (!seen.insert(path_text(candidate)).second) continue;
+            result.push_back(candidate);
+        }
+    }
+    return result;
 }
 
 bool run_shim(int argc, wchar_t** argv, int& result) {

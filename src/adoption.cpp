@@ -4,6 +4,7 @@
 #include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
+#include "shim.hpp"
 #include <windows.h>
 #include <algorithm>
 #include <fstream>
@@ -121,26 +122,16 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
                 reject(AdoptionEligibility::untested,DiagnosticKind::verification,"untested-scoop-shim","Existing command launcher is not a validated Scoop shim"); return result;
             }
             if (fs::exists(context.root/L"shims"/(wide(command.name)+L".coop-shim.json"))) throw std::runtime_error("Existing Coop command metadata conflicts with unadopted package");
-            if (fs::file_size(legacy.metadata.path) > 16384) throw std::runtime_error("Scoop shim metadata exceeds size limit");
             legacy.metadata.sha256 = sha256_file(legacy.metadata.path);
-            std::ifstream input(legacy.metadata.path,std::ios::binary);
-            std::string line, target, arguments;
-            std::set<std::string> keys;
-            while (std::getline(input,line)) {
-                if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
-                line = trim(line);
-                if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
-                const auto equal = line.find('=');
-                if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
-                const auto key = trim(line.substr(0,equal));
-                const auto value = trim(line.substr(equal+1));
-                if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
-                if (key == "path") target = value;
-                else if (key == "args") arguments = value;
-                else { reject(AdoptionEligibility::untested,DiagnosticKind::verification,"untested-shim-option","Unvalidated Scoop shim option: "+key); return result; }
+            const auto shim_metadata = read_shim_metadata(legacy.metadata.path);
+            if (!shim_metadata.unknown_keys.empty()) {
+                reject(AdoptionEligibility::untested,DiagnosticKind::verification,"untested-shim-option",
+                    "Unvalidated Scoop shim option: "+shim_metadata.unknown_keys.front()); return result;
             }
-            if (target.size() >= 2 && target.front() == '"' && target.back() == '"') target = target.substr(1,target.size()-2);
-            if (target.empty() || !fs::exists(fs::path(wide(target))) || !fs::equivalent(fs::path(wide(target)),expected/command.target) || arguments != command.arguments)
+            const auto expected_arguments = expand_exposure_arguments(context,plan.package.name,plan.local.current,command.arguments);
+            if (!fs::exists(fs::path(wide(shim_metadata.target))) ||
+                !fs::equivalent(fs::path(wide(shim_metadata.target)),expected/command.target) ||
+                shim_metadata.arguments != expected_arguments)
                 throw std::runtime_error("Existing Scoop command entry points to a different package or arguments");
             result.commands.push_back(std::move(legacy));
         }
@@ -160,7 +151,8 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
                 reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-target-mismatch",
                     "Existing shortcut points to a different target: "+path_text(link)); return result;
             }
-            if (identity->arguments != shortcut.arguments) {
+            const auto expected_arguments = expand_exposure_arguments(context,plan.package.name,plan.local.current,shortcut.arguments);
+            if (identity->arguments != expected_arguments) {
                 reject(AdoptionEligibility::untested,DiagnosticKind::verification,"shortcut-arguments-mismatch",
                     "Existing shortcut uses different arguments: "+path_text(link)); return result;
             }

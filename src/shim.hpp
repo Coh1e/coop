@@ -19,4 +19,10 @@ bool looks_like_scoop_shim(const fs::path& path);
 // the call to the declared target with the correct host. Returns false when the running executable
 // is not a command launcher.
 bool run_shim(int argc, wchar_t** argv, int& result);
+// Scoop writes .cmd/.ps1/sh wrappers for script-host entries instead of a .exe/.shim pair. A
+// wrapper belongs to a package only when its content points at apps/<package>/; otherwise it is
+// left for the client or user that created it.
+bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& package_name);
+std::vector<fs::path> scoop_entry_wrappers(const Context& context, const std::string& package_name,
+    const std::vector<std::string>& command_names);
 }

@@ -117,12 +117,15 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
             throw std::runtime_error("Installed artifact changed; refusing operation");
     }
 }
-bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link,
+bool verify_shortcut_ownership(const Context& context, const Package& installed, const Json& managed,
+                               const ShortcutExposure& shortcut, const fs::path& link,
                                const fs::path& installed_directory) {
     // A shortcut removed outside Coop is already revoked: there is nothing left to own or
     // protect, so update/uninstall records the observation and continues. A shortcut that is
     // still present but changed is still refused below.
     if (!fs::is_regular_file(link)) return false;
+    const auto expected_arguments = expand_exposure_arguments(context,installed.name,
+        context.root/L"apps"/wide(installed.name)/L"current",shortcut.arguments);
     std::string expected;
     fs::path recorded;
     bool has_record = false;
@@ -144,8 +147,17 @@ bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shor
     }
     if (has_record) {
         if (!same_identity(recorded,link)) throw std::runtime_error("Managed shortcut path changed");
-        if (sha256_file(link) != expected)
-            throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
+        if (sha256_file(link) != expected) {
+            // The other client may rewrite an equivalent shortcut (for example Scoop reset).
+            // Ownership is confirmed by the launch identity, not by one client's exact bytes;
+            // an unreadable or different target/argument/icon is still refused.
+            const auto identity = read_shortcut(link);
+            const bool same_launch = identity && same_identity(identity->target,installed_directory/shortcut.target) &&
+                identity->arguments == expected_arguments &&
+                (shortcut.icon.empty() || identity->icon.empty() || same_identity(identity->icon,installed_directory/shortcut.icon));
+            if (!same_launch)
+                throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
+        }
         return true;
     }
     // A shared Scoop installation has no Coop record. Its shortcut is still owned only when the
@@ -155,7 +167,7 @@ bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shor
     const auto target = installed_directory/shortcut.target;
     if (!same_identity(identity->target,target))
         throw std::runtime_error("Shared shortcut points to a different target: "+path_text(link));
-    if (identity->arguments != shortcut.arguments)
+    if (identity->arguments != expected_arguments)
         throw std::runtime_error("Shared shortcut uses different arguments: "+path_text(link));
     if (!shortcut.icon.empty() && !identity->icon.empty() && !same_identity(identity->icon,installed_directory/shortcut.icon))
         throw std::runtime_error("Shared shortcut uses a different icon: "+path_text(link));
@@ -330,10 +342,16 @@ std::string command_entry_blocker(const Context& context, const Package& install
         catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
     }
     for (const auto& command : installed.commands) {
+        const auto expected_arguments = expand_exposure_arguments(context,installed.name,
+            context.root/L"apps"/wide(installed.name)/L"current",command.arguments);
         const auto exe = shims/(wide(command.name)+L".exe");
         const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
         const auto scoop_metadata = shims/(wide(command.name)+L".shim");
-        if (!fs::is_regular_file(exe)) return "Managed command entry is missing: "+command.name;
+        if (!fs::is_regular_file(exe)) {
+            if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) return "Managed command entry is missing: "+command.name;
+            if (!scoop_entry_wrappers(context,installed.name,{command.name}).empty()) continue;
+            return "Managed command entry is missing: "+command.name;
+        }
         if (fs::exists(coop_metadata) && fs::exists(scoop_metadata))
             return "Command entry has conflicting Coop and Scoop metadata: "+command.name;
         if (fs::exists(coop_metadata)) {
@@ -342,7 +360,7 @@ std::string command_entry_blocker(const Context& context, const Package& install
             catch (const std::exception& error) { return "Managed command metadata cannot be read: "+std::string(error.what()); }
             if (!equal_name(metadata.value("package",std::string{}),installed.name) ||
                 !same_identity(fs::path(wide(metadata.value("target",std::string{}))),context.root/L"apps"/wide(installed.name)/L"current"/command.target) ||
-                metadata.value("arguments",std::string{}) != command.arguments ||
+                metadata.value("arguments",std::string{}) != expected_arguments ||
                 metadata.value("launcher",std::string{}) != command_launcher_name(command.target))
                 return "Managed command entry ownership changed: "+command.name;
         } else if (fs::exists(scoop_metadata)) {
@@ -350,7 +368,7 @@ std::string command_entry_blocker(const Context& context, const Package& install
             try { metadata = read_shim_metadata(scoop_metadata); }
             catch (const std::exception& error) { return "Scoop command metadata cannot be read: "+std::string(error.what()); }
             if (!same_identity(fs::path(wide(metadata.target)),context.root/L"apps"/wide(installed.name)/L"current"/command.target) ||
-                (!command.arguments.empty() && metadata.arguments != command.arguments))
+                (!expected_arguments.empty() && metadata.arguments != expected_arguments))
                 return "Scoop command entry points to a different package or arguments: "+command.name;
             const auto executable_hash = sha256_file(exe);
             bool known = executable_hash == module_hash || looks_like_scoop_shim(exe) ||
@@ -571,6 +589,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     std::vector<InstalledEntry> installed_entries;
     const auto module_hash = coop_launcher_hash();
     for (const auto& command : installed.commands) {
+        const auto expected_arguments = expand_exposure_arguments(context,installed.name,
+            context.root/L"apps"/wide(installed.name)/L"current",command.arguments);
         const auto exe = shims/(wide(command.name)+L".exe");
         const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
         const auto scoop_metadata = shims/(wide(command.name)+L".shim");
@@ -579,7 +599,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 throw std::runtime_error("Command entry conflicts with an existing file");
             continue;
         }
-        if (!fs::exists(exe)) throw std::runtime_error("Managed command entry is missing");
+        if (!fs::exists(exe)) {
+            if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) throw std::runtime_error("Managed command entry is missing");
+            // Scoop's script-host entries are .cmd/.ps1/sh wrappers without an .exe. They are
+            // removed through plan.scoop_entry_wrappers after the content check above.
+            if (!scoop_entry_wrappers(context,installed.name,{command.name}).empty()) continue;
+            throw std::runtime_error("Managed command entry is missing");
+        }
         if (fs::exists(coop_metadata) && fs::exists(scoop_metadata))
             throw std::runtime_error("Command entry has conflicting Coop and Scoop metadata");
         InstalledEntry entry{command.name,{},exe,{},sha256_file(exe),{}};
@@ -590,7 +616,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             const auto metadata = read_json(coop_metadata);
             if (!equal_name(metadata.value("package",std::string{}),installed.name) ||
                 !same_identity(fs::path(wide(metadata.value("target",std::string{}))),plan.local.directory/command.target) ||
-                metadata.value("arguments",std::string{}) != command.arguments ||
+                metadata.value("arguments",std::string{}) != expected_arguments ||
                 metadata.value("launcher",std::string{}) != command_launcher_name(command.target))
                 throw std::runtime_error("Managed command entry ownership changed");
             if (managed.contains("commands") && managed.at("commands").is_array()) {
@@ -610,7 +636,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             entry.metadata_hash = sha256_file(scoop_metadata);
             const auto metadata = read_shim_metadata(scoop_metadata);
             if (!same_identity(fs::path(wide(metadata.target)),plan.local.directory/command.target) ||
-                (!command.arguments.empty() && metadata.arguments != command.arguments))
+                (!expected_arguments.empty() && metadata.arguments != expected_arguments))
                 throw std::runtime_error("Scoop command entry points to a different package or arguments");
             // Scoop may legitimately replace its shim executable (for example after scoop reset).
             // Accept the launcher only when it is Scoop's known shim, Coop's own launcher, or the
@@ -634,7 +660,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
             continue;
         }
-        if (!verify_shortcut_ownership(managed,shortcut,link,plan.local.directory)) {
+        if (!verify_shortcut_ownership(context,installed,managed,shortcut,link,plan.local.directory)) {
             absent_shortcuts.push_back(shortcut.name);
             continue;
         }
@@ -909,6 +935,14 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     move(entry.executable,transaction/(wide(entry.name)+(step.previous ? L".old.exe" : L".exe")));
                     move(entry.metadata,transaction/(wide(entry.name)+(step.previous ? L".old-metadata" : L".metadata")));
                 }
+                if (!journal.contains("scoop_entry_wrappers")) journal["scoop_entry_wrappers"] = Json::array();
+                std::size_t wrapper_index = journal["scoop_entry_wrappers"].size();
+                for (const auto& wrapper : plan.scoop_entry_wrappers) {
+                    if (!scoop_wrapper_belongs_to_package(wrapper,installed.name))
+                        throw std::runtime_error("Scoop command wrapper changed and no longer identifies this package");
+                    journal["scoop_entry_wrappers"].push_back(path_text(wrapper));
+                    move(wrapper,transaction/((step.previous ? L"old-scoop-wrapper-" : L"scoop-wrapper-")+std::to_wstring(wrapper_index++)+wrapper.extension().wstring()));
+                }
                 break;
             }
             case ir::Operation::remove_shortcuts: {
@@ -956,6 +990,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
                 const auto scoop_shims = prefer_scoop_shim(package);
                 for (const auto& command : package.commands) {
+                    const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
                     const auto kind = launcher_kind(command.target);
                     if (!kind) throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target));
                     const auto target = version/command.target;
@@ -971,21 +1006,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     if (*kind == LauncherKind::direct && scoop_shims) {
                         const auto metadata = shims/(wide(command.name)+L".shim");
                         std::string text = "path = \""+path_text(app/L"current"/command.target)+"\"\r\n";
-                        if (!command.arguments.empty()) text += "args = "+command.arguments+"\r\n";
+                        if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
                         publish_text(metadata,text);
                         create(exe,[&]() { publish_new(prepared,exe); });
                         legacy_shims[command.name] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
                         command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
-                            {"arguments",command.arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
+                            {"arguments",command_arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
                     } else {
                         const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                         publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
-                            {"launcher",launcher_text(*kind)},{"arguments",command.arguments},{"gui",gui},
+                            {"launcher",launcher_text(*kind)},{"arguments",command_arguments},{"gui",gui},
                             {"environment",environment},{"path_entries",path_entries}});
                         create(exe,[&]() { publish_new(prepared,exe); });
                         command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
-                            {"arguments",command.arguments},{"launcher",launcher_text(*kind)},{"gui",gui},{"format","coop"},
+                            {"arguments",command_arguments},{"launcher",launcher_text(*kind)},{"gui",gui},{"format","coop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
                     }
                 }
@@ -998,15 +1033,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
                     const auto icon = shortcut.icon.empty() ? fs::path{} : app/L"current"/shortcut.icon;
                     if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
+                    const auto shortcut_arguments = expand_exposure_arguments(context,package.name,app/L"current",shortcut.arguments);
                     std::error_code error;
                     fs::create_directories(link.parent_path(),error);
                     if (error) throw std::runtime_error("Cannot create the shortcut directory: "+path_text(link.parent_path()));
                     const auto temporary = link.parent_path()/(link.filename().wstring()+L".coop-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(shortcut_records.size()));
-                    write_shortcut(temporary,target,shortcut.arguments,icon);
+                    write_shortcut(temporary,target,shortcut_arguments,icon);
                     try { create(link,[&]() { publish_new(temporary,link); }); }
                     catch (...) { DeleteFileW(temporary.c_str()); throw; }
                     shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
-                        {"target",path_text(target)},{"arguments",shortcut.arguments},{"sha256",sha256_file(link)}});
+                        {"target",path_text(target)},{"arguments",shortcut_arguments},{"sha256",sha256_file(link)}});
                 }
                 break;
             }

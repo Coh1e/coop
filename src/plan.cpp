@@ -4,6 +4,7 @@
 #include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
+#include "shim.hpp"
 #include "archive.hpp"
 #include <algorithm>
 #include <iostream>
@@ -260,6 +261,18 @@ Json package_json(const Package& package) {
     result["uninstaller"] = package.uninstaller ? process_json(*package.uninstaller) : Json(nullptr);
     return result;
 }
+// Preview reports the same expanded bin/shortcut arguments that execution writes into the shared
+// launcher metadata and shortcut, so a displayed plan cannot describe raw Scoop variables.
+void expand_package_arguments(const Context& context, const std::string& name, Json& package, const fs::path& base) {
+    if (package.contains("commands") && package.at("commands").is_array())
+        for (auto& item : package.at("commands"))
+            if (item.is_object() && item.contains("arguments") && item.at("arguments").is_string())
+                item["arguments"] = expand_exposure_arguments(context,name,base,item.at("arguments").get<std::string>());
+    if (package.contains("shortcuts") && package.at("shortcuts").is_array())
+        for (auto& item : package.at("shortcuts"))
+            if (item.is_object() && item.contains("arguments") && item.at("arguments").is_string())
+                item["arguments"] = expand_exposure_arguments(context,name,base,item.at("arguments").get<std::string>());
+}
 }
 bool equal_name(const std::string& a, const std::string& b) {
     const auto left = wide(a), right = wide(b);
@@ -357,6 +370,14 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     else if (action == Action::update) append_ir_plan(plan,ir::Action::update,true);
     else if (action == Action::uninstall) append_ir_plan(plan,ir::Action::uninstall,false);
     else if (action == Action::adopt) append_ir_plan(plan,ir::Action::adopt,false);
+    if (action == Action::update || action == Action::uninstall) {
+        const auto& installed_facts = action == Action::update && plan.previous ? *plan.previous : plan.package;
+        std::vector<std::string> names;
+        for (const auto& command : installed_facts.commands) names.push_back(command.name);
+        plan.scoop_entry_wrappers = scoop_entry_wrappers(context,installed_facts.name,names);
+        for (const auto& wrapper : plan.scoop_entry_wrappers)
+            plan.preconditions.push_back({wrapper,sha256_file(wrapper)});
+    }
     plan.preconditions.push_back({plan.package.manifest_path,plan.package.manifest_sha256});
     const auto registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) plan.preconditions.push_back({registry,sha256_file(registry)});
@@ -406,11 +427,17 @@ void recheck_plan(const Plan& plan) {
 }
 static Json describe_plan(const Context& context, const Plan& plan) {
     const auto action = plan.action;
-    Json result = {{"action",action_name(action)},{"package",package_json(plan.package)},
+    const fs::path argument_base = context.root/L"apps"/wide(plan.package.name)/L"current";
+    auto package_description = package_json(plan.package);
+    expand_package_arguments(context,plan.package.name,package_description,argument_base);
+    Json result = {{"action",action_name(action)},{"package",std::move(package_description)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
         {"external_tools",external_tools_json(plan.package)},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
+    result["scoop_entry_wrappers"] = Json::array();
+    for (const auto& wrapper : plan.scoop_entry_wrappers)
+        result["scoop_entry_wrappers"].push_back(path_text(wrapper));
     const auto persistence_directory = (action == Action::install || action == Action::update)
         ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version) : plan.local.directory;
     result["persistence"] = persistence_plan_json(context,plan.package,persistence_directory);
@@ -495,6 +522,8 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
     if (plan.update_candidate) {
         result["update_candidate"] = package_json(*plan.update_candidate);
+        expand_package_arguments(context,plan.update_candidate->name,result["update_candidate"],
+            context.root/L"apps"/wide(plan.update_candidate->name)/L"current");
         if (!plan.update_candidate->diagnostics.empty()) result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     }
     if (!plan.package.diagnostics.empty()) {
@@ -518,7 +547,11 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
-    if (plan.previous) result["previous_package"] = package_json(*plan.previous);
+    if (plan.previous) {
+        result["previous_package"] = package_json(*plan.previous);
+        expand_package_arguments(context,plan.previous->name,result["previous_package"],
+            context.root/L"apps"/wide(plan.previous->name)/L"current");
+    }
     if (plan.adoption) {
         static const char* states[] = {"eligible","already-managed","unsupported","untested","inconsistent"};
         result["eligibility"] = states[static_cast<int>(plan.adoption->eligibility)];
