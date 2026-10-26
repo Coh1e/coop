@@ -13,7 +13,7 @@ $commands = [System.Collections.Generic.List[object]]::new()
 $installedByTest = [System.Collections.Generic.List[string]]::new()
 function Run([string]$name,[string]$exe,[string[]]$arguments) {
     $log = Join-Path $EvidenceDir (($name -replace '[\\/:*?"<>|]','-')+'.log')
-    $output = & $exe @arguments 2>&1 | Out-String
+    $output = & $exe @arguments *>&1 | Out-String
     $exit = $LASTEXITCODE
     Set-Content -LiteralPath $log -Value $output -Encoding utf8
     $commands.Add([pscustomobject]@{name=$name;exe=$exe;arguments=$arguments;exit=$exit;log=$log})
@@ -37,13 +37,14 @@ function Assert-PlanMatchesJournal($plan,$journal,[string]$name) {
     Assert-True (($planned -join ',') -eq ($observed -join ',')) "execution did not follow the displayed plan for $name`: planned=$($planned -join ',') observed=$($observed -join ',')"
     return [pscustomobject]@{planned=$planned;observed=$observed}
 }
-$temporaryBucket = $null
 try {
     $inventoryBefore = (Coop 'coop-list-before' @('list','--json')).output | ConvertFrom-Json
     $gitBefore = @($inventoryBefore | Where-Object { $_.name -eq 'git' })
     Assert-True ($gitBefore.Count -eq 1) 'The selected real Scoop root does not contain exactly one git installation'
     if (Test-Path "$ScoopRoot/apps/git-tfs/current") { throw 'git-tfs is already installed; refusing to change the selected real root' }
-    $scoopVersion = (Scoop 'scoop-version' @('--version')).output.Trim()
+    $scoopVersionOutput = (Scoop 'scoop-version' @('--version')).output
+    $scoopVersion = (@(($scoopVersionOutput -split "`r?`n") | Where-Object { $_ -match '^v\d' })[0]).Trim()
+    if ([string]::IsNullOrWhiteSpace($scoopVersion)) { $scoopVersion = $scoopVersionOutput.Trim() }
     $gitBucketHead = (& git -C "$ScoopRoot/buckets/main" rev-parse HEAD 2>&1 | Out-String).Trim()
     $gitRunBefore = Run 'git-before' "$ScoopRoot/shims/git.exe" @('--version')
     Assert-True ($gitRunBefore.exit -eq 0 -and $gitRunBefore.output -match '^git version') "The selected real git installation does not run: $($gitRunBefore.output)"
@@ -131,7 +132,8 @@ try {
         install_packages = $packages
         root_plan_match = $planMatch
         git_tfs_program = $gitTfsRun.output.Trim()
-        blocked_uninstall = $blockedPreview.output
+        blocked_uninstall_preview = $blockedPreview.output
+        blocked_uninstall_result = $blocked.output
         git_version_before = $gitRunBefore.output.Trim()
         git_version_after = $gitRunAfter.output.Trim()
         missing_dependency = $missing.output
@@ -141,9 +143,6 @@ try {
     Write-Output "PASS real dependency reuse and reverse-dependency protection: $ScoopRoot"
     exit 0
 } finally {
-    if ($null -ne $temporaryBucket -and (Test-Path -LiteralPath $temporaryBucket)) {
-        Remove-Item -LiteralPath $temporaryBucket -Recurse -Force -ErrorAction SilentlyContinue
-    }
     foreach ($name in @($installedByTest)) {
         if (Test-Path "$ScoopRoot/apps/$name/current") {
             $cleanup = Coop ($name+'-cleanup') @('uninstall',$name,'--json')
