@@ -119,6 +119,7 @@ try {
         # environment; only ASCII fragments of the PATH are asserted below.
         $script = [string]::Join("`r`n",@(
             '@echo off',
+            'chcp 65001 >nul',
             '>new-terminal.txt (',
             ('echo absent=%'+$absentName+'%'),
             ('echo restore=%'+$restoreName+'%'),
