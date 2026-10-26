@@ -281,6 +281,7 @@ $contextZip = New-PayloadZip 'contextdemo' @{'context.exe'=$null}
 [IO.File]::WriteAllBytes((Join-Path "$root/build/contextdemo" 'context.exe'),[IO.File]::ReadAllBytes($fixture1))
 Remove-Item -LiteralPath $contextZip -Force
 [IO.Compression.ZipFile]::CreateFromDirectory("$root/build/contextdemo",$contextZip)
+$contextDescription = '生命周期 Hook 上下文：中文 description'
 $contextScript = @(
     '$snapshot = [ordered]@{',
     '    app = $app',
@@ -298,6 +299,8 @@ $contextScript = @(
     '    cmd_defined = $null -ne $cmd',
     '    purge_defined = $null -ne $purge',
     '    manifest_version = $manifest.version',
+    '    manifest_description = $manifest.description',
+    '    cwd = (Get-Location).Path',
     '    helper_ensure = $null -ne (Get-Command ensure -ErrorAction SilentlyContinue)',
     '    helper_error = $null -ne (Get-Command error -ErrorAction SilentlyContinue)',
     '    helper_abort = $null -ne (Get-Command abort -ErrorAction SilentlyContinue)',
@@ -315,7 +318,7 @@ $contextScript = @(
     'warn ''helper warning''',
     'success ''helper success'''
 )
-Write-Manifest 'main' 'contextdemo' @{version='1';url=([Uri]$contextZip).AbsoluteUri;hash=(File-Hash $contextZip);bin='context.exe';
+Write-Manifest 'main' 'contextdemo' @{version='1';description=$contextDescription;url=([Uri]$contextZip).AbsoluteUri;hash=(File-Hash $contextZip);bin='context.exe';
     pre_install=$contextScript}
 $contextInstall = Invoke-Coop 'install-contextdemo' @('--root',$root,'install','main/contextdemo','--json')
 Check ($contextInstall.exit -eq 0) "context hook install failed: $($contextInstall.error)"
@@ -331,6 +334,9 @@ Check ($contextSnapshot.app -eq 'contextdemo' -and $contextSnapshot.bucket -eq '
     $contextSnapshot.architecture -eq '64bit' -and $contextSnapshot.fname -eq 'contextdemo.zip' -and
     $contextSnapshot.manifest_version -eq '1') 'hook package context is wrong'
 Check ($contextSnapshot.global -eq $false) 'hook $global is not false for a user install'
+Check ([IO.Path]::GetFullPath($contextSnapshot.cwd) -ieq [IO.Path]::GetFullPath($root)) 'hook working directory did not inherit the invoking process directory like Scoop'
+Check ([IO.Path]::GetFullPath($contextSnapshot.cwd) -ine [IO.Path]::GetFullPath("$root/apps/contextdemo/1")) 'hook working directory was changed to $dir'
+Check ($contextSnapshot.manifest_description -eq $contextDescription) 'hook $manifest did not preserve non-ASCII UTF-8 text'
 Check ($contextSnapshot.cmd_defined -eq $false) 'hook session defined $cmd, which Scoop never provides'
 Check ($contextSnapshot.purge_defined -eq $false) 'hook session defined $purge during install'
 foreach ($helper in 'helper_ensure','helper_error','helper_abort','helper_success','helper_env_add_path','helper_env_set',
@@ -350,9 +356,10 @@ $afterZip = New-PayloadZip 'after-1' @{'after.exe'=$null;'state/.keep'=''}
 Remove-Item -LiteralPath $afterZip -Force
 [IO.Compression.ZipFile]::CreateFromDirectory("$root/build/after-1",$afterZip)
 $afterScript = @(
-    '$snapshot = [ordered]@{purge=$purge; purge_defined=($null -ne $purge); dir_exists=(Test-Path -LiteralPath $dir)}',
+    '$snapshot = [ordered]@{purge=$purge; purge_defined=($null -ne $purge); dir_exists=(Test-Path -LiteralPath $dir); manifest_null=($null -eq $manifest); manifest_version=$manifest.version}',
     '$snapshot | ConvertTo-Json | Set-Content -Path (Join-Path $persist_dir ''after.json'') -Encoding utf8',
-    'Write-Output ("purge=" + $purge)'
+    'Write-Output ("purge=" + $purge)',
+    'Write-Output ("manifest_null=" + ($null -eq $manifest) + " manifest_version=" + $manifest.version)'
 )
 Write-Manifest 'main' 'after' @{version='1';url=([Uri]$afterZip).AbsoluteUri;hash=(File-Hash $afterZip);bin='after.exe';
     persist=@('state');post_uninstall=$afterScript}
@@ -365,6 +372,10 @@ Check ($afterResult1.scripts[0].phase -eq 'post_uninstall') 'post_uninstall did 
 $afterSnapshot = Get-Content -LiteralPath "$root/persist/after/after.json" -Raw | ConvertFrom-Json
 Check ($afterSnapshot.purge_defined -eq $true -and $afterSnapshot.purge -eq $false) 'post_uninstall did not receive $purge=$false for a normal uninstall'
 Check ($afterSnapshot.dir_exists -eq $false) 'post_uninstall ran before the version directory was removed'
+Check ($afterSnapshot.manifest_null -eq $false -and $afterSnapshot.manifest_version -eq '1') 'post_uninstall did not receive the installed Manifest after the version directory was removed'
+$afterLog1 = Get-Content -LiteralPath $afterResult1.scripts[0].stdout_log -Raw
+Check ($afterLog1 -match 'manifest_null=False manifest_version=1') 'post_uninstall stdout did not report the bound Manifest'
+Check ($afterResult1.scripts[0].manifest -ne '') 'post_uninstall record did not name the staged Manifest'
 $afterInstall2 = Invoke-Coop 'install-after-2' @('--root',$root,'install','main/after','--json')
 Check ($afterInstall2.exit -eq 0) "post_uninstall fixture reinstall failed: $($afterInstall2.error)"
 $afterUninstall2 = Invoke-Coop 'uninstall-after-2' @('--root',$root,'uninstall','after','--purge','--json')
@@ -373,6 +384,8 @@ $afterResult2 = Parse-Json 'uninstall-after-2' $afterUninstall2
 Check ($afterResult2.purge.requested -eq $true -and $afterResult2.purge.status -eq 'deleted') 'purge did not delete the declared store'
 $afterPurgeLog = Get-Content -LiteralPath $afterResult2.scripts[0].stdout_log -Raw
 Check ($afterPurgeLog -match 'purge=True') 'post_uninstall did not receive $purge=$true from --purge'
+Check ($afterPurgeLog -match 'manifest_null=False manifest_version=1') 'purge post_uninstall did not receive the installed Manifest'
+Check ($afterResult2.scripts[0].manifest -ne '') 'purge post_uninstall record did not name the staged Manifest'
 
 # --- 9. A legitimate script edit and previously refused PowerShell still runs.
 $freeZip = New-PayloadZip 'freeform' @{'free.exe'=$null}

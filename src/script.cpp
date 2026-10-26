@@ -134,7 +134,9 @@ std::string host_script(const Context& context, const Package& package, const fs
     text += "$global = $false\n";
     if (command_name == "uninstall") text += std::string("$purge = ")+(purge ? "$true\n" : "$false\n");
     if (!manifest_path.empty()) {
-        text += "$manifest = Get-Content -Raw -LiteralPath "+ps_literal(path_text(manifest_path))+
+        // Scoop's manifest loader reads the Manifest as UTF-8; without the explicit encoding the
+        // Windows PowerShell fallback would decode a non-ASCII Manifest with the ANSI code page.
+        text += "$manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath "+ps_literal(path_text(manifest_path))+
             " | ConvertFrom-Json\n";
     } else {
         text += "$manifest = $null\n";
@@ -296,12 +298,12 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     startup.hStdError = err_write.value;
     auto command_line = quote_argument(result.interpreter.wstring())+L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "+
         quote_argument(result.host_path.wstring());
-    std::wstring working_directory;
-    if (fs::is_directory(directory)) working_directory = directory.wstring();
-    else working_directory = context.root.wstring();
+    // Scoop runs hooks in-process, so they inherit the caller's current directory. The child is
+    // therefore not moved to $dir; a hook that wants the package directory must use $dir, exactly
+    // as with Scoop. A null lpCurrentDirectory makes the child inherit the Coop process directory.
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(nullptr,command_line.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,
-                        working_directory.c_str(),&startup,&process))
+                        nullptr,&startup,&process))
         throw std::runtime_error("Cannot start the PowerShell hook host (Windows error "+std::to_string(GetLastError())+")");
     FileHandle process_handle(process.hProcess);
     CloseHandle(process.hThread);

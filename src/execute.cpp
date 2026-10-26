@@ -672,20 +672,30 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     fs::create_directories(transaction);
     // Hook sessions bind $manifest to a byte-identical copy inside the transaction. The live path
     // is not usable for every phase: post_uninstall runs after the version directory (and with it
-    // the saved Manifest) was removed, exactly as in Scoop, where the Manifest object is already in
-    // memory. Staging also records which Manifest bytes the scripts saw.
+    // the saved Manifest) was removed, exactly as in Scoop, where the Manifest object is loaded
+    // before the uninstall hooks and stays in memory. Scoop loads the installed manifest before
+    // running any hook, so every Manifest a hook can observe is staged here, before the operation
+    // loop removes current or the version directory. Staging also records which bytes the scripts
+    // saw.
     const auto scripts_directory = transaction/L"scripts";
     fs::create_directories(scripts_directory);
     std::map<std::wstring,fs::path> staged_manifests;
     const auto staged_manifest = [&](const Package& target) -> fs::path {
-        if (target.manifest_path.empty() || !fs::is_regular_file(target.manifest_path)) return {};
         const auto key = target.manifest_path.wstring();
         if (const auto found = staged_manifests.find(key); found != staged_manifests.end()) return found->second;
+        if (target.manifest_path.empty() || !fs::is_regular_file(target.manifest_path)) {
+            if (target.scripts.empty()) return {};
+            throw std::runtime_error("Lifecycle hooks require the package Manifest, but it is missing: "+
+                path_text(target.manifest_path));
+        }
         const auto destination = scripts_directory/(wide(target.name)+L"-"+wide(target.version)+L".manifest.json");
         fs::copy_file(target.manifest_path,destination,fs::copy_options::overwrite_existing);
         staged_manifests.emplace(key,destination);
         return destination;
     };
+    // `installed` aliases `package` for install and uninstall; updates carry both records.
+    if (!installed.scripts.empty()) staged_manifest(installed);
+    if (!package.scripts.empty()) staged_manifest(package);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still

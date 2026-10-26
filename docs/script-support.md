@@ -30,9 +30,13 @@
 | `$persist_dir` | `<root>/persist/<包名>` |
 | `$bucketsdir` / `$scoopdir` / `$cachedir` | `<root>/buckets`、所选管理根、`<root>/cache`（由兼容库 `buckets.ps1`/`core.ps1` 计算） |
 | `$global` | 恒为 `$false`；Coop 不管理系统级安装 |
-| `$manifest` | 事务内逐字节固定的 Manifest 副本解析成的对象。`post_uninstall` 在版本目录移除后运行，因此不能临时读取磁盘上的已装 Manifest |
+| `$manifest` | 事务开始时、任何移除之前固定的 Manifest 字节副本解析成的对象（按 UTF-8 读取，与 Scoop 的 manifest loader 一致）。`post_uninstall` 在版本目录移除后运行，但 `$manifest` 仍可用，与 Scoop 在卸载 Hook 之前已把已装 Manifest 载入内存一致 |
 | `$purge` | 仅在卸载会话定义：`uninstall --purge` 为 `$true`，普通卸载为 `$false`（与 `scoop-uninstall.ps1` 一致） |
 | `$url` | `$null`（bucket 安装没有单独的用户 Manifest 来源 URL） |
+
+### 工作目录
+
+Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用 `scoop` 的目录；Coop 同样不为 Hook 子进程切换目录，它继承启动 `coop` 时的当前目录，与 Scoop 一致。脚本必须用 `$dir`/`$original_dir` 等上下文变量访问包目录，不要依赖相对路径。预览的 `script_support.working_directory` 会明确说明这一点。
 
 `$cmd` **不是** Scoop 0.6.0 的 Hook 变量：`Invoke-HookScript` 只创建脚本块，`scoop-install.ps1`/`scoop-update.ps1`/`scoop-uninstall.ps1` 都没有定义它。用 Scoop 自身的库和 `Invoke-HookScript` 在同一提交上运行探针，`$null -ne $cmd` 为 `false`；`tests/hooks.ps1` 与 `tests/installers.ps1` 也断言 Coop 会话中同样未定义。因此 Manifest 中 `if ($cmd -eq 'uninstall') { reg import ... }` 之类的分支在两个客户端中都不执行，Coop 不会因为“更像预期”而私自定义它。
 
@@ -70,7 +74,7 @@
 
 ## 验证
 
-`tests/hooks.ps1`（CTest `hooks`，本轮 172 项检查）在项目内隔离根运行真实 CLI、真实 PowerShell、固定 Scoop 兼容库和项目固定测试程序，Hook 原文来自固定样本：
+`tests/hooks.ps1`（CTest `hooks`，本轮 180 项检查）在项目内隔离根运行真实 CLI、真实 PowerShell、固定 Scoop 兼容库和项目固定测试程序，Hook 原文来自固定样本：
 
 | 场景 | 观察结果 |
 | --- | --- |
@@ -80,7 +84,8 @@
 | 真实 `git` Hook | `Main/git` 的 `post_install` 原文把 bucket `.reg` 模板渲染为 UTF-16LE；`pre_install` 原文从 `$persist_dir` 恢复配置并用正则改写版本路径；`pre_uninstall` 原文保存配置 |
 | 真实 `nodejs` Hook | `post_install` 原文把 `$persist_dir` 写进 `npmrc` |
 | 真实 `rclone` Hook | `uninstaller.script` 原文用 `Get-Item`/`LinkType` 判断并复制配置 |
-| 上下文与 helper | 一个 Hook 快照 `$scoopdir`/`$bucketsdir`/`$cachedir`/`$dir`/`$original_dir`/`$persist_dir`/`$manifest`/`$global`，断言 `$cmd` 与 `$purge` 未定义、真实 helper 均存在、`ensure` 建目录、`info`/`warn`/`success` 前缀 |
+| 上下文与 helper | 一个 Hook 快照 `$scoopdir`/`$bucketsdir`/`$cachedir`/`$dir`/`$original_dir`/`$persist_dir`/`$manifest`/`$global`，断言工作目录为调用方目录（不是 `$dir`）、非 ASCII Manifest 文本完整、`$cmd` 与 `$purge` 未定义、真实 helper 均存在、`ensure` 建目录、`info`/`warn`/`success` 前缀 |
+| `post_uninstall` 上下文 | 只有 `post_uninstall` 的包在版本目录移除后仍能读到 `$manifest.version`，普通卸载与 `--purge` 卸载的事务记录都保留已固定的 Manifest 路径 |
 | 阶段时序 | 旧版本 `pre_uninstall` → 新版本 `pre_install` → `post_install`；`post_uninstall` 在版本目录移除后运行并收到 `$purge` |
 | 失败传播 | 受支持的脚本失败只执行一次，`exit 9` 传播为 9，`throw` 传播为 1，安装回滚，日志记录失败与 stderr |
 | 并发输出 | 约 100 KiB stdout 与约 50 KiB stderr 同时输出时安装成功，完整日志字节数和最后一行尾部均核对 |
@@ -92,11 +97,13 @@
 
 ### 真实共用根证据（#31）
 
-`tests/real-scoop-hooks.ps1` 在本机真实 Scoop 根（`C:\Users\Neo\scoop`，Scoop v0.6.0，`main` 修订 `a97619fe`）上执行了一次有界的真实生命周期，证据目录 `.local/pi/tasks/31/evidence/real-rclone-1/`：
+`tests/real-scoop-hooks.ps1` 在本机真实 Scoop 根（`C:\Users\Neo\scoop`，Scoop v0.6.0，`main` 修订 `a97619fe`）上执行了一次有界的真实生命周期。本轮验收使用最终代码构建的 `coop.exe`（SHA256 `6e3f51a953ac23c29d9993575b857b3b1e12fad4854df3bf5d68f35e87baf587`，构建目标也会把该二进制摘要记录在 `head-and-versions` 证据中），运行目录为 `.local/pi/tasks/31/evidence/real-rclone-coop-6e3f51a953ac/`：
 
 - 只读预览：已安装 `git` 的更新计划现在 `execution_available=true`，列出 `pre_install`/`post_install`/`pre_uninstall`/`uninstaller` 四个 Hook；`7zip` 仍因 MSI 机器缓存限制被阻塞，但两个 Hook 文本正常列出。
-- 真实安装 `main/rclone` 1.75.2（zip、真实下载）：`pre_install` 原文在真实 PowerShell 中运行，`$scoopdir`=`C:\Users\Neo\scoop`，创建并持久化 `rclone.conf`；`shims/rclone.exe version` 返回 `rclone v1.75.2`，`scoop list` 能列出 Coop 创建的安装。
-- 真实卸载：`uninstaller.script` 原文运行，普通卸载保留持久化数据，`scoop list` 不再列出 rclone；随后只删除本轮创建的 `persist/rclone` store，前后比对应用、shim、持久化目录集合一致，无 pending 事务。
+- 真实安装 `main/rclone` 1.75.2（zip、真实下载）：`pre_install` 原文在真实 PowerShell 中运行，`$scoopdir`=`C:\Users\Neo\scoop`，创建并持久化 `rclone.conf`；事务记录把 Manifest 副本路径写入 `scripts[i].manifest`；`shims/rclone.exe version` 返回 `rclone v1.75.2`，`scoop list` 能列出 Coop 创建的安装。
+- 真实卸载：`uninstaller.script` 原文运行，同样接收到固定的 `$manifest`；普通卸载保留持久化数据，`scoop list` 不再列出 rclone；随后只删除本轮创建的 `persist/rclone` store，前后比对应用、shim、持久化目录集合一致，无 pending 事务。
+
+更早的 `.local/pi/tasks/31/evidence/real-rclone-1`、`real-rclone-final`、`real-rclone-head-455540e`（`coop.exe` SHA256 `aad79869…`）与 `real-rclone-head-9a70de6`（`531c5592…`）是修复前/中间构建的运行记录，保留用于追溯，不是本轮验收依据。
 
 ## 未运行或未承诺
 
@@ -104,5 +111,5 @@
 - `reg import`、服务控制、`Start-Process` 等会修改项目外状态的原文没有在真实根上执行；它们仍是受信脚本副作用，不承诺回滚。
 - MSI/Dark、Inno Setup、NSIS 机制本身（R12–R14）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark/MSI helper 时以失败结束。
 - `post_uninstall` 中删除用户数据的真实样本（`Extras/aider-desk`、`Main/azure-cli`）没有执行；只用合成脚本验证阶段语义与 `$purge`。
-- Windows PowerShell 5.1 解释器路径只实现为回退候选，本轮未单独运行；`pwsh` 路径已实际验证。
+- Windows PowerShell 5.1 解释器路径只实现为回退候选，本轮未单独运行；`pwsh` 路径已实际验证。Manifest 读取已加 `-Encoding UTF8`（与 Scoop 的 loader 一致），但 5.1 下的非 ASCII Manifest 行为仍未实际运行。
 - 卡死脚本的超时/取消、无效 UTF-8 输出的可读性（JSON 只保证替换为 `?`）与任意脚本外部副作用的自动回滚不在承诺范围。

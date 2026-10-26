@@ -245,6 +245,7 @@ Json package_json(const Package& package) {
         {"context",Json::array({"$app","$bucket","$version","$architecture","$fname","$dir","$original_dir","$persist_dir","$bucketsdir","$scoopdir","$cachedir","$global","$manifest","$purge (uninstall only)"})},
         {"undefined_context",Json::array({"$cmd (Scoop 0.6.0 never defines it, so `if ($cmd -eq 'uninstall')` blocks behave identically)"})},
         {"host","real PowerShell child process that loads the pinned Scoop compatibility library; no embedded interpreter and no script-text whitelist"},
+        {"working_directory","the hook child inherits the invoking Coop process directory, like Scoop's in-process hooks; scripts must address the package through $dir"},
         {"library_version",host.library_version},
         {"library_path",host.library ? path_text(*host.library) : std::string{}},
         {"interpreter",host.interpreter ? path_text(*host.interpreter) : std::string{}},
