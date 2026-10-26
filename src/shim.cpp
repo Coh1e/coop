@@ -93,31 +93,6 @@ std::string trim_text(std::string value) {
     if (first == std::string::npos) return {};
     return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
 }
-struct ScoopShim { std::string target; std::string arguments; };
-ScoopShim read_scoop_shim(const fs::path& path) {
-    std::ifstream input(path,std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot read Scoop command metadata");
-    ScoopShim result;
-    std::string line;
-    std::set<std::string> keys;
-    while (std::getline(input,line)) {
-        if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
-        line = trim_text(line);
-        if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
-        const auto equal = line.find('=');
-        if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
-        const auto key = trim_text(line.substr(0,equal));
-        const auto value = trim_text(line.substr(equal+1));
-        if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
-        if (key == "path") result.target = value;
-        else if (key == "args") result.arguments = value;
-        else throw std::runtime_error("Unvalidated Scoop shim option: "+key);
-    }
-    if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
-        result.target = result.target.substr(1,result.target.size()-2);
-    if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
-    return result;
-}
 // A shared shim lives at <root>/shims/<name>.shim. Its target names the package under
 // <root>/apps/<package>/, so the optional Coop record (environment/path entries) can be found
 // without adding non-Scoop keys to the shim file.
@@ -134,6 +109,55 @@ fs::path record_for_target(const fs::path& target) {
     return {};
 }
 }
+ShimMetadata read_shim_metadata(const fs::path& path) {
+    std::error_code error;
+    const auto size = fs::file_size(path,error);
+    if (error) throw std::runtime_error("Cannot read Scoop command metadata");
+    if (size > 16384) throw std::runtime_error("Scoop shim metadata exceeds size limit");
+    std::ifstream input(path,std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read Scoop command metadata");
+    ShimMetadata result;
+    std::string line;
+    std::set<std::string> keys;
+    while (std::getline(input,line)) {
+        if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
+        line = trim_text(line);
+        if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
+        const auto equal = line.find('=');
+        if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
+        const auto key = trim_text(line.substr(0,equal));
+        const auto value = trim_text(line.substr(equal+1));
+        if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
+        if (key == "path") result.target = value;
+        else if (key == "args") result.arguments = value;
+        else result.unknown_keys.push_back(key);
+    }
+    if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
+        result.target = result.target.substr(1,result.target.size()-2);
+    if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
+    return result;
+}
+bool looks_like_scoop_shim(const fs::path& path) {
+    std::error_code error;
+    const auto size = fs::file_size(path,error);
+    if (error || size < 64 || size > 8*1024*1024) return false;
+    std::ifstream input(path,std::ios::binary);
+    if (!input) return false;
+    std::string bytes(static_cast<std::size_t>(size),'\0');
+    input.read(bytes.data(),static_cast<std::streamsize>(bytes.size()));
+    if (!input && !input.eof()) return false;
+    if (bytes.size() < 2 || bytes[0] != 'M' || bytes[1] != 'Z') return false;
+    static const char* markers[] = {
+        "Cannot open shim file for read.",
+        "Could not read shim file.",
+        "Scoop helper program for shimming executables.",
+        "Shim: Could not create process with command"
+    };
+    for (const auto* marker : markers)
+        if (bytes.find(marker) != std::string::npos) return true;
+    return false;
+}
+
 bool run_shim(int argc, wchar_t** argv, int& result) {
     std::array<wchar_t,32768> module{};
     const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
@@ -151,7 +175,7 @@ bool run_shim(int argc, wchar_t** argv, int& result) {
         kind = record.value("launcher",std::string("direct"));
         defaults = wide(record.value("arguments",std::string{}));
     } else if (fs::exists(scoop_metadata)) {
-        const auto shim = read_scoop_shim(scoop_metadata);
+        const auto shim = read_shim_metadata(scoop_metadata);
         target = fs::path(wide(shim.target));
         kind = "direct";
         defaults = wide(shim.arguments);

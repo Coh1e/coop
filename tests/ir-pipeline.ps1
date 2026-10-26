@@ -81,6 +81,20 @@ if ($null -eq $validation) { throw 'info did not report IR validation' }
 if ($validation.manifest_digest -ne (Get-FileHash "$root/buckets/main/bucket/jq.json" -Algorithm SHA256).Hash.ToLower()) { throw 'info validation is not bound to the manifest bytes' }
 if (@($validation.diagnostics).Count -ne 0) { throw "a readable package was reported invalid: $($validation.diagnostics | ConvertTo-Json -Compress)" }
 
+# --- info validates against the installed architecture, not a literal 64bit -----------------
+$archRoot = Join-Path $TestRoot ('arch-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path "$archRoot/buckets/main/bucket","$archRoot/apps/jq/1.8.2" -Force | Out-Null
+$only64 = @{version='1.8.2';bin='jq.exe';architecture=@{'64bit'=@{url='https://invalid.example/jq.exe';hash=('a'*64)}}} | ConvertTo-Json -Depth 8
+$only64 | Set-Content "$archRoot/buckets/main/bucket/jq.json" -Encoding utf8
+$only64 | Set-Content "$archRoot/apps/jq/1.8.2/scoop-manifest.json" -Encoding utf8
+'{"bucket":"main","architecture":"32bit"}' | Set-Content "$archRoot/apps/jq/1.8.2/scoop-install.json" -Encoding utf8
+New-Item -ItemType Junction -Path "$archRoot/apps/jq/current" -Target "$archRoot/apps/jq/1.8.2" | Out-Null
+$archInfo = Read-CoopJson @('--root',$archRoot,'info','main/jq','--json')
+$archValidation = @($archInfo)[0].validation
+if ($archValidation.architecture -ne '32bit') { throw "info did not use the installed architecture: $($archValidation.architecture)" }
+if ($archValidation.downloads -ne 0) { throw 'a 32bit installation resolved a 64bit-only manifest' }
+if (@($archValidation.diagnostics | Where-Object code -eq 'missing-artifact').Count -ne 1) { throw "info did not report the missing 32bit artifact: $($archValidation.diagnostics | ConvertTo-Json -Compress)" }
+
 # --- The validator reports algorithm and mechanism gaps instead of hiding them --------
 $sha512 = '0' * 128
 $sha512Manifest = @{version='1.0.0';url='https://invalid.example/tool.zip';hash="sha512:$sha512"} | ConvertTo-Json -Compress

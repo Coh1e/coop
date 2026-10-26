@@ -10,7 +10,8 @@
   - Scoop 原生 `<shim>.shim`（`path`/`args`）及 Scoop shim 可执行文件；
   - Coop 旧 `<shim>.coop-shim.json` 及 Coop 启动器。
   - 同一入口出现两种元数据会作为冲突拒绝。
-- `.coop/packages/<包>.json` 只作为附加缓存和恢复证据。记录缺失、过期或来自另一客户端时，执行器重新读取共享事实；只有实际入口/产物被外部改写且无法确认归属时才拒绝。
+- Scoop shim 可执行文件的身份按共享入口证据判断，不使用固定 SHA256 白名单：`.shim` 的 `path`/`args` 必须指向当前包和参数；启动器可以是 Coop 自身二进制、记录中已观察到的启动器，或带有 Scoop shim 程序标记的 PE（GUI shim 与 console shim 只差 PE subsystem）。明显的外来替换会在预览和执行阶段同时被拒绝。`.shim` 读取器由启动器与执行后端共用，只有一个大小/校验策略；未知键保留为证据而不使入口失去管理资格。
+- `.coop/packages/<包>.json` 只作为附加缓存和恢复证据。记录缺失、过期或来自另一客户端时，执行器重新读取共享事实；只有实际入口/产物被外部改写且无法确认归属时才拒绝。新建安装记录 `origin=coop`；更新已有的 Scoop 共享安装保留 `origin=scoop`，不把 Coop 创建的安装误标为 Scoop 来源。
 
 ## 执行顺序
 

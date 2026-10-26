@@ -60,6 +60,8 @@ New-Item -ItemType Directory -Path "$rootB/buckets/test/bucket" -Force | Out-Nul
 $installed = & $CoopExe --root $rootB install test/shared --json
 if ($LASTEXITCODE -ne 0) { throw "Coop shared install failed: $installed" }
 if ((& "$rootB/shims/shared.exe") -ne 'fixture 2') { throw 'Coop-installed shared program did not run' }
+$recordB = Get-Content -LiteralPath "$rootB/.coop/packages/shared.json" -Raw | ConvertFrom-Json
+if ($recordB.origin -ne 'coop' -or $recordB.shim_format -ne 'scoop') { throw "Coop-created record did not report its own origin: $recordB" }
 Copy-Item -LiteralPath $scoopShim -Destination "$rootB/shims/shared.exe" -Force
 [IO.File]::WriteAllText("$rootB/shims/shared.shim",'path = "'+[IO.Path]::GetFullPath("$rootB/apps/shared/current/shared.exe")+'"'+"`r`n")
 $list = & $CoopExe --root $rootB list --json | ConvertFrom-Json
@@ -67,5 +69,44 @@ if (@($list | Where-Object name -eq 'shared').Count -ne 1) { throw 'Coop did not
 $removed = & $CoopExe --root $rootB uninstall shared --json
 if ($LASTEXITCODE -ne 0) { throw "Coop uninstall after Scoop reset failed: $removed" }
 if ((Test-Path "$rootB/apps/shared/current") -or (Test-Path "$rootB/shims/shared.exe") -or (Test-Path "$rootB/shims/shared.shim")) { throw 'Coop uninstall after Scoop reset left published state' }
-@{root_scoop=$rootA;root_coop=$rootB;planned=$planned;observed=$observed;fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
-Write-Output "PASS shared Scoop/Coop single-file update, reset and uninstall: $session/evidence.json"
+# A Scoop GUI shim is the same shim program with a different PE subsystem, so launcher identity
+# must come from the shim's program markers rather than a fixed digest allowlist.
+$fixtureGui = Join-Path (Split-Path $CoopExe) 'fixture-gui.exe'
+if (-not (Test-Path -LiteralPath $fixtureGui)) { throw "Missing fixed test input: $fixtureGui" }
+$guiShim = Join-Path $session 'gui-shim.exe'
+$shimBytes = [IO.File]::ReadAllBytes($scoopShim)
+$peOffset = [BitConverter]::ToInt32($shimBytes,0x3c)
+$subsystemOffset = $peOffset + 24 + 68
+$shimBytes[$subsystemOffset] = 2
+[IO.File]::WriteAllBytes($guiShim,$shimBytes)
+function New-GuiRoot([string]$name,[string]$launcher) {
+    $root = Join-Path $session $name
+    New-Item -ItemType Directory -Path "$root/buckets/test/bucket","$root/apps/gui/1","$root/shims" -Force | Out-Null
+    $manifest1 = @{version='1';url=([Uri][IO.Path]::GetFullPath($fixtureGui)).AbsoluteUri+'#/gui.exe';hash=(Get-FileHash -LiteralPath $fixtureGui -Algorithm SHA256).Hash.ToLower();bin='gui.exe'} | ConvertTo-Json -Depth 5
+    $manifest2 = @{version='2';url=([Uri][IO.Path]::GetFullPath($fixtureGui)).AbsoluteUri+'#/gui.exe';hash=(Get-FileHash -LiteralPath $fixtureGui -Algorithm SHA256).Hash.ToLower();bin='gui.exe'} | ConvertTo-Json -Depth 5
+    [IO.File]::WriteAllText("$root/buckets/test/bucket/gui.json",$manifest2)
+    Copy-Item -LiteralPath $fixtureGui -Destination "$root/apps/gui/1/gui.exe"
+    [IO.File]::WriteAllText("$root/apps/gui/1/manifest.json",$manifest1)
+    [IO.File]::WriteAllText("$root/apps/gui/1/install.json",'{"bucket":"test","architecture":"64bit"}')
+    New-Item -ItemType Junction -Path "$root/apps/gui/current" -Target "$root/apps/gui/1" | Out-Null
+    Copy-Item -LiteralPath $launcher -Destination "$root/shims/gui.exe"
+    [IO.File]::WriteAllText("$root/shims/gui.shim",'path = "'+[IO.Path]::GetFullPath("$root/apps/gui/1/gui.exe")+'"'+"`r`n")
+    return $root
+}
+$guiRoot = New-GuiRoot 'gui-scoop-shim' $guiShim
+$guiPreview = & $CoopExe --root $guiRoot update gui --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "GUI-shim preview failed: $guiPreview" }
+$guiPreviewEntry = $guiPreview | ConvertFrom-Json
+if (-not $guiPreviewEntry.execution_available) { throw "GUI-shim update preview was not executable: $guiPreview" }
+$guiUpdate = & $CoopExe --root $guiRoot update gui --json
+if ($LASTEXITCODE -ne 0) { throw "GUI-shim update failed: $guiUpdate" }
+if ((Get-Content -LiteralPath "$guiRoot/apps/gui/current/scoop-manifest.json" -Raw | ConvertFrom-Json).version -ne '2') { throw 'GUI-shim update did not publish version 2' }
+$foreignRoot = New-GuiRoot 'foreign-launcher' $fixture1
+$foreignPreview = & $CoopExe --root $foreignRoot update gui --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "foreign-launcher preview failed: $foreignPreview" }
+$foreignEntry = $foreignPreview | ConvertFrom-Json
+if ($foreignEntry.execution_available -ne $false -or @($foreignEntry.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw "foreign launcher was not blocked in preview: $foreignPreview" }
+$foreignUpdate = & $CoopExe --root $foreignRoot update gui --json 2>&1
+if ($LASTEXITCODE -eq 0 -or (Test-Path "$foreignRoot/.coop/packages/gui.json")) { throw "foreign launcher was accepted: $foreignUpdate" }
+@{root_scoop=$rootA;root_coop=$rootB;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
+Write-Output "PASS shared Scoop/Coop single-file update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"

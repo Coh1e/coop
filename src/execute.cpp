@@ -6,6 +6,7 @@
 #include "versions.hpp"
 #include "exposure.hpp"
 #include "script.hpp"
+#include "shim.hpp"
 #include <windows.h>
 #include <array>
 #include <cctype>
@@ -14,7 +15,6 @@
 #include <algorithm>
 #include <iterator>
 #include <fstream>
-#include <set>
 
 namespace coop {
 namespace {
@@ -236,51 +236,26 @@ bool same_path_text(const fs::path& a, const fs::path& b) {
     const auto right = b.lexically_normal().wstring();
     return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_EQUAL;
 }
-std::string trim_ascii(std::string value) {
-    const auto first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) return {};
-    return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
-}
-struct ShimMetadata { std::string target; std::string arguments; };
-// Scoop shims store a path and optional argument string in <name>.shim. The same file is
-// readable by Scoop and by Coop's launcher, so both clients can keep using one entry.
-ShimMetadata read_shim_metadata(const fs::path& path) {
-    if (fs::file_size(path) > 16384) throw std::runtime_error("Scoop shim metadata exceeds size limit");
-    std::ifstream input(path,std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot read command metadata: "+path_text(path));
-    ShimMetadata result;
-    std::string line;
-    std::set<std::string> keys;
-    while (std::getline(input,line)) {
-        if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
-        line = trim_ascii(line);
-        if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
-        const auto equal = line.find('=');
-        if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
-        const auto key = trim_ascii(line.substr(0,equal));
-        const auto value = trim_ascii(line.substr(equal+1));
-        if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
-        if (key == "path") result.target = value;
-        else if (key == "args") result.arguments = value;
-        else throw std::runtime_error("Unvalidated Scoop shim option: "+key);
-    }
-    if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
-        result.target = result.target.substr(1,result.target.size()-2);
-    if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
-    return result;
-}
 std::string coop_launcher_hash() {
     std::array<wchar_t,32768> module{};
     const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
     if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
     return sha256_file(fs::path(module.data()));
 }
-bool known_scoop_launcher(const std::string& digest) {
-    static const std::set<std::string> known = {
-        "140e3801d8adeda639a21b14e62b93a4c7d26b7a758421f43c82be59753be49b",
-        "70d4690b8ac3b3f715f537cdea6e07a39fda4bc0347bf6b958e4f3ff2f0e04d4",
-        "0116068768fc992fc536738396b33db3dafe6b0cf0e6f54f6d1aa8b0331f3cec"};
-    return known.contains(digest);
+// Scoop copies the same shim executable for every command it creates. A launcher whose bytes are
+// shared with another .shim entry in the same root is therefore Scoop-generated even when a future
+// Scoop release changes the shim program markers.
+bool shared_scoop_launcher(const Context& context, const std::string& name, const std::string& digest) {
+    const auto shims = context.root/L"shims";
+    if (!fs::is_directory(shims)) return false;
+    for (const auto& entry : fs::directory_iterator(shims)) {
+        if (!entry.is_regular_file() || entry.path().extension() != L".shim") continue;
+        const auto other_name = path_text(entry.path().stem());
+        if (equal_name(other_name,name)) continue;
+        const auto executable = shims/(entry.path().stem().wstring()+L".exe");
+        if (fs::is_regular_file(executable) && sha256_file(executable) == digest) return true;
+    }
+    return false;
 }
 // Direct EXE/COM entries have an exact Scoop-compatible representation (path + optional args).
 // Other host kinds need Coop's explicit launcher metadata, so they keep the .coop-shim.json form.
@@ -299,6 +274,55 @@ struct InstalledEntry {
     std::string executable_hash;
     std::string metadata_hash;
 };
+// Preview and execution must agree on whether an existing shared entry can be replaced/removed.
+// The .shim target/arguments are the ownership evidence; the launcher must either be Coop's own
+// binary, the exact launcher recorded by Coop, or a Scoop shim identified by its program markers.
+std::string command_entry_blocker(const Context& context, const Package& installed) {
+    const auto shims = context.root/L"shims";
+    const auto module_hash = coop_launcher_hash();
+    Json record = Json::object();
+    const auto record_path = context.root/L".coop"/L"packages"/(wide(installed.name)+L".json");
+    if (fs::is_regular_file(record_path)) {
+        try { record = read_json(record_path); }
+        catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
+    }
+    for (const auto& command : installed.commands) {
+        const auto exe = shims/(wide(command.name)+L".exe");
+        const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
+        const auto scoop_metadata = shims/(wide(command.name)+L".shim");
+        if (!fs::is_regular_file(exe)) return "Managed command entry is missing: "+command.name;
+        if (fs::exists(coop_metadata) && fs::exists(scoop_metadata))
+            return "Command entry has conflicting Coop and Scoop metadata: "+command.name;
+        if (fs::exists(coop_metadata)) {
+            Json metadata;
+            try { metadata = read_json(coop_metadata); }
+            catch (const std::exception& error) { return "Managed command metadata cannot be read: "+std::string(error.what()); }
+            if (!equal_name(metadata.value("package",std::string{}),installed.name) ||
+                !same_identity(fs::path(wide(metadata.value("target",std::string{}))),context.root/L"apps"/wide(installed.name)/L"current"/command.target) ||
+                metadata.value("arguments",std::string{}) != command.arguments ||
+                metadata.value("launcher",std::string{}) != command_launcher_name(command.target))
+                return "Managed command entry ownership changed: "+command.name;
+        } else if (fs::exists(scoop_metadata)) {
+            ShimMetadata metadata;
+            try { metadata = read_shim_metadata(scoop_metadata); }
+            catch (const std::exception& error) { return "Scoop command metadata cannot be read: "+std::string(error.what()); }
+            if (!same_identity(fs::path(wide(metadata.target)),context.root/L"apps"/wide(installed.name)/L"current"/command.target) ||
+                (!command.arguments.empty() && metadata.arguments != command.arguments))
+                return "Scoop command entry points to a different package or arguments: "+command.name;
+            const auto executable_hash = sha256_file(exe);
+            bool known = executable_hash == module_hash || looks_like_scoop_shim(exe) ||
+                shared_scoop_launcher(context,command.name,executable_hash);
+            if (record.contains("legacy_shims") && record.at("legacy_shims").is_object() &&
+                record.at("legacy_shims").contains(command.name))
+                known = known || executable_hash ==
+                    record.at("legacy_shims").at(command.name).value("executable_sha256",std::string{});
+            if (!known) return "Shared Scoop command launcher is not recognized and is not recorded by Coop: "+command.name;
+        } else {
+            return "Managed command entry metadata is missing: "+command.name;
+        }
+    }
+    return {};
+}
 }
 std::string package_execution_blocker(const Package& package) {
     try { require_capabilities(package); } catch (const std::exception& error) { return error.what(); }
@@ -360,6 +384,11 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
         if (facts.artifacts.size() != 1 || facts.artifacts.front().archive != ArchiveKind::none)
             return "This shared installation has no Coop management record and its archive layout cannot be verified yet";
+    }
+    if (plan.action == Action::uninstall || plan.action == Action::update) {
+        const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
+        const auto entry_blocker = command_entry_blocker(context,facts);
+        if (!entry_blocker.empty()) return entry_blocker;
     }
     return {};
 }
@@ -537,7 +566,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             // Scoop may legitimately replace its shim executable (for example after scoop reset).
             // Accept the launcher only when it is Scoop's known shim, Coop's own launcher, or the
             // exact executable recorded by Coop; a foreign replacement is refused.
-            bool known_executable = known_scoop_launcher(entry.executable_hash) || entry.executable_hash == module_hash;
+            bool known_executable = looks_like_scoop_shim(entry.executable) || entry.executable_hash == module_hash ||
+                shared_scoop_launcher(context,command.name,entry.executable_hash);
             if (managed.contains("legacy_shims") && managed.at("legacy_shims").is_object() &&
                 managed.at("legacy_shims").contains(command.name))
                 known_executable = known_executable || entry.executable_hash ==
@@ -950,7 +980,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
                         {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
-                        {"origin",has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")},
+                        {"origin",updating ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
                         {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
                 }
                 break;
