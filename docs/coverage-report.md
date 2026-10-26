@@ -20,7 +20,7 @@
 | Main 实际工作树修订 | `5be7f8c702856c72800a0a4945b88fe6ea2bd52f`（分支 `master`，1783 个文件） |
 | Main Coop 注册表记录 | `89b4cf8078b4968bca637b2ae226b16e8d04dbce`（2026-10-26T05:09:07Z，**与工作树不一致**） |
 | Extras 盘点修订 | `0f8f4b5fd43bedccc7b233b77f4605bddba8085b`（官方 `master` HEAD，本轮克隆取得，2643 个文件） |
-| Coop | `coop 0.1.0`，SHA256 `76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79`；盘点代码提交 `8283e6a062f5044f8a180ede05634c0efca619c7`（当前文档提交只增加本页、基线与链接） |
+| Coop | `coop 0.1.0`，SHA256 `76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79`；盘点代码提交 `8283e6a062f5044f8a180ede05634c0efca619c7`（本页与基线由该提交上的运行生成，之后的提交只更新文档与基线） |
 | 盘点工具 | [`tests/real-scoop-coverage.ps1`](../tests/real-scoop-coverage.ps1) 与 [`tests/coverage-manifest-features.ps1`](../tests/coverage-manifest-features.ps1) |
 | 规划接口 | 真实 `coop.exe --root <项目内盘点根> --arch 64bit info <bucket/包名> --json` 与 `install <bucket/包名> --dry-run --json`，8 个并行读取工作进程 |
 
