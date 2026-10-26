@@ -6,4 +6,5 @@
 - `verified` 中的 `.local/pi/tasks/40/...` 是本机被忽略的真机证据路径，不随仓库分发；它说明验证来源，不代表新环境能直接读取该文件。
 - `project_head` 是生成该投影时的代码提交。bucket 修订、分母和缺口随后续轮次变化；必须用脚本重新生成，不能手工编辑或把历史数字当作当前事实。
 - 文件内的 `.local/coverage/root/...` 是该次运行的盘点根；`mechanisms`/`gaps` 中的包名用于定位证据，不代表这些包已修复或已验证。
-- 生成方式与解释见[Main／Extras 全量兼容盘点](../../docs/coverage-report.md)。
+- `gaps.json` 是 `gaps` 的逐项闭合账本：每个阻塞包的机制、诊断码、根因、处置（提议子票或架构边界）与验收出口；CTest `coverage_gaps` 用它与 `baseline.json` 对账，基线或映射变化时必须同步更新，不能删条或静默改投。
+- 生成方式与解释见[Main／Extras 全量兼容盘点](../../docs/coverage-report.md)，缺口处置见[全量盘点缺口闭合与子票](../../docs/compatibility-gap-closure.md)。

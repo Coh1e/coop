@@ -196,6 +196,7 @@ if(BUILD_TESTING)
   endforeach()
   find_program(POWERSHELL_EXECUTABLE NAMES pwsh REQUIRED)
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
+  add_test(NAME coverage_gaps COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-gaps.ps1")
   add_test(NAME query COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/query.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/query 中文 space")
   add_test(NAME path_batch COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/path-batch.ps1"

@@ -1,0 +1,823 @@
+{
+  "schema": 1,
+  "source": {
+    "baseline": "tests/coverage/baseline.json",
+    "inventory_report": "docs/coverage-report.md",
+    "measurement_commit": "8283e6a062f5044f8a180ede05634c0efca619c7",
+    "baseline_generated_at": "2026-10-26T22:03:11.5685846Z",
+    "project_head": "8283e6a062f5044f8a180ede05634c0efca619c7",
+    "denominator": {
+      "main": 1701,
+      "extras": 2448,
+      "total": 4149
+    },
+    "blocked_rows": 55,
+    "blocked_unique": 53,
+    "note": "Generated from the R20/#41 baseline; the guard test tests/coverage-gaps.ps1 (CTest coverage_gaps) fails when the baseline, the six mechanisms, the 53 unique packages or the proposed-ticket mapping drift."
+  },
+  "tickets": [
+    {
+      "id": "R25",
+      "title": "R25：psmodule 机制与依赖级联",
+      "scope": "把 Manifest 的 psmodule 声明归一为 IR 模块名，在计划与执行中创建 <root>/modules/<name> 到安装目录的 junction，并按 Scoop 语义维护用户级 PSModulePath 条目（保存原值与归属，撤销只删除 Coop 写入的条目和 junction）；安装器、脚本、入口与卸载现有路径不变。",
+      "reason": "28 个包因 adapter/unsupported-capability 被阻塞，另有 inadyn-mt、lazy-posh-git 因依赖 gsudo/posh-git 级联失败；Scoop 的 psmodules.ps1 只用 junction 和 PSModulePath，没有额外专有语义。",
+      "acceptance": [
+        "在项目内真实兼容根用真实 CLI 安装 extras/posh-git：<root>/modules/posh-git 是指向 apps/posh-git/current 的真实 junction，用户 PSModulePath 含 <root>/modules，新 PowerShell 进程 Import-Module posh-git 成功；卸载后 junction 与 Coop 自己写入的 PSModulePath 条目被撤销，其他条目和用户后续修改保持。",
+        "install --dry-run 展示 psmodule 操作且不创建 junction、不写用户环境；实际执行的高层操作与预览对应。",
+        "main/gsudo（同包 psmodule+bin+post_install）计划可执行并验证 junction；inadyn-mt、lazy-posh-git 不再报 capability/dependency-unsupported。",
+        "重新运行全量盘点：28 个 psmodule 包不再出现 Not yet supported: psmodule；仍有其他机制阻塞的包单独保留，不计为已支持。",
+        "Scoop 随后能识别同一模块（Scoop list 或 modules 目录读取），共享状态不需要迁移或接管记录。"
+      ],
+      "depends_on": [],
+      "blocks": [
+        "#42",
+        "#45"
+      ],
+      "verification": [
+        "真实 CLI 安装/卸载 + 新 PowerShell 进程 Import-Module",
+        "全量盘点 psmodule 缺口归零",
+        "HKCU PSModulePath 原值/归属记录与撤销核对"
+      ]
+    },
+    {
+      "id": "R26",
+      "title": "R26：命令入口宿主扩展（.py、无扩展名、.config）",
+      "scope": "按固定 Scoop v0.6.0 的 shim 宿主分支实现 .py、无扩展名和 .config 入口：.py 走 python 宿主，其余走 Scoop 的 bash 分支；生成与 Scoop 同形的 shim 文件，缺失外部宿主时在执行前明确诊断，不静默失败。",
+      "reason": "11 个包因 adapter/unsupported-command-host 被阻塞；Scoop 的 shim() 对 .py 和 else 分支都有明确宿主语义（core.ps1:1076-1116），Coop 只支持 EXE/COM/BAT/CMD/PS1/JAR。",
+      "acceptance": [
+        "项目内根分别安装 .py、无扩展名、.config 三类入口的样本后，通过生成的 shim/.cmd 实际运行并得到预期输出与退出码；宿主不存在时在执行前给出明确诊断，退出非零且不创建半成品入口。",
+        "真实 Main/Extras 样本（如 main/git-filter-repo、main/neofetch、main/pulumi、main/vapoursynth）在同一真实盘点根 install --dry-run 不再报 unsupported-command-host；选定至少两个样本真实安装并运行其版本或帮助命令。",
+        "生成的 shim 文件类型与内容符合 Scoop 对应分支，Scoop 随后能通过同一入口启动；--dry-run 不写 shim 或修改环境。",
+        "重新运行全量盘点：command-entry-host 缺口为 0，13 条 unsupported-command-host 诊断消失；若仍有宿主缺口，必须逐项列出所需外部程序与未运行原因，不得改写成不支持。",
+        "缺少 python 或 bash 的环境下明确报告外部依赖，不把缺失宿主当作入口机制已完成。"
+      ],
+      "depends_on": [],
+      "blocks": [
+        "#42",
+        "#45"
+      ],
+      "verification": [
+        "真实 shim 执行输出/退出码",
+        "全量盘点 command-entry-host 归零",
+        "Scoop 后续使用同一入口"
+      ]
+    },
+    {
+      "id": "R27",
+      "title": "R27：Manifest 形状、相对路径与重复别名兼容",
+      "scope": "让 Manifest Adapter 接受 Scoop 实际接受的四类形状：任意长度的 bin 元组（其余元素拼接为参数）、env_add_path 的 ./ 与尾分隔符写法、shortcuts 目标/图标的 .. 相对路径、派生别名重复时的 Scoop last-wins 覆盖语义；同时保留绝对路径、盘符和越界写入的既有安全拒绝。",
+      "reason": "6 个包（dcmtk、stdiscosrv、wgcf、zigup、retdec、mqtt-spy）被 adapter/manifest-shape 硬失败阻塞，而对应的 Scoop 实现都接受这些形状（install.ps1:171-193、install.ps1:309-318、shortcuts.ps1:1-22、core.ps1:944-947）。",
+      "acceptance": [
+        "dcmtk、stdiscosrv、wgcf、zigup、retdec、mqtt-spy 在真实盘点根 install --dry-run 均为 execution_available=true，且计划的 bin 参数、env_add_path 解析值、shortcut 目标与 Scoop create_shims/env_add_path/create_startmenu_shortcuts 的结果逐项一致。",
+        "至少两个样本真实安装并运行入口（例如 wgcf --version、zigup 帮助），核对多参数 shim、PATH 项与快捷方式目标真实生效；卸载后对应入口、环境与快捷方式被撤销。",
+        "retdec 的重复派生别名按 Scoop 行为覆盖并给出警告，最终 shim 指向与 Scoop 一致；不得静默丢失入口。",
+        "安全边界回归：bin 目标为绝对路径/盘符、persist 或 extract 越界、shortcut 图标越界等仍被拒绝并给出稳定诊断，不因本票放宽路径检查而引入包外写入。",
+        "重新运行全量盘点：manifest-shape 缺口为 0。"
+      ],
+      "depends_on": [],
+      "blocks": [
+        "#42",
+        "#45"
+      ],
+      "verification": [
+        "真实 dry-run 计划对比 Scoop 解析结果",
+        "两个样本真实安装/运行/卸载",
+        "全量盘点 manifest-shape 归零"
+      ]
+    },
+    {
+      "id": "R28",
+      "title": "R28：跨 bucket 依赖来源（versions bucket）验证",
+      "scope": "用项目内固定的官方 versions bucket（只读修订）与同一 Main/Extras Manifest 修订验证 versions/* 依赖：确认 5 个包的计划依赖顺序、缺失/环境影响诊断；若 bucket 限定名或版本化包名解析有缺陷则修复。共享真实 Scoop 根是否注册 versions bucket 仍由人类决定。",
+      "reason": "5 个包（buck、glslviewer、terraform-provider-ibm、node-compiler、rabbitmqadmin）的依赖位于官方 versions bucket，本机未注册；fixture 已证明 Coop 在 bucket 存在时能解析 versions/python27 并给出依赖顺序，在缺失时给出 dependency-missing。",
+      "acceptance": [
+        "项目内固定官方 versions bucket 的 40 位修订并在清单中记录来源；对同一修订的 5 个 Main/Extras 包 install --dry-run 显示 dependency_order 含 versions/* 且 execution_available=true，或对确实缺失的依赖继续给出去重诊断。",
+        "至少一个样本验证已安装依赖复用（installed=true、不重复下载安装）与依赖先于主包的计划顺序；若其入口依赖 R26 尚未完成，明确记录为依赖项而不是通过。",
+        "共享真实根未获人类批准注册 versions bucket 时，只用项目内只读盘点根取证，并明确记录该环境前提；不得把环境前提改写成产品不支持。",
+        "重新运行全量盘点：dependency-missing 缺口为 0，或每个剩余项带有人类可核对的环境前提与未运行说明。",
+        "inadyn-mt、lazy-posh-git 的级联阻塞由 R25 覆盖，本票不重复计数。"
+      ],
+      "depends_on": [],
+      "blocks": [
+        "#42",
+        "#45"
+      ],
+      "verification": [
+        "固定 versions bucket 修订的 dry-run 依赖顺序",
+        "已安装依赖复用",
+        "全量盘点 dependency-missing 归零或逐项环境前提"
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "arm64-only",
+      "reason": "These packages only publish arm64 artifacts. On this x64 host the 64bit plan must refuse them, exactly as Scoop does; planning with --arch arm64 succeeds. The arm64 lifecycle remains unrun because no arm64 host was used, so this stays visible as unrun work in the final acceptance instead of being declared out of scope.",
+      "evidence": "R21 evidence closure-20261026-221524/repro-summary.json: three packages exit 0 with execution_available=true and architecture=arm64; the 64bit runs exit 1 with ir/missing-artifact. Pinned Scoop manifest.ps1:156-181 provides the equivalent refusal."
+    }
+  ],
+  "entries": [
+    {
+      "id": "main/acmesharp",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/azure-ps",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/gsudo",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/importexcel",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/pester",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/powershell-beautifier",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/powershell-yaml",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/psake",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/pscompletions",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/psgithub",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/winget-ps",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/completionpredictor",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/dockercompletion",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/git-aliases",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/lazy-posh-git",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/leet",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/posh-docker",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/posh-git",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/powertab",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/pscolor",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/pseps",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/psfzf",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/pskubectlcompletion",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/psreadline",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/scoop-completion",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/terminal-icons",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/z",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "extras/zlocation",
+      "mechanism": "capability:psmodule",
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "cause": "The adapter rejects the declared psmodule field as an unsupported capability; Coop has no modules junction or PSModulePath handling (src/ir_adapter.cpp:351-355, src/script.cpp:16-19 only loads the pinned psmodules helper for scripts). Scoop installs the module by junctioning <root>/modules/<name> to $dir and adding modulesdir to PSModulePath (pinned scoop-lib/psmodules.ps1:1-53).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      }
+    },
+    {
+      "id": "main/buck",
+      "mechanism": "dependency-missing",
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "cause": "The declared dependency package lives in the official versions bucket, which is not registered in this environment; Coop resolves versions/* when the bucket exists and otherwise reports the missing source instead of guessing (fixture evidence in the R21 report). This is an environment precondition for verification (R28), not a missing dependency mechanism.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R28"
+      },
+      "dependency": "versions/python27"
+    },
+    {
+      "id": "main/glslviewer",
+      "mechanism": "dependency-missing",
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "cause": "The declared dependency package lives in the official versions bucket, which is not registered in this environment; Coop resolves versions/* when the bucket exists and otherwise reports the missing source instead of guessing (fixture evidence in the R21 report). This is an environment precondition for verification (R28), not a missing dependency mechanism.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R28"
+      },
+      "dependency": "versions/ffmpeg-shared-4.4.1"
+    },
+    {
+      "id": "main/terraform-provider-ibm",
+      "mechanism": "dependency-missing",
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "cause": "The declared dependency package lives in the official versions bucket, which is not registered in this environment; Coop resolves versions/* when the bucket exists and otherwise reports the missing source instead of guessing (fixture evidence in the R21 report). This is an environment precondition for verification (R28), not a missing dependency mechanism.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R28"
+      },
+      "dependency": "versions/terraform011"
+    },
+    {
+      "id": "extras/node-compiler",
+      "mechanism": "dependency-missing",
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "cause": "The declared dependency package lives in the official versions bucket, which is not registered in this environment; Coop resolves versions/* when the bucket exists and otherwise reports the missing source instead of guessing (fixture evidence in the R21 report). This is an environment precondition for verification (R28), not a missing dependency mechanism.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R28"
+      },
+      "dependency": "versions/python27"
+    },
+    {
+      "id": "extras/rabbitmqadmin",
+      "mechanism": "dependency-missing",
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "cause": "The declared dependency package lives in the official versions bucket, which is not registered in this environment; Coop resolves versions/* when the bucket exists and otherwise reports the missing source instead of guessing (fixture evidence in the R21 report). This is an environment precondition for verification (R28), not a missing dependency mechanism.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R28"
+      },
+      "dependency": "python27"
+    },
+    {
+      "id": "main/dcmtk",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "env_add_path \"./bin/\" is rejected because relative path components are validated one by one and the trailing separator produces an empty component (src/ir_adapter.cpp:36-46, src/data.cpp:87-92). Scoop joins each value to $dir and resolves it as an absolute path (pinned scoop-lib/install.ps1:309-318).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "main/retdec",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "retdec-unpacker.exe and retdec-unpacker.py derive the same alias; the adapter treats the duplicate alias as a hard manifest-shape error (src/ir_adapter.cpp:248-250), while Scoop overwrites the shim with a warning and keeps the last definition (pinned scoop-lib/core.ps1:937-947).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "main/stdiscosrv",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "The bin tuple has five elements; the adapter allows at most three (src/ir_adapter.cpp:245). Scoop shim_def keeps the remaining elements as an argument array and forwards all of them to the shim (pinned scoop-lib/install.ps1:171-193).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "main/wgcf",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "The bin tuple has four elements; the adapter allows at most three (src/ir_adapter.cpp:245). Scoop forwards every element after the alias as shim arguments (pinned scoop-lib/install.ps1:171-193).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "main/zigup",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "The bin tuple has four elements; the adapter allows at most three (src/ir_adapter.cpp:245) and fails before reaching env_add_path \".\". Scoop forwards every element after the alias as shim arguments (pinned scoop-lib/install.ps1:171-193).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "extras/mqtt-spy",
+      "mechanism": "manifest-shape",
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "cause": "The shortcut target \"..\\..\\..\\shims\\mqtt-spy.cmd\" contains parent components; relative_path validates each component and rejects \"..\" (src/ir_adapter.cpp:36-46). Scoop combines the target with $dir and resolves it as a FileInfo, so a relative target outside the package directory is accepted (pinned scoop-lib/shortcuts.ps1:1-22).",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R27"
+      }
+    },
+    {
+      "id": "main/gel-arm64",
+      "mechanism": "architecture-artifact",
+      "codes": [
+        "ir/missing-artifact"
+      ],
+      "cause": "The Manifest declares artifacts only under architecture.arm64; planning 64bit on this x64 host correctly reports ir/missing-artifact, mirroring Scoop Get-SupportedArchitecture returning no architecture for a manifest without a url for the selected arch (pinned scoop-lib/manifest.ps1:156-181). The same manifests plan successfully with --arch arm64 (R21 evidence), so this is an architecture boundary and the arm64 lifecycle stays unrun, not unsupported.",
+      "resolution": {
+        "kind": "architecture-scope",
+        "boundary": "arm64-only"
+      }
+    },
+    {
+      "id": "main/llvm-arm64",
+      "mechanism": "architecture-artifact",
+      "codes": [
+        "ir/missing-artifact"
+      ],
+      "cause": "The Manifest declares artifacts only under architecture.arm64; planning 64bit on this x64 host correctly reports ir/missing-artifact, mirroring Scoop Get-SupportedArchitecture returning no architecture for a manifest without a url for the selected arch (pinned scoop-lib/manifest.ps1:156-181). The same manifests plan successfully with --arch arm64 (R21 evidence), so this is an architecture boundary and the arm64 lifecycle stays unrun, not unsupported.",
+      "resolution": {
+        "kind": "architecture-scope",
+        "boundary": "arm64-only"
+      }
+    },
+    {
+      "id": "extras/cpu-z-arm64",
+      "mechanism": "architecture-artifact",
+      "codes": [
+        "ir/missing-artifact"
+      ],
+      "cause": "The Manifest declares artifacts only under architecture.arm64; planning 64bit on this x64 host correctly reports ir/missing-artifact, mirroring Scoop Get-SupportedArchitecture returning no architecture for a manifest without a url for the selected arch (pinned scoop-lib/manifest.ps1:156-181). The same manifests plan successfully with --arch arm64 (R21 evidence), so this is an architecture boundary and the arm64 lifecycle stays unrun, not unsupported.",
+      "resolution": {
+        "kind": "architecture-scope",
+        "boundary": "arm64-only"
+      }
+    },
+    {
+      "id": "main/git-filter-repo",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "git-filter-repo (no extension)"
+      ]
+    },
+    {
+      "id": "main/git-quick-stats",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "git-quick-stats (no extension)"
+      ]
+    },
+    {
+      "id": "main/lsix",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "lsix (no extension)"
+      ]
+    },
+    {
+      "id": "main/neofetch",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "neofetch (no extension)"
+      ]
+    },
+    {
+      "id": "main/pulumi",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "pulumi-language-python-exec (no extension)"
+      ]
+    },
+    {
+      "id": "main/retdec",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "retdec-archive-decompiler.py",
+        "retdec-signature-from-library-creator.py",
+        "retdec-tests-runner.py"
+      ]
+    },
+    {
+      "id": "main/vapoursynth",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "vsrepo.py (.py)"
+      ]
+    },
+    {
+      "id": "main/xtensa-esp32-elf",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "xtensa-esp32-elf-ct-ng.config (.config)"
+      ]
+    },
+    {
+      "id": "extras/ani-cli",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "ani-cli (no extension)"
+      ]
+    },
+    {
+      "id": "extras/controlprinters",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "explorer (no extension)"
+      ]
+    },
+    {
+      "id": "extras/pdd",
+      "mechanism": "command-entry-host",
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "cause": "The command entry target type has no Coop launcher; the adapter only accepts EXE, COM, BAT, CMD, PS1 and JAR (src/ir_adapter.cpp:252-255). Scoop has explicit shim hosts for .py (python) and for every other suffix (bash) at pinned scoop-lib/core.ps1:1076-1116.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R26"
+      },
+      "targets": [
+        "pdd.py (.py)"
+      ]
+    },
+    {
+      "id": "main/inadyn-mt",
+      "mechanism": "dependency-unsupported",
+      "codes": [
+        "capability/dependency-unsupported"
+      ],
+      "cause": "The package itself is not read as unsupported; it depends on a psmodule package (gsudo or posh-git) whose plan is blocked, and the dependency blocker correctly propagates capability/dependency-unsupported. This cascades from R25.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      },
+      "dependency": "gsudo"
+    },
+    {
+      "id": "extras/lazy-posh-git",
+      "mechanism": "dependency-unsupported",
+      "codes": [
+        "capability/dependency-unsupported"
+      ],
+      "cause": "The package itself is not read as unsupported; it depends on a psmodule package (gsudo or posh-git) whose plan is blocked, and the dependency blocker correctly propagates capability/dependency-unsupported. This cascades from R25.",
+      "resolution": {
+        "kind": "ticket",
+        "ticket": "R25"
+      },
+      "dependency": "posh-git"
+    }
+  ]
+}
