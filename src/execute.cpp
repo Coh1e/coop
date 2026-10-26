@@ -391,7 +391,8 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
             return "Package is not eligible for in-place adoption; inspect --dry-run";
         return {};
     }
-    if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update) return "This action is not executable yet";
+    if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update &&
+        plan.action != Action::reset) return "This action is not executable yet";
     // Reverse dependency protection is the first reason an uninstall can be refused. Reporting it
     // before unrelated lifecycle gaps keeps the user-facing failure about the dependent package.
     if (plan.action == Action::uninstall) {
@@ -404,9 +405,28 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     } catch (const std::exception& error) { return error.what(); }
     if (plan.action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
         return "Persistence mapping changes are not verified; refusing to update declared data";
-    if (plan.action == Action::update || plan.action == Action::uninstall) {
-        try { verify_persistence(context,plan.action == Action::update ? *plan.previous : plan.package,plan.local.directory); }
+    if (plan.action == Action::reset && plan.previous && !same_persistence(*plan.previous,plan.package))
+        return "Persistence mapping changes are not verified; refusing to roll back declared data";
+    if (plan.action == Action::update || plan.action == Action::uninstall || plan.action == Action::reset) {
+        const auto& current = plan.action == Action::uninstall ? plan.package : *plan.previous;
+        try { verify_persistence(context,current,plan.local.directory); }
         catch (const std::exception& error) { return std::string("Managed persistence state cannot be verified: ")+error.what(); }
+    }
+    if (plan.action == Action::reset) {
+        // Rollback re-publishes a version directory that is already on disk. It is not a download
+        // path: the saved Manifest, installation record and actual files are the whole input.
+        if (!plan.previous || !plan.local.exists) return "No usable current installation exists for this package";
+        if (plan.package.version.empty()) return "Reset target version is missing";
+        const auto target = context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version);
+        const auto attributes = GetFileAttributesW(target.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+            return "Local version directory is missing: "+path_text(target);
+        if (attributes & FILE_ATTRIBUTE_REPARSE_POINT)
+            return "Local version directory is a reparse point; reset does not follow it";
+        try { verify_shared_artifacts(plan.package,target); }
+        catch (const std::exception& error) { return "Local version cannot be verified for rollback: "+std::string(error.what()); }
+        try { verify_persistence(context,plan.package,target); }
+        catch (const std::exception& error) { return "Local version persistence cannot be verified for rollback: "+std::string(error.what()); }
     }
     if (plan.purge) {
         if (plan.action != Action::uninstall) return "--purge is only supported by uninstall";
@@ -419,7 +439,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
             return std::string("Purge scope cannot be verified: ")+error.what();
         }
     }
-    if (plan.action == Action::update) {
+    if (plan.action == Action::update || plan.action == Action::reset) {
         for (const auto& dependency : plan.dependencies)
             if (!dependency.installed)
                 return "Declared dependency is not installed: "+dependency.request;
@@ -437,20 +457,20 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
     if (plan.ir_steps.empty()) return "Plan contains no IR operations; execution is refused";
     if (plan.action == Action::install && plan.local.exists) return "Package already exists; use update";
-    if ((plan.action == Action::uninstall || plan.action == Action::update) && !plan.local.exists)
+    if ((plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) && !plan.local.exists)
         return "No usable current installation exists for this package";
     // Shared Scoop installations have no Coop private record. Direct-file artifacts (including
     // multiple downloads) are verified from the saved Manifest and actual files. Archive layouts
     // are verified from the standard apps/<name>/current tree, the saved records and every declared
     // entry target; no private Coop record is a precondition.
-    if ((plan.action == Action::uninstall || plan.action == Action::update) &&
+    if ((plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) &&
         !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
-        const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
+        const auto& facts = (plan.action == Action::update || plan.action == Action::reset) && plan.previous ? *plan.previous : plan.package;
         try { verify_shared_artifacts(facts,plan.local.directory); }
         catch (const std::exception& error) { return error.what(); }
     }
-    if (plan.action == Action::uninstall || plan.action == Action::update) {
-        const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
+    if (plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) {
+        const auto& facts = (plan.action == Action::update || plan.action == Action::reset) && plan.previous ? *plan.previous : plan.package;
         const auto entry_blocker = command_entry_blocker(context,facts);
         if (!entry_blocker.empty()) return entry_blocker;
     }
@@ -508,7 +528,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     if (!blocker.empty()) throw std::runtime_error(blocker);
     const auto& package = plan.package;
     const bool updating = plan.action == Action::update;
-    const auto& installed = updating ? plan.previous.value() : package;
+    const bool resetting = plan.action == Action::reset;
+    const auto& installed = (updating || resetting) ? plan.previous.value() : package;
     const auto state = context.root/L".coop";
     const auto record_path = state/L"packages"/(wide(package.name)+L".json");
     const auto app = context.root/L"apps"/wide(package.name);
@@ -558,7 +579,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         version_history = managed.value("versions",Json::array());
         if (!version_history.is_array()) version_history = Json::array();
         if (version_history.empty()) version_history = scan_version_evidence(app);
-        if (plan.action == Action::update) {
+        if (plan.action == Action::update || resetting) {
             const bool recorded = std::any_of(version_history.begin(),version_history.end(),[&](const Json& entry) {
                 return entry.is_object() && equal_name(entry.value("version",std::string{}),installed.version);
             });
@@ -704,7 +725,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // `installed` aliases `package` for install and uninstall; updates carry both records.
     if (!installed.scripts.empty() || installed.installer || installed.uninstaller) staged_manifest(installed);
     if (!package.scripts.empty() || package.installer || package.uninstaller) staged_manifest(package);
-    Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
+    Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : resetting ? "reset" : plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"installers",Json::array()},
         {"shortcuts_already_absent",absent_shortcuts}};
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still
@@ -712,7 +733,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // evidence before deciding whether a current value is package-owned or a later user edit.
     Json user_environment_prior = managed.value("user_environment",Json(nullptr));
     std::string user_environment_source = user_environment_prior.is_null() ? "none" : "coop-record";
-    if (user_environment_prior.is_null() && (updating || plan.action == Action::uninstall) &&
+    if (user_environment_prior.is_null() && (updating || resetting || plan.action == Action::uninstall) &&
         (!installed.environment.empty() || !installed.path_entries.empty())) {
         // Coop publishes environment and PATH declarations against the stable current path, so
         // previous declarations must be expanded the same way rather than against the concrete
@@ -905,6 +926,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             preparation_checked = true;
         };
         const auto ensure_stage = [&]() {
+            if (resetting)
+                throw std::runtime_error("A reset reuses the existing version directory and never stages a download");
             if (stage_ready) return;
             fs::create_directories(stage);
             fs::create_directories(downloads);
@@ -913,6 +936,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             stage_ready = true;
         };
         const auto ensure_version = [&]() {
+            if (resetting) {
+                if (!fs::is_directory(version))
+                    throw std::runtime_error("Local version directory disappeared before the reset could publish it");
+                version_published = true;
+                return;
+            }
             if (version_published) return;
             ensure_stage();
             fs::create_directories(app);
@@ -1119,12 +1148,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             }
             case ir::Operation::remove_environment:
-                // During an update the old and new declarations are reconciled by the single
-                // environment operation below, so the installed package keeps its user values
-                // until the replacement is ready. An update without any new declarations and a
-                // normal uninstall revert immediately.
-                if (updating && !(package.environment.empty() && package.path_entries.empty())) {
-                    journal["environment_reversion"] = "deferred; the update's environment operation reconciles old and new declarations";
+                // During an update or reset the old and new declarations are reconciled by the
+                // single environment operation below, so the installed package keeps its user
+                // values until the replacement is ready. An operation without any new declarations
+                // and a normal uninstall revert immediately.
+                if ((updating || resetting) && !(package.environment.empty() && package.path_entries.empty())) {
+                    journal["environment_reversion"] = "deferred; the replacement's environment operation reconciles old and new declarations";
                 } else {
                     auto reverted = revert_user_environment(user_environment_prior);
                     environment_undo.push_back(reverted.value("undo",Json::object()));
@@ -1233,6 +1262,14 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             }
             case ir::Operation::persistence:
                 ensure_version();
+                if (resetting) {
+                    // The retained version already owns the declared links. Resetting verifies them
+                    // in place instead of re-running the migration used for a new version.
+                    persistence = verify_persistence(context,package,version);
+                    journal["persistence_reused"] = "Declared links of the retained version were verified; stored data was not moved or rolled back";
+                    save();
+                    break;
+                }
                 persistence = prepare_persistence(context,package,version);
                 persistence = verify_persistence(context,package,version);
                 break;
@@ -1243,7 +1280,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         if (!equal_name(entry.value("version",std::string{}),package.version)) kept_versions.push_back(entry);
                 }
                 if (has_managed_record && fs::exists(record_path))
-                    move(record_path,transaction/(updating ? L"old-managed-record.json" : L"managed-record.json"));
+                    move(record_path,transaction/((updating || resetting) ? L"old-managed-record.json" : L"managed-record.json"));
                 if (plan.action == Action::uninstall) {
                     if (!kept_versions.empty()) {
                         const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
@@ -1269,7 +1306,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"manifest_sha256",package.manifest_sha256},
                         {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
                         {"tree_stamp",version_tree_stamp(version)},
-                        {"provenance",updating ? "coop-update" : "coop-install"}});
+                        {"provenance",resetting ? "coop-reset" : updating ? "coop-update" : "coop-install"}});
                     publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
                         {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
                         {"status","ready"},{"shim_format",legacy_shims.empty() ? "coop" : "scoop"},
@@ -1277,7 +1314,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
                         {"user_environment",user_environment},
                         {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
-                        {"origin",updating ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
+                        {"origin",(updating || resetting) ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
                         {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
                 }
                 break;
@@ -1287,7 +1324,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             }
         }
         journal["state"] = "committed"; save();
-        if (updating || plan.action == Action::uninstall) {
+        if (updating || resetting || plan.action == Action::uninstall) {
             std::vector<fs::path> revoked;
             for (const auto& shortcut : installed.shortcuts)
                 if (!shortcut_was_absent(shortcut.name)) revoked.push_back(shortcut_link_path(context,shortcut.name));
@@ -1359,9 +1396,14 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             }
             result["purge"] = std::move(purge);
         }
-    } else if (updating) {
+    } else if (updating || resetting) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         result["data_rollback"] = "none";
+        if (resetting) {
+            result["reset_from"] = installed.version;
+            result["local_version_reference"] = path_text(fs::canonical(version));
+            result["lifecycle_hooks"] = "not-run";
+        }
     } else {
         result["retained_versions"] = Json::array();
     }

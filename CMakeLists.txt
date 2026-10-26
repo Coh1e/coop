@@ -227,6 +227,8 @@ if(BUILD_TESTING)
   endforeach()
   add_test(NAME cleanup COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/cleanup.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup 中文 space")
+  add_test(NAME old_versions COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/old-versions.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/old-versions 中文 space")
   add_test(NAME update COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update 中文")
   add_test(NAME multi_artifact COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/multi-artifact.ps1"
@@ -248,7 +250,7 @@ if(BUILD_TESTING)
   # These tests read and snapshot the real current-user environment. A shared resource lock keeps
   # ctest -j from interleaving their snapshots/writes; they must also not be run in parallel by
   # separate ctest invocations.
-  set_tests_properties(acceptance exposure user_environment PROPERTIES RESOURCE_LOCK coop_user_environment)
+  set_tests_properties(acceptance exposure user_environment old_versions PROPERTIES RESOURCE_LOCK coop_user_environment)
   add_test(NAME hooks COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/hooks.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/hooks 中文 space")
   add_test(NAME installers COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/installers.ps1"

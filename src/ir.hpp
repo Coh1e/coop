@@ -109,7 +109,7 @@ struct InstalledFact {
     std::vector<Diagnostic> diagnostics;
 };
 
-enum class Action { install, update, uninstall, adopt };
+enum class Action { install, update, uninstall, adopt, reset };
 enum class Operation {
     download, verify, extract, hook, installer, publish_current, entries, shortcuts, environment,
     persistence, commit_state, remove_entries, remove_shortcuts, remove_environment,

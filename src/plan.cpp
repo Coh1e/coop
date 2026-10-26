@@ -25,6 +25,7 @@ const char* action_name(Action action) {
     case Action::install: return "install";
     case Action::update: return "update";
     case Action::uninstall: return "uninstall";
+    case Action::reset: return "reset";
     }
     return "unknown";
 }
@@ -412,6 +413,62 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         if (architecture.empty()) target_architecture = plan.previous->architecture;
         plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
     }
+    if (action == Action::reset) {
+        // A rollback is resolved only from a local version directory with its saved Manifest and
+        // installation record. Remote history is never consulted and no URL is reconstructed.
+        plan.previous = read_installed();
+        if (version.empty())
+            throw std::runtime_error("reset requires an installed version, for example "+name+"@<version>");
+        const auto app = context.root/L"apps"/wide(name);
+        const auto directory = app/wide(version);
+        const auto evidence = version_evidence(directory,version);
+        if (evidence.value("status",std::string{}) != "retained")
+            throw std::runtime_error("Local version cannot be used for rollback: "+
+                evidence.value("reason",std::string{"version evidence is unavailable"}));
+        const auto install_record = fs::path(wide(evidence.at("install_record_path").get<std::string>()));
+        const auto install = read_json(install_record);
+        auto target_bucket = install.value("bucket",plan.previous->bucket);
+        auto target_arch = install.value("architecture",plan.previous->architecture);
+        if (target_arch.empty()) target_arch = target_architecture;
+        if (!architecture.empty() && !equal_name(architecture,target_arch))
+            throw std::runtime_error("Requested architecture does not match the local version's installation record");
+        if (!bucket.empty() && !equal_name(bucket,target_bucket))
+            throw std::runtime_error("Requested bucket does not match the local version's installation record");
+        plan.package = parse_package(fs::path(wide(evidence.at("manifest_path").get<std::string>())),
+            name,target_bucket,target_arch);
+        plan.preconditions.push_back({install_record,sha256_file(install_record)});
+        if (!equal_name(plan.package.version,version))
+            throw std::runtime_error("Saved Manifest version does not match the requested local version");
+        if (equal_name(version,plan.previous->version))
+            throw std::runtime_error("Requested version is already current; nothing would be reset");
+        for (const auto& record : recorded_version_evidence(context,name)) {
+            if (!equal_name(record.value("version",std::string{}),version)) continue;
+            const auto expected_manifest = record.value("manifest_sha256",std::string{});
+            const auto expected_install = record.value("install_record_sha256",std::string{});
+            const auto expected_stamp = record.value("tree_stamp",std::string{});
+            if (!expected_manifest.empty() && expected_manifest != evidence.value("manifest_sha256",std::string{}))
+                plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                    "Retained Manifest changed after Coop recorded this version; rollback is refused"});
+            if (!expected_install.empty() && expected_install != evidence.value("install_record_sha256",std::string{}))
+                plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                    "Retained installation record changed after Coop recorded this version; rollback is refused"});
+            if (!expected_stamp.empty()) {
+                try {
+                    if (version_tree_stamp(directory) != expected_stamp)
+                        plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                            "Retained version contents changed after Coop recorded them; rollback is refused"});
+                } catch (const std::exception& error) {
+                    plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                        std::string("Retained version contents cannot be inspected: ")+error.what()});
+                }
+            }
+            break;
+        }
+        if (!same_persistence(*plan.previous,plan.package))
+            plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
+                "Persist mapping differs from the current version; data rollback is not verified, so the reset is refused"});
+        plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
+    }
     if (action == Action::install || action == Action::update) {
         Json matches = Json::array();
         for (const auto& item : catalog(context))
@@ -424,7 +481,7 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         if (action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
             plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
                 "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
-    } else {
+    } else if (action != Action::reset) {
         plan.package = read_installed();
         if (!version.empty() && version != plan.package.version)
             plan.diagnostics.push_back({DiagnosticKind::environment,"installed-version-mismatch","Requested version is not the current local installation"});
@@ -439,7 +496,7 @@ Plan make_plan(const Context& context, Action action, const std::string& request
             }
         }
     }
-    if (action == Action::install || action == Action::update || action == Action::adopt) {
+    if (action == Action::install || action == Action::update || action == Action::adopt || action == Action::reset) {
         // The IR planner resolves the declared dependency graph once. The plan carries the ordered
         // result, so preview, execution and the saved evidence cannot disagree about it.
         auto resolution = resolve_package_dependencies(context,plan.package,action != Action::install);
@@ -460,8 +517,9 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     else if (action == Action::update) append_ir_plan(plan,ir::Action::update,true);
     else if (action == Action::uninstall) append_ir_plan(plan,ir::Action::uninstall,false);
     else if (action == Action::adopt) append_ir_plan(plan,ir::Action::adopt,false);
-    if (action == Action::update || action == Action::uninstall) {
-        const auto& installed_facts = action == Action::update && plan.previous ? *plan.previous : plan.package;
+    else if (action == Action::reset) append_ir_plan(plan,ir::Action::reset,true);
+    if (action == Action::update || action == Action::uninstall || action == Action::reset) {
+        const auto& installed_facts = (action == Action::update || action == Action::reset) && plan.previous ? *plan.previous : plan.package;
         std::vector<std::string> names;
         for (const auto& command : installed_facts.commands) names.push_back(command.name);
         plan.scoop_entry_wrappers = scoop_entry_wrappers(context,installed_facts.name,names);
@@ -528,11 +586,19 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["scoop_entry_wrappers"] = Json::array();
     for (const auto& wrapper : plan.scoop_entry_wrappers)
         result["scoop_entry_wrappers"].push_back(path_text(wrapper));
-    const auto persistence_directory = (action == Action::install || action == Action::update)
+    const auto persistence_directory = (action == Action::install || action == Action::update || action == Action::reset)
         ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version) : plan.local.directory;
     result["persistence"] = persistence_plan_json(context,plan.package,persistence_directory);
     if (action == Action::update || action == Action::uninstall)
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
+    if (action == Action::reset) {
+        result["current_version"] = plan.previous ? plan.previous->version : std::string{};
+        result["retained_versions"] = retained_versions(context,plan.package.name,plan.previous ? plan.previous->version : std::string{});
+        result["local_version_reference"] = {{"directory",path_text(persistence_directory)},
+            {"manifest",path_text(plan.package.manifest_path)},{"network","none"},
+            {"download_url_guessed",false},{"lifecycle_hooks","not-run"},{"declared_installer_program","not-run"},
+            {"data_rollback","none"}};
+    }
     Json purge = {{"requested",plan.purge},{"status",plan.purge ? "planned" : "not-requested"},{"scope",Json::array()}};
     if (plan.purge && action != Action::uninstall) {
         purge["status"] = "blocked";
@@ -594,6 +660,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["planned_dependencies"] = std::move(planned);
     const fs::path exposure_base = (action == Action::install || action == Action::update)
         ? context.root/L"apps"/wide(plan.package.name)/L"current"
+        : action == Action::reset ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version)
         : action == Action::adopt ? plan.local.current : plan.local.directory;
     result["exposure"] = exposure_plan_json(context,plan.package,exposure_base);
     if (plan.adoption) {
@@ -986,7 +1053,8 @@ int package_command(const Context& context, const std::wstring& command, const s
     if (purge && command != L"uninstall") throw std::runtime_error("--purge is only supported by uninstall");
     if (names.empty()) throw std::runtime_error("Use one or more packages [--dry-run]");
     if (purge && names.size() > 1) throw std::runtime_error("--purge accepts one package at a time");
-    const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update : command == L"adopt" ? Action::adopt : Action::uninstall;
+    const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update :
+        command == L"adopt" ? Action::adopt : command == L"reset" ? Action::reset : Action::uninstall;
     if (action == Action::install) return names.size() > 1
         ? install_batch(context,names,architecture,dry_run)
         : install_single(context,utf8(names.front()),architecture,dry_run);

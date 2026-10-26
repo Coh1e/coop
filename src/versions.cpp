@@ -135,11 +135,46 @@ bool has_current_problem(const Json& inventory) {
         return status == "current-missing" || status == "current-mismatch";
     });
 }
+// Preview and execution both describe the same deletion scope. The scope is derived from the
+// verified inventory, never from a wildcard directory listing.
+Json cleanup_scope(const Json& inventory, const Json& cleanable) {
+    Json remove = Json::array();
+    Json keep = Json::array();
+    std::size_t absent = 0;
+    for (const auto& entry : cleanable)
+        remove.push_back({{"version",entry.value("version",std::string{})},
+            {"directory",entry.value("directory",std::string{})},
+            {"manifest_sha256",entry.value("manifest_sha256",std::string{})},
+            {"install_record_sha256",entry.value("install_record_sha256",std::string{})},
+            {"tree_stamp",entry.value("tree_stamp",std::string{})},
+            {"operation","move-to-cleanup-transaction-then-delete"}});
+    for (const auto& entry : inventory) {
+        const auto status = entry.value("status",std::string{});
+        if (status == "already-absent") { ++absent; continue; }
+        if (status == "cleanable") continue;
+        keep.push_back({{"version",entry.value("version",std::string{})},
+            {"directory",entry.value("directory",std::string{})},
+            {"status",status},{"reason",entry.value("reason",std::string{})}});
+    }
+    return {{"delete_scope",std::move(remove)},{"keep_scope",std::move(keep)},
+        {"scope_summary",{{"delete",cleanable.size()},{"keep",keep.size()},{"already_absent",absent}}}};
+}
 
 CleanupResult cleanup_package(const Context& context, const std::string& package_name, bool dry_run) {
     CleanupResult outcome;
     const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
     const auto retained_path = context.root/L".coop"/L"retained"/(wide(package_name)+L".json");
+    std::string current_version;
+    fs::path current_directory;
+    if (fs::is_regular_file(managed_path)) {
+        try { current_version = read_json(managed_path).value("version",std::string{}); }
+        catch (const std::exception&) { /* The inventory reports malformed evidence as blocked. */ }
+    }
+    const auto current_link = context.root/L"apps"/wide(package_name)/L"current";
+    if (fs::is_directory(current_link)) {
+        try { current_directory = fs::canonical(current_link); }
+        catch (const std::exception&) { /* A dangling link is handled by the inventory. */ }
+    }
     if (!fs::is_regular_file(managed_path) && !fs::is_regular_file(retained_path)) {
         outcome.failed = true;
         outcome.value = {{"package",package_name},{"action","cleanup"},{"status","blocked"},
@@ -159,9 +194,29 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     Json result = {{"package",package_name},{"action","cleanup"},
         {"versions",inventory},{"removable",cleanable},{"unmanageable",unmanageable},
         {"pending_transactions",pending}};
+    const auto merge_scope = [&](Json& value,const Json& versions,const Json& remove) {
+        auto scope = cleanup_scope(versions,remove);
+        for (auto item = scope.begin(); item != scope.end(); ++item) value[item.key()] = item.value();
+        if (current_version.empty() && current_directory.empty()) return;
+        value["current"] = {{"version",current_version},{"directory",path_text(current_directory)},
+            {"status","kept-current"},{"reason","The published current version is never a cleanup target"}};
+        const bool already_kept = std::any_of(value["keep_scope"].begin(),value["keep_scope"].end(),[&](const Json& entry) {
+            return entry.is_object() && equal_name(entry.value("version",std::string{}),current_version);
+        });
+        if (!already_kept)
+            value["keep_scope"].push_back({{"version",current_version},{"directory",path_text(current_directory)},
+                {"status","kept-current"},{"reason","The published current version is never a cleanup target"}});
+        value["scope_summary"]["keep"] = value["keep_scope"].size();
+    };
+    const auto block_scope = [](Json& value) {
+        value["delete_scope"] = Json::array();
+        value["scope_summary"]["delete"] = 0;
+    };
+    merge_scope(result,inventory,cleanable);
     if (has_current_problem(inventory)) {
         result["status"] = "blocked";
         result["removable"] = Json::array();
+        block_scope(result);
         result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
         outcome.failed = true;
         outcome.value = std::move(result);
@@ -170,7 +225,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     if (dry_run) {
         result["status"] = !pending.empty() ? "blocked" : cleanable.empty() && unmanageable.empty() ? "nothing-to-clean" :
             unmanageable.empty() ? "planned" : "partial";
-        if (!pending.empty()) result["reason"] = "A pending transaction requires recovery before cleanup";
+        if (!pending.empty()) { block_scope(result); result["reason"] = "A pending transaction requires recovery before cleanup"; }
         outcome.failed = !pending.empty() || !unmanageable.empty();
         outcome.value = std::move(result);
         return outcome;
@@ -180,6 +235,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     pending = pending_transactions(context);
     if (!pending.empty()) {
         result["status"] = "blocked";
+        block_scope(result);
         result["reason"] = "A pending transaction requires recovery before cleanup: "+pending.front().get<std::string>();
         outcome.failed = true;
         outcome.value = std::move(result);
@@ -195,9 +251,11 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     result["versions"] = inventory;
     result["removable"] = cleanable;
     result["unmanageable"] = unmanageable;
+    merge_scope(result,inventory,cleanable);
     if (has_current_problem(inventory)) {
         result["status"] = "blocked";
         result["removable"] = Json::array();
+        block_scope(result);
         result["reason"] = "The management record's current version or current link is missing or inconsistent; cleanup is blocked until the installation is repaired";
         outcome.failed = true;
         outcome.value = std::move(result);

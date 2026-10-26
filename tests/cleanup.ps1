@@ -41,6 +41,10 @@ $old = @($item.old_versions | Where-Object version -eq '1')[0]
 if ($old.status -ne 'cleanable' -or $old.manifest_present -ne $true -or $old.recorded -ne $true) { throw "old version is not queryable as cleanable: $($old | ConvertTo-Json -Compress)" }
 $preview = Run-Json @('--root',$root,'cleanup','cleanupfixture','--dry-run','--json')
 if ($preview.code -ne 0 -or @($preview.value[0].removable).Count -ne 1 -or -not (Test-Path "$root/apps/cleanupfixture/1/cleanupfixture.exe")) { throw "cleanup preview was not a plan only: $($preview.text)" }
+if (@($preview.value[0].delete_scope).Count -ne 1 -or $preview.value[0].delete_scope[0].version -ne '1' -or
+    @($preview.value[0].keep_scope | Where-Object status -eq 'kept-current').Count -ne 1) {
+    throw "cleanup preview did not list the exact delete and keep scope: $($preview.text)"
+}
 
 # A changed local file or manifest must stop deletion rather than trusting stale evidence.
 Set-Content -LiteralPath "$root/apps/cleanupfixture/1/added-by-user.txt" -Value 'modified' -NoNewline
@@ -63,7 +67,10 @@ $pending = "$root/.coop/transactions/pending-cleanup-test"
 New-Item -ItemType Directory -Path $pending -Force | Out-Null
 '{"state":"pending","action":"update","package":"cleanupfixture"}' | Set-Content "$pending/journal.json" -Encoding utf8
 $blocked = Run-Json @('--root',$root,'cleanup','cleanupfixture','--json')
-if ($blocked.code -eq 0 -or -not (Test-Path "$root/apps/cleanupfixture/1/cleanupfixture.exe")) { throw "pending transaction did not protect old version: $($blocked.text)" }
+if ($blocked.code -eq 0 -or -not (Test-Path "$root/apps/cleanupfixture/1/cleanupfixture.exe") -or
+    @($blocked.value[0].delete_scope).Count -ne 0 -or $blocked.value[0].scope_summary.delete -ne 0) {
+    throw "pending transaction did not protect old version or clear the delete scope: $($blocked.text)"
+}
 Remove-Item -LiteralPath $pending -Recurse -Force
 
 # A running old program is not killed. Cleanup either moves it or leaves the whole version in place.
@@ -111,7 +118,8 @@ Remove-Junction "$root3/apps/retainedfixture/current"
 $blockedCurrent = Run-Json @('--root',$root3,'cleanup','retainedfixture','--json')
 $blockedCurrentPreview = Run-Json @('--root',$root3,'cleanup','retainedfixture','--dry-run','--json')
 if ($blockedCurrent.code -eq 0 -or $blockedCurrent.value[0].status -ne 'blocked' -or
-    $blockedCurrentPreview.code -eq 0 -or $blockedCurrentPreview.value[0].status -ne 'blocked') {
+    $blockedCurrentPreview.code -eq 0 -or $blockedCurrentPreview.value[0].status -ne 'blocked' -or
+    @($blockedCurrent.value[0].delete_scope).Count -ne 0 -or @($blockedCurrentPreview.value[0].delete_scope).Count -ne 0) {
     throw "cleanup accepted a missing current link with a recorded current version: $($blockedCurrent.text)"
 }
 if (-not (Test-Path "$root3/apps/retainedfixture/2/retainedfixture.exe") -or

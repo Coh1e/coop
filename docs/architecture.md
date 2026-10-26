@@ -26,7 +26,8 @@ devkit 提供实际使用场景：Git、Neovim、ripgrep、CMake 等工具的获
 | `coop bucket list/add/remove` | 管理来源；移除 bucket 不等于卸载其软件 |
 | `coop uninstall <package>` | 检查反向依赖，卸载软件，默认保留持久化数据 |
 | `coop uninstall <package> --purge` | 独立请求删除持久化数据，先列出范围；具体名称和确认方式待 CLI 规格确定 |
-| `coop cleanup [package]` | 显式清理不再使用的旧版本；不删除当前版本或作为恢复依据的版本 |
+| `coop cleanup [package]` | 显式清理不再使用的旧版本；不删除当前版本或作为恢复依据的版本；预览用 `delete_scope`/`keep_scope` 列出准确范围 |
+| `coop reset <package>@<version>` | 只从本机已有版本回退程序；不联网、不猜测下载地址、不重跑 Hook/安装器，不承诺数据回退 |
 | 修改命令的 `--dry-run` | 展示计划及已知限制，不运行安装脚本、不改变安装或 bucket 状态 |
 
 暂不引入裸 `coop update` 的模糊含义；最终命令命名待 CLI 规格确定。单次预览不保证实际执行必然成功，尤其无法预测任意脚本的外部副作用。

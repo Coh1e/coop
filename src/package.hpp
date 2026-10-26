@@ -53,7 +53,7 @@ struct Package {
     // execution record cannot become a second source of package semantics.
     std::shared_ptr<const ir::Package> definition;
 };
-enum class Action { adopt, install, update, uninstall };
+enum class Action { adopt, install, update, uninstall, reset };
 enum class StepKind {
     download, verify, extract, script, installer, publish_current, commands,
     shortcuts, environment, persistence, commit_state, remove_commands,
