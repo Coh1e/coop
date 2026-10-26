@@ -94,7 +94,7 @@ coop reset 7zip@26.03 --json
 - 保留版本的 `pre_install` Hook 不因回退重跑；
 - 没有 Coop 版本记录但保存证据完整的本地版本可回退，清理仍保护当前版本。
 
-真机共用根：`tests/real-scoop-old-versions.ps1` 在人工选定的本机 Scoop 根内创建临时 bucket 与测试包，顺序执行 Coop 安装 → Scoop list/reset → Coop 更新 → Scoop reset → Coop 回退 → Scoop reset → Coop cleanup → Coop `uninstall --purge`，最后清理测试对象并核对根内既有 15 个包清单不变。本轮运行的命令、退出码、`summary.json`、清理范围和执行前后清单保存在 `.local/pi/tasks/36/evidence/real-old-versions-run3/`；`summary.json` 记录 `coop_sha256`，`reset` 的 planned 与 observed 操作均为 `unlink-current,remove-entries,publish-current,persistence,entries,commit-state`，Scoop 在 Coop 回退后仍能 `reset` 并运行 v1，清理只删除保留的 v2，持久化 store 在 cleanup 后仍在、在 purge 后只删除声明的 `config`。
+真机共用根：`tests/real-scoop-old-versions.ps1` 在人工选定的本机 Scoop 根内创建临时 bucket 与测试包，顺序执行 Coop 安装 → Scoop list/reset → Coop 更新 → Scoop reset → Coop 回退 → Scoop reset → Coop cleanup → Coop `uninstall --purge`，最后清理测试对象并核对根内既有 15 个包清单不变。本轮运行的命令、退出码、`summary.json`、清理范围和执行前后清单保存在 `.local/pi/tasks/36/evidence/real-old-versions-run4/`；`summary.json` 记录 `coop_sha256`，`reset` 的 planned 与 observed 操作均为 `unlink-current,remove-entries,publish-current,persistence,entries,commit-state`，Scoop 在 Coop 回退后仍能 `reset` 并运行 v1，清理只删除保留的 v2，持久化 store 在 cleanup 后仍在、在 purge 后只删除声明的 `config`。
 
 未运行/不在范围：
 
