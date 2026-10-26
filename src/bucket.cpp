@@ -13,6 +13,19 @@ bool same_name(const Json& source, const std::string& name) {
     const auto requested = wide(name);
     return CompareStringOrdinal(existing.c_str(),-1,requested.c_str(),-1,TRUE) == CSTR_EQUAL;
 }
+std::string normalized_source(std::string value) {
+    while (!value.empty() && (value.back() == '/' || value.back() == '\\')) value.pop_back();
+    if (value.size() >= 4 && value.substr(value.size()-4) == ".git") value.resize(value.size()-4);
+    for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    std::replace(value.begin(),value.end(),'\\','/');
+    return value;
+}
+bool same_source(const std::string& left, const std::string& right) {
+    return normalized_source(left) == normalized_source(right);
+}
+fs::path refresh_journal_path(const Context& context, const std::string& name) {
+    return context.root/L".coop"/L"bucket-refresh"/(wide(name)+L".json");
+}
 void report_source(const Json& source) {
     Json output = source;
     output.erase("files");
@@ -23,7 +36,7 @@ void report_source(const Json& source) {
 // published registry record remain available to queries.
 class RefreshJournal {
 public:
-    RefreshJournal(const Context& context, const std::string& name) : path_(journal_path(context,name)) {
+    RefreshJournal(const Context& context, const std::string& name) : path_(refresh_journal_path(context,name)) {
         write_json(path_,{{"name",name},{"action","refresh"},{"layout","shared-worktree"}});
     }
     ~RefreshJournal() {
@@ -33,9 +46,6 @@ public:
     RefreshJournal(const RefreshJournal&) = delete;
     RefreshJournal& operator=(const RefreshJournal&) = delete;
 private:
-    static fs::path journal_path(const Context& context, const std::string& name) {
-        return context.root/L".coop"/L"bucket-refresh"/(wide(name)+L".json");
-    }
     fs::path path_;
 };
 // The search index is a cache: a bucket stays published when it cannot be written, and an
@@ -57,6 +67,11 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         Json result = Json::array();
         for (auto source : bucket_sources(context)) {
             if (source.value("kind",std::string{}) == "removed") continue;
+            const auto journal = refresh_journal_path(context,source.at("name").get<std::string>());
+            if (fs::exists(journal)) {
+                source["refresh_pending"] = true;
+                source["refresh_journal"] = path_text(journal);
+            }
             source.erase("files");
             result.push_back(std::move(source));
         }
@@ -96,7 +111,32 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             if (!branch.empty() || !revision.empty()) throw std::runtime_error("Branch/revision applies to a Git URL, not a plain local bucket");
             record = {{"name",name},{"kind","local"},{"path",path_text(fs::canonical(source))},
                 {"url",path_text(source)},{"synced_at",nullptr}};
-        } else record = prepare_git_bucket(context,name,source_text,branch,revision,nullptr);
+        } else {
+            const auto shared = context.root/L"buckets"/wide(name);
+            const bool reregister = found != registry.end() && found->value("kind",std::string{}) == "removed" &&
+                fs::exists(shared/L".git");
+            if (reregister) {
+                // A removed registration keeps the shared working tree. Re-registering only adopts
+                // that exact repository; it does not fetch or move HEAD, so local commits and
+                // offline use remain intact. A later `bucket update` applies the refresh rules.
+                record = inspect_scoop_bucket(context,name);
+                if (!same_source(record.at("url").get<std::string>(),source_text))
+                    throw std::runtime_error("Existing shared bucket source differs from the requested source: "+
+                        record.at("url").get<std::string>());
+                if (!branch.empty() && branch != record.value("branch",std::string{}))
+                    throw std::runtime_error("Existing shared bucket uses a different branch: "+record.value("branch",std::string{}));
+                if (!revision.empty() && revision != found->value("fixed_revision",std::string{}))
+                    throw std::runtime_error("Existing shared bucket uses a different fixed revision");
+                record["fixed_revision"] = found->value("fixed_revision",std::string{});
+                // Re-registration takes over a worktree that already exists on disk.
+                record["adopted"] = true;
+                record["refresh_kind"] = "unchanged";
+                record["changed"] = false;
+                record["first_refresh"] = false;
+                record["registered"] = true;
+                record["synced_at"] = nullptr;
+            } else record = prepare_git_bucket(context,name,source_text,branch,revision,nullptr);
+        }
         if (found == registry.end()) registry.push_back(record);
         else *found = record;
         write_json(registry_path,registry);
@@ -112,6 +152,8 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         return 0;
     }
     if (!name.empty() && found == registry.end()) throw std::runtime_error("Bucket is not registered");
+    if (!name.empty() && found != registry.end() && found->value("kind",std::string{}) == "removed")
+        throw std::runtime_error("Bucket registration was removed; use bucket add "+name+" <source> to re-register the shared bucket");
     bool failed = false;
     for (std::size_t index = 0; index < registry.size(); ++index) {
         auto& source = registry.at(index);

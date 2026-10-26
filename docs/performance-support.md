@@ -95,7 +95,8 @@
 | 有变化（新增 1 个 Manifest） | 194.9 | 36,356 | `changed_files=1`；原地检出新 revision、重建索引，无关 Manifest 字节不变 |
 
 - 无变化从快照实现的 156.3ms 降到 78.9ms，有变化从 1154.9ms 降到 194.9ms；主要差别是不再导出并两次哈希整个 1500 文件快照。首次仍以克隆、校验和检出为主，11.0s 与 1.6s 的差异仍来自该环境的首次文件访问/安全扫描。
-- 真实 `main` bucket（`C:\Users\Neo\scoop`，HTTPS，约 1,780 个跟踪文件）在本轮共用工作树上从 `dfc3b581…` 前进到 `5cb1b7b9…`：`changed_files=73`、`received_bytes=128,876`；随后无变化刷新 `received_bytes=0`、索引 SHA256 不变、`git status --porcelain` 为空。该数值包含真实网络和 Windows 文件检出，不能直接与其他机器比较。
+- 真实 `main` bucket（`C:\Users\Neo\scoop`，HTTPS，约 1,780 个跟踪文件）的首次变化 `dfc3b581…` → `5cb1b7b9…`（`changed_files=73`、`received_bytes=128,876`）来自 04:20Z 的早期构建，仅作真实 HTTPS/规模对照；它不与最终二进制混用。
+- 本次修复后的最终构建在真实 `main` 上完成 re-register 后再快进 `5cb1b7b9…` → `89b4cf80…`（`changed_files=8`、`received_bytes=5,331`），随后无变化刷新 `received_bytes=0`、索引 SHA256 不变、`git status --porcelain` 为空；`adopted` 来源标记在后续刷新中保持 true。该数值包含真实网络和 Windows 文件检出，不能直接与其他机器比较。
 - 这些数字是完整进程墙钟时间，不是稳定承诺；真实网络、机器缓存和杀毒/索引服务会影响首次与变化刷新。
 
 ## 已实施的优化

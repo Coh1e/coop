@@ -43,9 +43,9 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 
 可运行 `.local/build/coop.exe --version` 或 `--help`；无效命令退出码为 2，运行失败为 1，正常命令为 0。通过 `--root <目录> list|search <查询>|info <bucket/包名>` 查询本地安装及 bucket，添加 `--json` 获取结构化输出；`--global-root` 可明确指定另一个只读系统级安装根。未指定根时查询当前用户的默认 Scoop 位置。
 
-`bucket add <名称> <公开HTTPS Git URL或本地目录>` 注册来源；Git来源可指定 `--branch` 或 `--revision`。Git来源直接克隆到 Scoop 共用的 `<根>/buckets/<名称>` 工作树并保留完整历史；`bucket update [名称]` 在该工作树内 fetch 后原地前进，已存在的 Scoop bucket 会被就地识别和刷新。`bucket list` 查看，`bucket remove <名称>` 只撤销注册并保留源文件。Git使用内嵌库，无需git.exe；私有/SSH来源不联网更新。标准代理仅在当前进程环境中通过HTTPS_PROXY/NO_PROXY读取，不修改系统代理。
+`bucket add <名称> <公开HTTPS Git URL或本地目录>` 注册来源；Git来源可指定 `--branch` 或 `--revision`。Git来源直接克隆到 Scoop 共用的 `<根>/buckets/<名称>` 工作树并保留完整历史；`bucket update [名称]` 在该工作树内 fetch 后原地前进，已存在的 Scoop bucket 会被就地识别和刷新。`bucket list` 查看（刷新中断时显示 `refresh_pending` 与日志路径），`bucket remove <名称>` 只撤销注册并保留源文件，之后可用同名 `bucket add` 重新注册现有工作树。Git使用内嵌库，无需git.exe；私有/SSH来源不联网更新。标准代理仅在当前进程环境中通过HTTPS_PROXY/NO_PROXY读取，不修改系统代理。
 
-刷新前验证目标树、检查工作树是否干净，并在检查点前后保留 `.git`、实际分支和本地修改；发现本地文件修改或链接/子模块等不安全条目会拒绝更新，不做 `reset --hard`/`clean` 覆盖。首次、有变化、无变化刷新分别记录 `refresh_kind`、revision、`changed_files`、`received_bytes`、`files_count` 和 `synced_at`。分支、本地修改、失败保留和边界见[共用 bucket 的直接刷新](docs/shared-bucket-support.md)。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+刷新前验证目标树、检查工作树是否干净，并要求目标 revision 是当前 HEAD 的快进；未提交修改、本地提交或分叉历史都会拒绝更新，保留 `.git`、实际分支、本地内容和已发布记录，不自动 `clean`。首次、有变化、无变化刷新分别记录 `refresh_kind`、revision、`changed_files`、`received_bytes`、`files_count` 和 `synced_at`。分支、本地修改、失败保留和边界见[共用 bucket 的直接刷新](docs/shared-bucket-support.md)。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 `install|update|uninstall|adopt <包名>... --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本、依赖顺序及预计操作；接管检查同时查看本地更新清单。已知不支持/无效项与尚未验证的生命周期分别报告。
 

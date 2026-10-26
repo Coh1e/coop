@@ -308,6 +308,12 @@ git_oid head_oid(git_repository* repository) {
     const auto commit = own(raw,git_object_free);
     return *git_object_id(commit.get());
 }
+bool is_fast_forward(git_repository* repository, const git_oid& target, const git_oid& current) {
+    if (git_oid_equal(&target,&current)) return true;
+    const int descendant = git_graph_descendant_of(repository,&target,&current);
+    check(descendant,"Compare bucket history");
+    return descendant == 1;
+}
 std::size_t changed_file_count(git_repository* repository, git_commit* old_commit, git_commit* new_commit) {
     git_tree* raw_old = nullptr;
     check(git_commit_tree(&raw_old,old_commit),"Read previous bucket tree");
@@ -501,6 +507,7 @@ Json refresh_shared_bucket(const Context& context, const std::string& name, cons
     auto files = tree_files(repository.get(),commit.get());
     const auto files_count = files.size();
     const std::string previous_revision = previous.value("revision",std::string{});
+    const bool adopted = previous.value("adopted",false) || previous.value("kind",std::string{}) == "unmanaged";
     const bool already_current = git_oid_equal(&old_revision,&target);
     if (already_current) {
         const bool record_stale = previous_revision != oid_text(&target) ||
@@ -508,16 +515,21 @@ Json refresh_shared_bucket(const Context& context, const std::string& name, cons
         if (record_stale) invalidate_index(context,name);
         auto record = make_record(name,source,fixed_revision,target,directory,files_count,false,record_stale,
             record_stale ? previous_revision : std::string{},0,transfer.bytes);
-        record["adopted"] = previous.value("kind",std::string{}) == "unmanaged";
+        record["adopted"] = adopted;
         return record;
     }
+    // A bucket may contain local commits. Fast-forwarding preserves them; anything else would
+    // discard local history, so stop before touching the worktree or the published record.
+    if (!is_fast_forward(repository.get(),target,old_revision))
+        throw std::runtime_error("Local bucket history has commits or a divergent revision; refusing to discard local history ("+
+            oid_text(&old_revision)+" is not an ancestor of "+oid_text(&target)+")");
     invalidate_index(context,name);
     checkout_commit(repository.get(),target,old_revision);
     auto refreshed = describe_source(repository.get(),source.remote,source.branch);
     const auto changed_files = changed_file_count(repository.get(),lookup_commit(repository.get(),&old_revision).get(),commit.get());
     auto record = make_record(name,refreshed,fixed_revision,target,directory,files_count,false,true,
         oid_text(&old_revision),changed_files,transfer.bytes);
-    record["adopted"] = previous.value("kind",std::string{}) == "unmanaged";
+    record["adopted"] = adopted;
     return record;
 }
 }

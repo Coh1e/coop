@@ -73,6 +73,9 @@ if ($LASTEXITCODE -ne 0 -or $tracked.url -ne $url -or $tracked.branch -ne 'trunk
 if (-not (Test-Path -LiteralPath "$trackingDirectory/.git")) { throw 'original Scoop Git metadata was removed' }
 if ((Invoke-FixtureGit @('-C',$trackingDirectory,'rev-parse','--abbrev-ref','HEAD')) -ne 'local-name') { throw 'existing local branch name was not preserved' }
 if ((Invoke-FixtureGit @('-C',$trackingDirectory,'rev-parse','HEAD')) -ne $tracked.revision) { throw 'adopted shared bucket revision was not published' }
+if ($tracked.adopted -ne $true) { throw 'in-place adoption was not recorded' }
+$trackedAgain = (& $CoopExe --root $root bucket update tracked --json) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $trackedAgain.changed -ne $false -or $trackedAgain.adopted -ne $true) { throw 'adoption provenance was lost on a later refresh' }
 Copy-Item "$PSScriptRoot/corpus/main/ripgrep.json" "$repository/bucket/ripgrep.json"
 Invoke-FixtureGit @('-C',$repository,'add','bucket') | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','add ripgrep') | Out-Null
@@ -144,13 +147,17 @@ $updaterOutput.GetAwaiter().GetResult() | Out-Null
 $updaterError.GetAwaiter().GetResult() | Out-Null
 if (-not $interrupted) { throw 'Failed to observe an actual in-progress refresh interruption' }
 if ((Get-FileHash -LiteralPath $registryPath).Hash -ne $beforeCrash) { throw 'Interruption changed published registry' }
+$pending = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq git
+if ($LASTEXITCODE -ne 0 -or $pending.refresh_pending -ne $true -or -not (Test-Path -LiteralPath $pending.refresh_journal)) { throw 'Interruption journal was not surfaced by bucket list' }
 $items = (& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 1) { throw 'Interruption broke previous query' }
 $deleted = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or -not $deleted.changed) { throw 'Retry after interruption did not recover' }
 if (-not (Test-Path -LiteralPath "$sharedGit/.git") -or (Invoke-FixtureGit @('-C',$sharedGit,'rev-parse','HEAD')) -ne $deleted.revision) { throw 'Retry after interruption did not leave a usable shared bucket' }
 if (Test-Path -LiteralPath (Join-Path $journals 'git.json')) { throw 'Completed refresh left an in-progress journal' }
-Write-Output ('PASS actual updater process interruption, exit='+$updater.ExitCode+'; journal observed; old record and query retained; retry completed')
+$settled = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq git
+if ($LASTEXITCODE -ne 0 -or $settled.refresh_pending) { throw 'Completed refresh still reports a pending journal' }
+Write-Output ('PASS actual updater process interruption, exit='+$updater.ExitCode+'; journal observed and diagnosed; old record and query retained; retry completed')
 
 $heldLock = [IO.File]::Open((Join-Path $root '.coop/write.lock'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 try {
@@ -183,3 +190,49 @@ if ((Invoke-FixtureGit @('-C',$sharedGit,'rev-parse','HEAD')) -ne $deleted.revis
 if (-not (Test-Path -LiteralPath "$sharedGit/bucket/ripgrep.json")) { throw 'local-change refusal removed usable shared bucket files' }
 if (((& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json).Count -ne 1) { throw 'local-change refusal broke local query' }
 Write-Output 'PASS Git library clone into shared bucket, non-default branch, in-place incremental refresh, local-change protection'
+
+# A clean local commit is not a worktree modification, but it is still local history. The refresh
+# must stop before checkout instead of discarding it.
+$localCommitText = & $CoopExe --root $root bucket add localcommit $url --branch trunk --json
+if ($LASTEXITCODE -ne 0) { throw 'local-commit fixture bucket add failed' }
+$localCommitRecord = ($localCommitText -join "`n") | ConvertFrom-Json
+$localCommitPath = $localCommitRecord.path
+[IO.File]::WriteAllText((Join-Path $localCommitPath 'bucket/custom.json'),'{"version":"1.0.0","url":"https://invalid.example/custom.exe","hash":"'+('0'*64)+'"}')
+Invoke-FixtureGit @('-C',$localCommitPath,'add','bucket/custom.json') | Out-Null
+Invoke-FixtureGit @('-C',$localCommitPath,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','local custom commit') | Out-Null
+$localCommitHead = Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')
+& $CoopExe --root $root bucket update localcommit --json 2> "$root/local-commit-error.txt" | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 'a clean local commit was silently discarded' }
+if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead) { throw 'refused refresh moved the local commit' }
+if (-not (Test-Path -LiteralPath (Join-Path $localCommitPath 'bucket/custom.json'))) { throw 'refused refresh deleted the local custom manifest' }
+$localCommitAfter = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq localcommit
+if ($localCommitAfter.revision -ne $localCommitRecord.revision) { throw 'refused refresh changed the published local-commit record' }
+& $CoopExe --root $root bucket remove localcommit | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'remove of the local-commit bucket failed' }
+$localReaddText = & $CoopExe --root $root bucket add localcommit $url --branch trunk --json
+if ($LASTEXITCODE -ne 0) { throw 're-registration of the local-commit bucket failed' }
+$localReadd = ($localReaddText -join "`n") | ConvertFrom-Json
+if ($localReadd.registered -ne $true -or $localReadd.adopted -ne $true -or $localReadd.revision -ne $localCommitHead) { throw 're-registration did not adopt the current local commit' }
+if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead -or -not (Test-Path -LiteralPath (Join-Path $localCommitPath 'bucket/custom.json'))) { throw 're-registration moved or deleted the local commit' }
+& $CoopExe --root $root bucket update localcommit --json 2> "$root/local-commit-readd-error.txt" | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 're-registered local commit was silently discarded by update' }
+if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead) { throw 'update after re-registration moved the local commit' }
+Write-Output 'PASS clean local commit is preserved; non-fast-forward refresh is refused before and after re-registration'
+
+# Removing only unregisters. Re-adding must adopt the existing shared worktree instead of leaving
+# the name in a dead end; updating a removed name must fail honestly.
+$readdText = & $CoopExe --root $root bucket add readd $url --branch trunk --json
+if ($LASTEXITCODE -ne 0) { throw 're-registration fixture add failed' }
+$readd = ($readdText -join "`n") | ConvertFrom-Json
+& $CoopExe --root $root bucket remove readd | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'remove before re-registration failed' }
+& $CoopExe --root $root bucket update readd --json 2> "$root/removed-update-error.txt" | Out-Null
+if ($LASTEXITCODE -eq 0) { throw 'updating a removed bucket silently succeeded' }
+if ((Get-Content -LiteralPath "$root/removed-update-error.txt" -Raw) -notmatch 'removed') { throw 'removed-bucket update did not explain the state' }
+$readdAgainText = & $CoopExe --root $root bucket add readd $url --branch trunk --json
+if ($LASTEXITCODE -ne 0) { throw ('re-registration of the existing shared bucket failed: '+($readdAgainText -join "`n")) }
+$readdAgain = ($readdAgainText -join "`n") | ConvertFrom-Json
+if ($readdAgain.path -ne $readd.path -or -not (Test-Path -LiteralPath (Join-Path $readdAgain.path '.git')) -or $readdAgain.adopted -ne $true) { throw 're-registration did not adopt the existing shared worktree' }
+$readdSame = (& $CoopExe --root $root bucket update readd --json) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $readdSame.changed -ne $false -or $readdSame.adopted -ne $true -or $readdSame.revision -ne $readdAgain.revision) { throw 're-registered bucket is not stable or lost adoption provenance' }
+Write-Output 'PASS removed bucket re-adopts its shared worktree; removed update fails honestly'
