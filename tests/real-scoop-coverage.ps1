@@ -54,6 +54,13 @@ if ($ExtrasRevision) { $ExtrasRevision = $ExtrasRevision.ToLower() }
 $script:CommandLines = [System.Collections.Generic.List[string]]::new()
 
 . (Join-Path $PSScriptRoot 'coverage-manifest-features.ps1')
+function Get-ProjectPath([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path)
+    if (($full.TrimEnd('\') + '\').StartsWith($projectRoot,[StringComparison]::OrdinalIgnoreCase)) {
+        return $full.Substring($projectRoot.Length).Replace('\','/')
+    }
+    return $full
+}
 function Get-WorktreeRevision([string]$Worktree) {
     $git = Join-Path $Worktree '.git'
     if (Test-Path -LiteralPath $git -PathType Leaf) {
@@ -328,11 +335,11 @@ if ($VerifiedFacts) {
             run_exit = if ($fact.run) { $fact.run.exit } else { $null }
             installed_manifest_sha256 = Get-Sha256 ([string]$fact.manifest_path)
             lifecycle_steps = if ($steps.ContainsKey([string]$fact.package)) { $steps[[string]$fact.package] } else { @() }
-            source_facts = $factsPath
-            source_lifecycle = if ($VerifiedLifecycle) { $lifecyclePath } else { $null }
+            source_facts = Get-ProjectPath $factsPath
+            source_lifecycle = if ($VerifiedLifecycle) { Get-ProjectPath $lifecyclePath } else { $null }
         }
     }
-    $baseline.verified_source = [ordered]@{ facts = $factsPath; lifecycle = if ($VerifiedLifecycle) { $VerifiedLifecycle } else { $null }; packages = $facts.Count }
+    $baseline.verified_source = [ordered]@{ facts = (Get-ProjectPath $factsPath); lifecycle = if ($VerifiedLifecycle) { Get-ProjectPath $lifecyclePath } else { $null }; packages = $facts.Count }
 } else {
     $baseline.verified_source = $null
 }
@@ -643,6 +650,9 @@ $baselineProjection = [ordered]@{
     hash_algorithms = $summary.hash_algorithms
     verified_source = $baseline.verified_source
     verified = @($summary.verified)
+    shared_root = $baseline.shared_root
+    manifest_verification = $mainVerification
+    external_helper_links = $helperTargets
 }
 $baselineProjection | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $runDir 'baseline.json') -Encoding utf8
 
