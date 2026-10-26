@@ -45,8 +45,10 @@ IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例�
 - `tests/real-scoop-readonly.ps1`：对本机真实 Scoop 根执行 `list`、`info`、`update --dry-run`、`uninstall --dry-run`，核对安装清单与预览结论，并证明根内文件未改变、未创建 `.coop`。
 - `tests/dependencies.ps1`（CTest 名称 `dependencies`）：真实 Main/wget 依赖预览、依赖链安装、已安装复用、缺失/循环/歧义/来源冲突诊断、批量结果、反向依赖卸载保护和预览/日志 IR 操作对应。
 - `tests/real-scoop-dependencies.ps1`：真实 git-tfs 复用已安装 git、反向依赖阻止卸载、不自动连带清理以及真实缺失依赖诊断。详见[依赖安装与反向依赖保护](dependency-support.md)。
+- `tests/installer-programs.ps1`（CTest 名称 `installer_programs`）：安装器/卸载器程序与多阶段脚本组合的 IR 操作顺序、参数替换、`keep`、失败记录与回滚。
+- `tests/real-scoop-installers.ps1`：真实 Main/vcpkg 的安装器程序 + 多阶段脚本组合只读预览，以及真实 Main/groovyserv 的 `installer.file` 生命周期。详见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 本轮真实安装基线、环境与复现命令见 [真实 Scoop 安装基线](real-scoop-baseline.md)。
 
 ## 尚未完成
 
-R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）。真实脚本与安装器机制、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧执行/接管路径清理与完整交付验收仍分别由后续任务跟踪。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。
+R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）；R11 已把 `installer.file/args` 与 `uninstaller.file/args` 接入同一个真实宿主（上游 `Invoke-Installer`，参数替换、`keep`、退出码与执行时序按 Scoop），并记录程序自身的未知外部副作用（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)）。MSI/InnoSetup/NSIS 等特殊安装器结构、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧执行/接管路径清理与完整交付验收仍分别由后续任务跟踪。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。

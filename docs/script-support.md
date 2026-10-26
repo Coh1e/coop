@@ -1,6 +1,6 @@
-# 生命周期 Hook 与真实 PowerShell
+# 生命周期 Hook、安装器程序与真实 PowerShell
 
-日期：2026-10-26。任务：[R10 / #31](https://github.com/Coh1e/coop/issues/31)，父规格 [#21](https://github.com/Coh1e/coop/issues/21)。本文记录 Coop 如何用真实 PowerShell 执行 Manifest 生命周期脚本、脚本获得的 Scoop 上下文与辅助函数、阶段与目录时序、输出与退出码语义，以及仍有待真实验证的部分。
+日期：2026-10-26。任务：[R10 / #31](https://github.com/Coh1e/coop/issues/31) 与 [R11 / #32](https://github.com/Coh1e/coop/issues/32)，父规格 [#21](https://github.com/Coh1e/coop/issues/21)。本文记录 Coop 如何用真实 PowerShell 执行 Manifest 生命周期脚本与安装器/卸载器程序、它们获得的 Scoop 上下文与辅助函数、阶段与目录时序、输出与退出码语义，以及仍有待真实验证的部分。
 
 行为依据固定 Scoop 提交 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f`（v0.6.0）的 [`bin/scoop.ps1`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/bin/scoop.ps1)、[`install_app` / `Invoke-Installer` / `Invoke-HookScript`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1)、[`scoop-update.ps1`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-update.ps1) 与 [`scoop-uninstall.ps1`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/libexec/scoop-uninstall.ps1)，脚本原文取自[固定样本](../tests/corpus/index.json) 与真实 `main` bucket。
 
@@ -39,6 +39,10 @@
 Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用 `scoop` 的目录；Coop 同样不为 Hook 子进程切换目录，它继承启动 `coop` 时的当前目录，与 Scoop 一致。脚本必须用 `$dir`/`$original_dir` 等上下文变量访问包目录，不要依赖相对路径。预览的 `script_support.working_directory` 会明确说明这一点。
 
 `$cmd` **不是** Scoop 0.6.0 的 Hook 变量：`Invoke-HookScript` 只创建脚本块，`scoop-install.ps1`/`scoop-update.ps1`/`scoop-uninstall.ps1` 都没有定义它。用 Scoop 自身的库和 `Invoke-HookScript` 在同一提交上运行探针，`$null -ne $cmd` 为 `false`；`tests/hooks.ps1` 与 `tests/installers.ps1` 也断言 Coop 会话中同样未定义。因此 Manifest 中 `if ($cmd -eq 'uninstall') { reg import ... }` 之类的分支在两个客户端中都不执行，Coop 不会因为“更像预期”而私自定义它。
+
+## 安装器/卸载器程序
+
+`installer.file`/`installer.args` 与 `uninstaller.file`/`uninstaller.args` 声明的程序共用同一个真实 PowerShell 宿主和固定 Scoop 兼容库：宿主绑定与 Hook 相同的上下文后，以**仅删除 `installer`/`uninstaller.script` 属性的同一份 Manifest 副本**调用上游 `Invoke-Installer`。IR 计划已把 hook 脚本作为独立操作，因此程序与脚本各执行一次且顺序不变；路径包含性、缺少程序中止、`$dir`/`$global`/`$version` 参数替换、`.ps1` 直接调用、非零退出传播与 `keep=false` 删除都来自上游实现，Coop 没有另写一套。程序输出写入 `scripts/<序号>-<阶段>-program.stdout.log|.stderr.log`，事务日志的 `installers[]` 记录声明、参数、`keep`、宿主、兼容库版本、退出码和尾部摘要。程序的执行时机与目录：安装时在版本目录、`pre_install` 之后与 `installer.script` 之前；卸载与更新旧版本时在旧版本目录、`pre_uninstall` 之后与 `uninstaller.script` 之前。详细前提、真实样本和外部副作用边界见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 
 ## 辅助函数
 
@@ -94,6 +98,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 | 接管资格 | 带 Hook 的已安装包仍为 `untested`，不写管理记录；该类需要真实共用根证据 |
 
 `tests/installers.ps1`（CTest `installers`）补充 `installer`/`uninstaller` 阶段：真实 7z 产物、rclone `uninstaller.script` 原文、installer 阶段顺序/上下文/退出码和失败传播，并确认不再把脚本原文当作可执行性判据。
+`tests/installer-programs.ps1`（CTest `installer_programs`，75 项检查）覆盖安装器/卸载器程序与多阶段脚本的组合：真实 `.cmd`/`.ps1` 程序、`$dir`/`$version`/`$global` 参数替换、`args`-only 下载文件名回退、`keep` 语义、`current`/持久化时序、更新（旧卸载器程序 + 新安装器程序）、卸载顺序与失败回滚。
 
 ### 真实共用根证据（#31）
 
@@ -107,7 +112,8 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 
 ## 未运行或未承诺
 
-- 本机真实 Scoop 根上的其余 14 个已安装包的 Hook 生命周期由 [R19 / #40](https://github.com/Coh1e/coop/issues/40) 跟踪；本轮真实根只实际执行了 rclone 的 `pre_install` 与 `uninstaller.script`（见上节），其他已安装包的 Hook 文本只做了只读预览。
+- 本机真实 Scoop 根上的其余 14 个已安装包的 Hook 生命周期由 [R19 / #40](https://github.com/Coh1e/coop/issues/40) 跟踪；本轮真实根只实际执行了 rclone 的 `pre_install` 与 `uninstaller.script`（见上节）以及 groovyserv 的真实 `installer.file` 程序（#32），其他已安装包的 Hook/安装器文本只做了只读预览。
+- 真实 `installer.file` 程序只在真实根上执行过 Main/groovyserv 的 `bin\setup.bat`（#32）。Main/vcpkg（安装器程序 + `pre_install`/`post_install`/`uninstaller.script`）只做了只读预览；其自身声明会把完整 vcpkg 仓库取到 `persist` 并写入用户 MSBuild 集成，未在本轮有界范围内执行。真实 `uninstaller.file/args` 没有 Main/Extras 样本。
 - `reg import`、服务控制、`Start-Process` 等会修改项目外状态的原文没有在真实根上执行；它们仍是受信脚本副作用，不承诺回滚。
 - MSI/Dark、Inno Setup、NSIS 机制本身（R12–R14）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark/MSI helper 时以失败结束。
 - `post_uninstall` 中删除用户数据的真实样本（`Extras/aider-desk`、`Main/azure-cli`）没有执行；只用合成脚本验证阶段语义与 `$purge`。

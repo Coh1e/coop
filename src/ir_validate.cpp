@@ -89,9 +89,9 @@ void validate(Package& package) {
         if (!dependency.version.empty())
             report(package,Layer::validation,"dependency-version","Version-constrained dependencies are not supported");
     }
-    if (package.installer) {
-        capability(package,"installer-process",false,
-            "Installer programs declared by installer.file/args are refused until their external effects can be verified");
+    if (package.installer || package.uninstaller) {
+        capability(package,"installer-process",true,
+            "Declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop compatibility library that run hook scripts, so the upstream Invoke-Installer owns the $dir containment and missing-file checks, the $dir/$global/$version argument substitution, .ps1 invocation, exit-code propagation and the keep=false removal; the program is external code whose effects outside the managed package and persist roots are not rolled back and is never re-run automatically");
     }
     if (!package.hooks.empty()) {
         capability(package,"lifecycle-hooks",true,

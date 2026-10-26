@@ -56,4 +56,33 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     const fs::path& directory, const fs::path& original_directory, const fs::path& persist_directory,
     const fs::path& transaction, const std::string& command_name, bool purge,
     const fs::path& manifest_path);
+
+// An installer/uninstaller program declared with installer.file/installer.args (or
+// uninstaller.file/uninstaller.args) runs in the same real PowerShell host and pinned Scoop library
+// that run hook scripts. The generated host calls Scoop's own Invoke-Installer with only the
+// installer/uninstaller *script* property suppressed, because the IR plan carries that script as a
+// separate hook operation. Everything else stays upstream behavior: the declared program must
+// resolve inside $dir, $dir/$global/$version argument substitution, direct invocation of a .ps1
+// program, non-zero propagation, and removal of the program after a successful run unless
+// keep=true. The program itself is external code: its effects outside the managed package and
+// persist roots are unknown, are not rolled back, and it is never re-run automatically.
+struct InstallerRun {
+    int exit_code = 0;
+    fs::path interpreter;
+    // Generated host that loaded the pinned Scoop library, bound the context and called
+    // Invoke-Installer for the declared program.
+    fs::path host_path;
+    fs::path library;
+    fs::path manifest_path;
+    fs::path stdout_path;
+    fs::path stderr_path;
+    std::size_t stdout_bytes = 0;
+    std::size_t stderr_bytes = 0;
+    std::string stdout_tail;
+    std::string stderr_tail;
+};
+InstallerRun run_installer_program(const Context& context, const Package& package, bool uninstall,
+    std::size_t index, const fs::path& directory, const fs::path& original_directory,
+    const fs::path& persist_directory, const fs::path& transaction, const std::string& command_name,
+    bool purge, const fs::path& manifest_path);
 }

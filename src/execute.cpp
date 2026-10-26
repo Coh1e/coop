@@ -35,9 +35,9 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
 void require_capabilities(const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
-    if (package.installer || package.uninstaller)
-        throw std::runtime_error("installer/uninstaller process declarations (installer.file/args) are not enabled; no fixed sample requires them, and a failed external program cannot be rolled back safely");
-    if (!package.scripts.empty()) {
+    // Hook scripts and installer/uninstaller programs share one host requirement: a real PowerShell
+    // interpreter plus the pinned Scoop compatibility library. Both are reported before any write.
+    if (!package.scripts.empty() || package.installer || package.uninstaller) {
         const auto host = script_host();
         if (!host.problem.empty()) throw std::runtime_error(host.problem);
     }
@@ -694,10 +694,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         return destination;
     };
     // `installed` aliases `package` for install and uninstall; updates carry both records.
-    if (!installed.scripts.empty()) staged_manifest(installed);
-    if (!package.scripts.empty()) staged_manifest(package);
+    if (!installed.scripts.empty() || installed.installer || installed.uninstaller) staged_manifest(installed);
+    if (!package.scripts.empty() || package.installer || package.uninstaller) staged_manifest(package);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
-        {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
+        {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"installers",Json::array()},
+        {"shortcuts_already_absent",absent_shortcuts}};
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still
     // declares the values this package previously wrote, so use those declarations as attribution
     // evidence before deciding whether a current value is package-owned or a later user edit.
@@ -798,6 +799,58 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     std::to_string(run.exit_code)+"; output was captured in "+path_text(run.stdout_path)+
                     " and "+path_text(run.stderr_path));
         }
+    };
+    // Installer and uninstaller programs are executed from the IR declaration the plan carries, in
+    // the order the same IR sequence places them. The upstream Invoke-Installer helper owns the
+    // declared program's checks, argument substitution, exit code and keep=false removal, so this
+    // backend only binds the directory/stage context and records the evidence.
+    Json installer_runs = Json::array();
+    const auto run_installer = [&](const Package& target, const ir::InstallerProgram& program,
+                                   bool uninstall, const fs::path& directory, const char* command,
+                                   bool previous) {
+        const auto phase = std::string(uninstall ? "uninstaller" : "installer");
+        const auto declared_path = directory/wide(program.file);
+        journal["installers"].push_back({{"phase",phase},{"package",target.name},{"previous_package",previous},
+            {"directory",path_text(directory)},{"command",command},
+            {"declared_file",program.file},{"declared_program_path",path_text(declared_path)},
+            {"declared_arguments",program.arguments},{"keep",program.keep},{"status","running"},
+            {"external_side_effects","external program declared by the Manifest; effects outside the managed package and persist roots cannot be predicted or rolled back, and the program is never re-run automatically"}});
+        save();
+        InstallerRun run;
+        try { run = run_installer_program(context,target,uninstall,0,directory,directory,
+            context.root/L"persist"/wide(target.name),transaction,command,plan.purge,staged_manifest(target)); }
+        catch (const std::exception& error) {
+            journal["installers"].back()["status"] = "failed";
+            journal["installers"].back()["error"] = error.what();
+            try { save(); } catch (...) { /* Preserve the original failure. */ }
+            throw;
+        }
+        auto& record = journal["installers"].back();
+        record["status"] = run.exit_code == 0 ? "succeeded" : "failed";
+        record["exit_code"] = run.exit_code;
+        record["interpreter"] = path_text(run.interpreter);
+        record["host"] = path_text(run.host_path);
+        record["manifest"] = path_text(run.manifest_path);
+        record["scoop_library"] = path_text(run.library);
+        record["scoop_library_version"] = script_host().library_version;
+        record["program_present_after_run"] = fs::is_regular_file(declared_path);
+        record["context"] = {{"app",target.name},{"bucket",target.bucket},{"version",target.version},
+            {"architecture",target.architecture},{"dir",path_text(directory)},
+            {"original_dir",path_text(directory)},
+            {"persist_dir",path_text(context.root/L"persist"/wide(target.name))},
+            {"scoopdir",path_text(context.root)},{"bucketsdir",path_text(context.root/L"buckets")},
+            {"global",false}};
+        record["stdout_log"] = path_text(run.stdout_path);
+        record["stderr_log"] = path_text(run.stderr_path);
+        record["stdout_bytes"] = run.stdout_bytes;
+        record["stderr_bytes"] = run.stderr_bytes;
+        record["stdout_tail"] = script_json_text(run.stdout_tail);
+        record["stderr_tail"] = script_json_text(run.stderr_tail);
+        save();
+        installer_runs.push_back(record);
+        if (run.exit_code != 0)
+            throw std::runtime_error(phase+" program failed with exit code "+std::to_string(run.exit_code)+
+                "; output was captured in "+path_text(run.stdout_path)+" and "+path_text(run.stderr_path));
     };
     // Preserve the declared source of every artifact in the transaction journal, including a
     // fragment rename and the declared digest algorithm, so preview, execution and recovery
@@ -962,10 +1015,30 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 break;
             }
-            case ir::Operation::installer:
-                if (step.previous ? installed.uninstaller.has_value() : package.installer.has_value())
-                    throw std::runtime_error("Installer programs are not enabled by this execution path");
+            case ir::Operation::installer: {
+                // The declared program is read from the package IR, never re-derived from the
+                // Manifest here. The plan already placed this step after pre_install and before
+                // the installer hook or, for a removal, after pre_uninstall and before the
+                // uninstaller hook.
+                const auto& target = step.previous ? installed : package;
+                const bool uninstall = step.previous || plan.action == Action::uninstall;
+                const ir::InstallerProgram* program = nullptr;
+                if (target.definition) {
+                    const auto& section = uninstall ? target.definition->uninstaller : target.definition->installer;
+                    if (section) program = &*section;
+                }
+                if (!program)
+                    throw std::runtime_error("Plan installer step has no declared "+
+                        std::string(uninstall ? "uninstaller" : "installer")+" program in the package IR");
+                ensure_preparation();
+                const bool old_version = step.previous || plan.action == Action::uninstall;
+                if (!old_version) ensure_version();
+                const auto directory = old_version ? plan.local.directory : version;
+                const auto command_name = old_version ? (step.previous && updating ? "update" : "uninstall") :
+                    (updating ? "update" : "install");
+                run_installer(target,*program,uninstall,directory,command_name,step.previous);
                 break;
+            }
             case ir::Operation::unlink_current:
                 ensure_preparation();
                 move(app/L"current",transaction/(step.previous ? L"old-current" : L"current"));
@@ -1201,7 +1274,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     try { erase_tree(transaction/L"downloads"); } catch (...) { /* Keep the committed journal if temporary downloads cannot be removed. */ }
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
         {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
-        {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs}};
+        {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs},{"installers",installer_runs}};
     if (plan.action == Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         if (!plan.purge) {
@@ -1266,10 +1339,16 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
         const auto created = journal.contains("created") && journal.at("created").is_array() ? journal.at("created") : Json::array();
         const auto moves = journal.contains("moves") && journal.at("moves").is_array() ? journal.at("moves") : Json::array();
         const auto scripts = journal.contains("scripts") && journal.at("scripts").is_array() ? journal.at("scripts") : Json::array();
+        const auto installers = journal.contains("installers") && journal.at("installers").is_array() ? journal.at("installers") : Json::array();
         const bool scripts_started = !scripts.empty();
+        // Installer/uninstaller programs are as unrollbackable as script text: recovery restores
+        // Coop-owned paths, keeps the logs as evidence and never re-runs the program.
+        const bool programs_started = !installers.empty();
+        const bool external_effects_started = scripts_started || programs_started;
         result["scripts_started"] = scripts_started;
-        if (scripts_started) result["external_side_effects"] =
-            "unknown; recovered state does not roll back effects outside Coop's managed paths, and journaled scripts are not re-run";
+        result["installer_programs_started"] = programs_started;
+        if (external_effects_started) result["external_side_effects"] =
+            "unknown; recovered state does not roll back effects outside Coop's managed paths, and journaled scripts or installer programs are not re-run";
         Json actions = Json::array();
         std::vector<fs::path> removals;
         std::vector<std::pair<fs::path,fs::path>> restores;
@@ -1327,11 +1406,12 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
         auto resolved = read_json(journal_path);
         resolved["state"] = "rolled-back";
         resolved["recovered"] = true;
-        if (scripts_started) resolved["recovery_external_side_effects"] =
-            "unknown; journaled scripts were not re-run and their effects outside Coop's managed paths were not rolled back";
+        if (external_effects_started) resolved["recovery_external_side_effects"] =
+            "unknown; journaled scripts and installer programs were not re-run and their effects outside Coop's managed paths were not rolled back";
         write_json(journal_path,resolved);
-        if (scripts_started) {
-            // Script logs are recovery evidence and must not be treated as ordinary cache.
+        if (external_effects_started) {
+            // Script and installer-program logs are recovery evidence and must not be treated as
+            // ordinary cache.
             result["transaction_evidence_retained"] = path_text(journal_path.parent_path());
         } else {
             try {
@@ -1341,9 +1421,9 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
                 result["cleanup_warning"] = std::string("Recovered state is valid, but transaction staging could not be removed: ")+error.what();
             }
         }
-        result["status"] = scripts_started ? "recovered-with-unknown-script-effects" : "recovered";
-        result["reason"] = scripts_started ?
-            "Interrupted Coop state was reverted; script side effects outside managed paths remain unknown" :
+        result["status"] = external_effects_started ? "recovered-with-unknown-script-effects" : "recovered";
+        result["reason"] = external_effects_started ?
+            "Interrupted Coop state was reverted; script and installer-program side effects outside managed paths remain unknown" :
             "Interrupted Coop state was reverted";
         return result;
     } catch (const std::exception& error) {

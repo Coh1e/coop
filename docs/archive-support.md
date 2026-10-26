@@ -97,6 +97,6 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 ## 未完成与边界
 
 - 本文件只证明这些真实样本与机制路径，不构成 Main/Extras 完整分母、安装器、真实脚本、用户环境或全部入口类型的完成证明。
-- MSI 管理安装仍因 `%WINDIR%\Installer` 机器缓存阻塞；InnoSetup/NSIS/WiX、`installer.file/args`、分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。
+- MSI 管理安装仍因 `%WINDIR%\Installer` 机器缓存阻塞；InnoSetup/NSIS/WiX 安装器结构、分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 共享归档的更新/卸载以标准布局和入口目标为事实；Scoop 不提供解压树摘要，因此用户对版本目录内部的任意修改不会像直接文件摘要那样被逐一发现。需要内容摘要的场景仍应使用可核对产物的包，或后续在卸载/清理前增加显式树摘要记录。
 - `adopt` 专用旧路径仍拒绝归档布局；实际共享更新/卸载走 IR 计划路径，不要求该旧命令。由 #43 统一清理旧路径。

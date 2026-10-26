@@ -252,9 +252,18 @@ Json package_json(const Package& package) {
         {"problem",host.problem}};
     result["external_tools"] = external_tools_json(package);
     result["dependencies"] = package.dependencies;
+    // Installer/uninstaller programs run through the same real PowerShell host and pinned Scoop
+    // library as hook scripts, calling upstream Invoke-Installer. The preview therefore names the
+    // declared program, its substitution context, what happens to the program file, and which
+    // effects cannot be recovered.
     const auto process_json = [](const InstallerProcess& process) {
         return Json{{"file",path_text(process.file)},{"arguments",process.arguments},{"keep",process.keep},
-            {"side_effects","external program; effects are unverified and cannot be universally rolled back"}};
+            {"host","real PowerShell host that loads the pinned Scoop compatibility library and calls upstream Invoke-Installer with the installer/uninstaller hook script suppressed"},
+            {"arguments_context",Json::array({"$dir","$global","$version"})},
+            {"program_removal",process.keep ?
+                "kept in the version directory after the run (keep=true)" :
+                "removed after a successful run, matching Scoop's default"},
+            {"side_effects","external program; effects outside the managed package and persist roots cannot be predicted or rolled back, and the program is never re-run automatically"}};
     };
     result["installer"] = package.installer ? process_json(*package.installer) : Json(nullptr);
     result["uninstaller"] = package.uninstaller ? process_json(*package.uninstaller) : Json(nullptr);
@@ -589,7 +598,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while installer/uninstaller process declarations remain refused"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
     return result;
 }
 struct PackageOutcome {
