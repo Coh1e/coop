@@ -82,7 +82,7 @@
 
 - `pi-coding-agent` 只做只读记录：它正是本轮执行器的运行载体，重写其入口或切换版本会中断验收本身。没有据此断言或否认产品能力。
 - 本轮没有为了证明独立性而卸载用户日常使用的 Git、7-Zip 或执行器自身；“无 Scoop 初始化”由 [#38](#38) 的独立初始化测试与本机 `init` 覆盖，不属于本票队列。
-- 本机没有注册 `extras` bucket，因此本票不产生 Extras 覆盖面结论；Main/Extras 的完整分母与逐包报告属于覆盖报告任务。
+- 本机没有注册 `extras` bucket，因此本票不产生 Extras 覆盖面结论；Main/Extras 的完整分母、机制缺口与逐包报告见 [Main／Extras 全量兼容盘点](coverage-report.md)。
 - 本轮没有执行 `coop cleanup` 删除用户保留的旧版本、没有 `--purge` 彻底删除，也没有跨包全局回滚的断言；这些由各自票与项目内测试覆盖。
 - `scoop reset` 会跳过正在运行的进程（本轮的 `pi-coding-agent` 因此被排除在逐项入口重发之外），这是 Scoop 自身行为，不是本轮的额外限制。
 

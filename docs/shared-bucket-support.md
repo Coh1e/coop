@@ -94,4 +94,4 @@ pwsh -NoProfile -NonInteractive -File tests/real-scoop-bucket.ps1 `
 - checkout 中途被强制终止时没有自动回滚猜测；`bucket list` 显示 `refresh_pending` 与日志路径，旧注册表和/或 Git 对象保留供人工核对。后续可增加更细的发布协议。
 - 固定 revision 仍是 Coop 的来源语义；不延伸到从远端历史查找本机从未安装的包版本。
 - 私有/SSH 来源、reparse point bucket、外部创建的同名目录冲突仍明确拒绝或只读处理，不在本票扩展。
-- Main/Extras 完整分母、逐包生命周期与真实安装/更新/卸载仍未由本票完成；相关任务保持待办。
+- Main/Extras 完整分母、机制缺口与真机验证状态已由 R20 盘点，见[Main／Extras 全量兼容盘点](coverage-report.md)；逐包生命周期仍按能力缺口保持待办，不因盘点完成而消失。

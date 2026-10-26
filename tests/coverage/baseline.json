@@ -1,0 +1,1784 @@
+{
+  "schema": 1,
+  "generated_at": "2026-10-26T21:26:49.0552694Z",
+  "project_head": {
+    "revision": "b7a20b4f910734520b0c304bf90e99326cc18c3b",
+    "reference": "refs/heads/main"
+  },
+  "coop": {
+    "version": "coop 0.1.0",
+    "sha256": "76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79"
+  },
+  "platform": {
+    "os": "Microsoft Windows NT 10.0.26300.0",
+    "architecture": "X64",
+    "powershell": "7.6.5"
+  },
+  "scope": {
+    "architecture": "64bit",
+    "denominator": "every *.json manifest in buckets/<name>/bucket",
+    "mechanism_scan": "manifest root plus every architecture section; checkver/autoupdate excluded",
+    "runtime_verification": "only packages present in the supplied cohort facts with an identical manifest SHA256 and a successful program run"
+  },
+  "buckets": [
+    {
+      "name": "main",
+      "url": "https://github.com/ScoopInstaller/Main",
+      "source": "shared-scoop-worktree",
+      "path": ".local/coverage/root/buckets/main",
+      "branch": "master",
+      "revision": "5be7f8c702856c72800a0a4945b88fe6ea2bd52f",
+      "files_count": 1783
+    },
+    {
+      "name": "extras",
+      "url": "https://github.com/ScoopInstaller/Extras",
+      "source": "official-git-clone-fetched-for-this-inventory",
+      "path": ".local/coverage/root/buckets/extras",
+      "branch": "master",
+      "revision": "0f8f4b5fd43bedccc7b233b77f4605bddba8085b",
+      "files_count": 2643
+    }
+  ],
+  "denominator": {
+    "main": 1701,
+    "extras": 2448,
+    "total": 4149
+  },
+  "totals": {
+    "manifests": 4149,
+    "read_ok": 4149,
+    "read_failed": 0,
+    "plan_built": 4149,
+    "plan_executable": 4094,
+    "plan_blocked": 53,
+    "environment_installed_helper": 2,
+    "plan_unavailable": 0,
+    "verified_real_cohort": 15,
+    "verified_historical_cohort": 0,
+    "not_run": 4134
+  },
+  "mechanisms": [
+    {
+      "mechanism": "architecture.32bit",
+      "manifests": 1139,
+      "read_ok": 1139,
+      "executable": 1132,
+      "blocked": 6,
+      "environment_installed": 1,
+      "verified": 7,
+      "gap_ids": [
+        "main/azure-ps",
+        "main/dcmtk",
+        "main/gsudo",
+        "main/stdiscosrv",
+        "main/wgcf",
+        "main/xtensa-esp32-elf"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/fd",
+        "main/gh",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "hash.md5",
+      "manifests": 40,
+      "read_ok": 40,
+      "executable": 40,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.env_set",
+      "manifests": 163,
+      "read_ok": 163,
+      "executable": 161,
+      "blocked": 2,
+      "environment_installed": 0,
+      "verified": 3,
+      "gap_ids": [
+        "main/llvm-arm64",
+        "main/pscompletions"
+      ],
+      "verified_ids": [
+        "main/clink",
+        "main/git",
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "field.extract_to",
+      "manifests": 33,
+      "read_ok": 33,
+      "executable": 33,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "hash.sha512",
+      "manifests": 181,
+      "read_ok": 181,
+      "executable": 180,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/pulumi"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "command.cmd",
+      "manifests": 45,
+      "read_ok": 45,
+      "executable": 44,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/pulumi"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.7z",
+      "manifests": 594,
+      "read_ok": 594,
+      "executable": 593,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 2,
+      "gap_ids": [
+        "main/retdec"
+      ],
+      "verified_ids": [
+        "main/fastfetch",
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "command.jar",
+      "manifests": 38,
+      "read_ok": 38,
+      "executable": 37,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "extras/mqtt-spy"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "download.tar.zst",
+      "manifests": 3,
+      "read_ok": 3,
+      "executable": 3,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.tar.zst",
+      "manifests": 3,
+      "read_ok": 3,
+      "executable": 3,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "hash.sha1",
+      "manifests": 204,
+      "read_ok": 204,
+      "executable": 203,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/inadyn-mt"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "download.tgz",
+      "manifests": 13,
+      "read_ok": 13,
+      "executable": 13,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.tgz",
+      "manifests": 12,
+      "read_ok": 12,
+      "executable": 12,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.tar.gz",
+      "manifests": 142,
+      "read_ok": 142,
+      "executable": 141,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/inadyn-mt"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "script.post_uninstall",
+      "manifests": 25,
+      "read_ok": 25,
+      "executable": 25,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "installer.script",
+      "manifests": 226,
+      "read_ok": 226,
+      "executable": 224,
+      "blocked": 2,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/git-filter-repo",
+        "main/terraform-provider-ibm"
+      ],
+      "verified_ids": [
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "download.tar.xz",
+      "manifests": 9,
+      "read_ok": 9,
+      "executable": 9,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.tar.xz",
+      "manifests": 8,
+      "read_ok": 8,
+      "executable": 8,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.innosetup",
+      "manifests": 149,
+      "read_ok": 149,
+      "executable": 149,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "download.7z",
+      "manifests": 163,
+      "read_ok": 163,
+      "executable": 162,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/retdec"
+      ],
+      "verified_ids": [
+        "main/fastfetch"
+      ]
+    },
+    {
+      "mechanism": "command.ps1",
+      "manifests": 43,
+      "read_ok": 43,
+      "executable": 42,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "extras/rabbitmqadmin"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "installer.args",
+      "manifests": 10,
+      "read_ok": 10,
+      "executable": 10,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "installer.file",
+      "manifests": 7,
+      "read_ok": 7,
+      "executable": 7,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "command.no-extension",
+      "manifests": 34,
+      "read_ok": 34,
+      "executable": 27,
+      "blocked": 7,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/git-filter-repo",
+        "main/git-quick-stats",
+        "main/lsix",
+        "main/neofetch",
+        "main/pulumi",
+        "extras/ani-cli",
+        "extras/controlprinters"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "command.py",
+      "manifests": 3,
+      "read_ok": 3,
+      "executable": 0,
+      "blocked": 3,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/retdec",
+        "main/vapoursynth",
+        "extras/pdd"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "command.config",
+      "manifests": 1,
+      "read_ok": 1,
+      "executable": 0,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/xtensa-esp32-elf"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "uninstaller.args",
+      "manifests": 2,
+      "read_ok": 2,
+      "executable": 2,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.installer",
+      "manifests": 238,
+      "read_ok": 238,
+      "executable": 236,
+      "blocked": 2,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/git-filter-repo",
+        "main/terraform-provider-ibm"
+      ],
+      "verified_ids": [
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "uninstaller.file",
+      "manifests": 4,
+      "read_ok": 4,
+      "executable": 4,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "download.tar.gz",
+      "manifests": 142,
+      "read_ok": 142,
+      "executable": 141,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/inadyn-mt"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "script.pre_uninstall",
+      "manifests": 103,
+      "read_ok": 103,
+      "executable": 102,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "extras/scoop-completion"
+      ],
+      "verified_ids": [
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "architecture.64bit",
+      "manifests": 3166,
+      "read_ok": 3166,
+      "executable": 3152,
+      "blocked": 13,
+      "environment_installed": 1,
+      "verified": 13,
+      "gap_ids": [
+        "main/azure-ps",
+        "main/dcmtk",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/pulumi",
+        "main/retdec",
+        "main/stdiscosrv",
+        "main/terraform-provider-ibm",
+        "main/vapoursynth",
+        "main/wgcf",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/node-compiler"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/fastfetch",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/git",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "download.zip",
+      "manifests": 2279,
+      "read_ok": 2279,
+      "executable": 2262,
+      "blocked": 16,
+      "environment_installed": 1,
+      "verified": 12,
+      "gap_ids": [
+        "main/dcmtk",
+        "main/git-filter-repo",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/pulumi",
+        "main/stdiscosrv",
+        "main/terraform-provider-ibm",
+        "main/vapoursynth",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/cpu-z-arm64",
+        "extras/lazy-posh-git",
+        "extras/posh-docker",
+        "extras/powertab",
+        "extras/pscolor",
+        "extras/scoop-completion"
+      ],
+      "verified_ids": [
+        "main/clink",
+        "main/cmake",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/innounp",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "field.env_add_path",
+      "manifests": 120,
+      "read_ok": 120,
+      "executable": 116,
+      "blocked": 4,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/dcmtk",
+        "main/gsudo",
+        "main/llvm-arm64",
+        "main/zigup"
+      ],
+      "verified_ids": [
+        "main/starship"
+      ]
+    },
+    {
+      "mechanism": "hash.sha256",
+      "manifests": 3724,
+      "read_ok": 3724,
+      "executable": 3671,
+      "blocked": 51,
+      "environment_installed": 2,
+      "verified": 15,
+      "gap_ids": [
+        "main/acmesharp",
+        "main/azure-ps",
+        "main/buck",
+        "main/dcmtk",
+        "main/gel-arm64",
+        "main/git-filter-repo",
+        "main/git-quick-stats",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/importexcel",
+        "main/llvm-arm64",
+        "main/lsix",
+        "main/neofetch",
+        "main/pester",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/psake",
+        "main/pscompletions",
+        "main/psgithub",
+        "main/retdec",
+        "main/stdiscosrv",
+        "main/terraform-provider-ibm",
+        "main/vapoursynth",
+        "main/wgcf",
+        "main/winget-ps",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/ani-cli",
+        "extras/completionpredictor",
+        "extras/controlprinters",
+        "extras/cpu-z-arm64",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/lazy-posh-git",
+        "extras/leet",
+        "extras/mqtt-spy",
+        "extras/node-compiler",
+        "extras/pdd",
+        "extras/posh-docker",
+        "extras/posh-git",
+        "extras/powertab",
+        "extras/pscolor",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/rabbitmqadmin",
+        "extras/scoop-completion",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/clink",
+        "main/cmake",
+        "main/fastfetch",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/git",
+        "main/innounp",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "local.zip",
+      "manifests": 2299,
+      "read_ok": 2299,
+      "executable": 2283,
+      "blocked": 15,
+      "environment_installed": 1,
+      "verified": 12,
+      "gap_ids": [
+        "main/dcmtk",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/pulumi",
+        "main/stdiscosrv",
+        "main/terraform-provider-ibm",
+        "main/vapoursynth",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/cpu-z-arm64",
+        "extras/lazy-posh-git",
+        "extras/posh-docker",
+        "extras/powertab",
+        "extras/pscolor",
+        "extras/scoop-completion"
+      ],
+      "verified_ids": [
+        "main/clink",
+        "main/cmake",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/innounp",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "architecture.arm64",
+      "manifests": 967,
+      "read_ok": 967,
+      "executable": 958,
+      "blocked": 8,
+      "environment_installed": 1,
+      "verified": 13,
+      "gap_ids": [
+        "main/gel-arm64",
+        "main/gsudo",
+        "main/llvm-arm64",
+        "main/pulumi",
+        "main/stdiscosrv",
+        "main/wgcf",
+        "main/zigup",
+        "extras/cpu-z-arm64"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/fastfetch",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/git",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/starship",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "command.exe",
+      "manifests": 2896,
+      "read_ok": 2896,
+      "executable": 2881,
+      "blocked": 13,
+      "environment_installed": 2,
+      "verified": 13,
+      "gap_ids": [
+        "main/gel-arm64",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/inadyn-mt",
+        "main/pulumi",
+        "main/retdec",
+        "main/stdiscosrv",
+        "main/vapoursynth",
+        "main/wgcf",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/cpu-z-arm64",
+        "extras/node-compiler"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/fastfetch",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/git",
+        "main/innounp",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "download.exe",
+      "manifests": 1109,
+      "read_ok": 1109,
+      "executable": 1107,
+      "blocked": 1,
+      "environment_installed": 1,
+      "verified": 2,
+      "gap_ids": [
+        "main/wgcf"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "download.msi",
+      "manifests": 168,
+      "read_ok": 168,
+      "executable": 165,
+      "blocked": 2,
+      "environment_installed": 1,
+      "verified": 1,
+      "gap_ids": [
+        "main/azure-ps",
+        "main/llvm-arm64"
+      ],
+      "verified_ids": [
+        "main/7zip"
+      ]
+    },
+    {
+      "mechanism": "field.bin",
+      "manifests": 3135,
+      "read_ok": 3135,
+      "executable": 3110,
+      "blocked": 23,
+      "environment_installed": 2,
+      "verified": 14,
+      "gap_ids": [
+        "main/buck",
+        "main/gel-arm64",
+        "main/git-filter-repo",
+        "main/git-quick-stats",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/inadyn-mt",
+        "main/lsix",
+        "main/neofetch",
+        "main/pulumi",
+        "main/retdec",
+        "main/stdiscosrv",
+        "main/vapoursynth",
+        "main/wgcf",
+        "main/xtensa-esp32-elf",
+        "main/zigup",
+        "extras/ani-cli",
+        "extras/controlprinters",
+        "extras/cpu-z-arm64",
+        "extras/mqtt-spy",
+        "extras/node-compiler",
+        "extras/pdd",
+        "extras/rabbitmqadmin"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/clink",
+        "main/cmake",
+        "main/fastfetch",
+        "main/fd",
+        "main/fzf",
+        "main/gh",
+        "main/git",
+        "main/innounp",
+        "main/ninja",
+        "main/pi-coding-agent",
+        "main/ripgrep",
+        "main/uv",
+        "main/zoxide"
+      ]
+    },
+    {
+      "mechanism": "field.extract_dir",
+      "manifests": 1274,
+      "read_ok": 1274,
+      "executable": 1259,
+      "blocked": 14,
+      "environment_installed": 1,
+      "verified": 4,
+      "gap_ids": [
+        "main/azure-ps",
+        "main/buck",
+        "main/dcmtk",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/inadyn-mt",
+        "main/llvm-arm64",
+        "main/pester",
+        "main/pulumi",
+        "main/stdiscosrv",
+        "main/xtensa-esp32-elf",
+        "extras/posh-docker",
+        "extras/powertab",
+        "extras/scoop-completion"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/fd",
+        "main/ripgrep"
+      ]
+    },
+    {
+      "mechanism": "field.persist",
+      "manifests": 876,
+      "read_ok": 876,
+      "executable": 869,
+      "blocked": 6,
+      "environment_installed": 1,
+      "verified": 1,
+      "gap_ids": [
+        "main/inadyn-mt",
+        "main/pscompletions",
+        "main/stdiscosrv",
+        "main/wgcf",
+        "main/zigup",
+        "extras/cpu-z-arm64"
+      ],
+      "verified_ids": [
+        "main/7zip"
+      ]
+    },
+    {
+      "mechanism": "download.multiple",
+      "manifests": 101,
+      "read_ok": 101,
+      "executable": 98,
+      "blocked": 3,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "extras/leet",
+        "extras/node-compiler",
+        "extras/rabbitmqadmin"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.shortcuts",
+      "manifests": 2044,
+      "read_ok": 2044,
+      "executable": 2041,
+      "blocked": 2,
+      "environment_installed": 1,
+      "verified": 3,
+      "gap_ids": [
+        "extras/cpu-z-arm64",
+        "extras/mqtt-spy"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/cmake",
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "local.exe",
+      "manifests": 723,
+      "read_ok": 723,
+      "executable": 721,
+      "blocked": 1,
+      "environment_installed": 1,
+      "verified": 1,
+      "gap_ids": [
+        "main/wgcf"
+      ],
+      "verified_ids": [
+        "main/7zip"
+      ]
+    },
+    {
+      "mechanism": "local.msi",
+      "manifests": 162,
+      "read_ok": 162,
+      "executable": 159,
+      "blocked": 2,
+      "environment_installed": 1,
+      "verified": 1,
+      "gap_ids": [
+        "main/azure-ps",
+        "main/llvm-arm64"
+      ],
+      "verified_ids": [
+        "main/7zip"
+      ]
+    },
+    {
+      "mechanism": "script.any",
+      "manifests": 1303,
+      "read_ok": 1303,
+      "executable": 1274,
+      "blocked": 28,
+      "environment_installed": 1,
+      "verified": 3,
+      "gap_ids": [
+        "main/buck",
+        "main/gel-arm64",
+        "main/git-filter-repo",
+        "main/glslviewer",
+        "main/gsudo",
+        "main/importexcel",
+        "main/inadyn-mt",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/pscompletions",
+        "main/stdiscosrv",
+        "main/terraform-provider-ibm",
+        "main/wgcf",
+        "main/winget-ps",
+        "extras/completionpredictor",
+        "extras/cpu-z-arm64",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/node-compiler",
+        "extras/posh-git",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/scoop-completion",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git",
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "script.post_install",
+      "manifests": 318,
+      "read_ok": 318,
+      "executable": 313,
+      "blocked": 4,
+      "environment_installed": 1,
+      "verified": 2,
+      "gap_ids": [
+        "main/buck",
+        "main/glslviewer",
+        "main/gsudo",
+        "extras/scoop-completion"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "script.pre_install",
+      "manifests": 915,
+      "read_ok": 915,
+      "executable": 892,
+      "blocked": 22,
+      "environment_installed": 1,
+      "verified": 2,
+      "gap_ids": [
+        "main/gel-arm64",
+        "main/importexcel",
+        "main/inadyn-mt",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/pscompletions",
+        "main/stdiscosrv",
+        "main/wgcf",
+        "main/winget-ps",
+        "extras/completionpredictor",
+        "extras/cpu-z-arm64",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/node-compiler",
+        "extras/posh-git",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "uninstaller.script",
+      "manifests": 161,
+      "read_ok": 161,
+      "executable": 158,
+      "blocked": 2,
+      "environment_installed": 1,
+      "verified": 3,
+      "gap_ids": [
+        "main/inadyn-mt",
+        "main/terraform-provider-ibm"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git",
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "command.bat",
+      "manifests": 108,
+      "read_ok": 108,
+      "executable": 107,
+      "blocked": 1,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/buck"
+      ],
+      "verified_ids": [
+        "main/clink"
+      ]
+    },
+    {
+      "mechanism": "download.other",
+      "manifests": 289,
+      "read_ok": 289,
+      "executable": 257,
+      "blocked": 32,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/acmesharp",
+        "main/buck",
+        "main/gel-arm64",
+        "main/git-quick-stats",
+        "main/importexcel",
+        "main/lsix",
+        "main/neofetch",
+        "main/pester",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/psake",
+        "main/pscompletions",
+        "main/psgithub",
+        "main/winget-ps",
+        "extras/ani-cli",
+        "extras/completionpredictor",
+        "extras/controlprinters",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/leet",
+        "extras/mqtt-spy",
+        "extras/node-compiler",
+        "extras/pdd",
+        "extras/posh-git",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/rabbitmqadmin",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "download.renamed",
+      "manifests": 915,
+      "read_ok": 915,
+      "executable": 911,
+      "blocked": 4,
+      "environment_installed": 0,
+      "verified": 1,
+      "gap_ids": [
+        "main/git-filter-repo",
+        "main/wgcf",
+        "extras/mqtt-spy",
+        "extras/pdd"
+      ],
+      "verified_ids": [
+        "main/git"
+      ]
+    },
+    {
+      "mechanism": "field.depends",
+      "manifests": 123,
+      "read_ok": 123,
+      "executable": 115,
+      "blocked": 8,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/buck",
+        "main/glslviewer",
+        "main/inadyn-mt",
+        "main/terraform-provider-ibm",
+        "extras/ani-cli",
+        "extras/lazy-posh-git",
+        "extras/node-compiler",
+        "extras/rabbitmqadmin"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "local.other",
+      "manifests": 239,
+      "read_ok": 239,
+      "executable": 206,
+      "blocked": 33,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/acmesharp",
+        "main/buck",
+        "main/gel-arm64",
+        "main/git-filter-repo",
+        "main/git-quick-stats",
+        "main/importexcel",
+        "main/lsix",
+        "main/neofetch",
+        "main/pester",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/psake",
+        "main/pscompletions",
+        "main/psgithub",
+        "main/winget-ps",
+        "extras/ani-cli",
+        "extras/completionpredictor",
+        "extras/controlprinters",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/leet",
+        "extras/mqtt-spy",
+        "extras/node-compiler",
+        "extras/pdd",
+        "extras/posh-git",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/rabbitmqadmin",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.psmodule",
+      "manifests": 28,
+      "read_ok": 28,
+      "executable": 0,
+      "blocked": 28,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [
+        "main/acmesharp",
+        "main/azure-ps",
+        "main/gsudo",
+        "main/importexcel",
+        "main/pester",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/psake",
+        "main/pscompletions",
+        "main/psgithub",
+        "main/winget-ps",
+        "extras/completionpredictor",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/lazy-posh-git",
+        "extras/leet",
+        "extras/posh-docker",
+        "extras/posh-git",
+        "extras/powertab",
+        "extras/pscolor",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/scoop-completion",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "verified_ids": []
+    },
+    {
+      "mechanism": "field.uninstaller",
+      "manifests": 165,
+      "read_ok": 165,
+      "executable": 162,
+      "blocked": 2,
+      "environment_installed": 1,
+      "verified": 3,
+      "gap_ids": [
+        "main/inadyn-mt",
+        "main/terraform-provider-ibm"
+      ],
+      "verified_ids": [
+        "main/7zip",
+        "main/git",
+        "main/uv"
+      ]
+    },
+    {
+      "mechanism": "command.com",
+      "manifests": 7,
+      "read_ok": 7,
+      "executable": 7,
+      "blocked": 0,
+      "environment_installed": 0,
+      "verified": 0,
+      "gap_ids": [],
+      "verified_ids": []
+    }
+  ],
+  "gaps": [
+    {
+      "mechanism": "capability:psmodule",
+      "count": 28,
+      "ids": [
+        "main/acmesharp",
+        "main/azure-ps",
+        "main/gsudo",
+        "main/importexcel",
+        "main/pester",
+        "main/powershell-beautifier",
+        "main/powershell-yaml",
+        "main/psake",
+        "main/pscompletions",
+        "main/psgithub",
+        "main/winget-ps",
+        "extras/completionpredictor",
+        "extras/dockercompletion",
+        "extras/git-aliases",
+        "extras/lazy-posh-git",
+        "extras/leet",
+        "extras/posh-docker",
+        "extras/posh-git",
+        "extras/powertab",
+        "extras/pscolor",
+        "extras/pseps",
+        "extras/psfzf",
+        "extras/pskubectlcompletion",
+        "extras/psreadline",
+        "extras/scoop-completion",
+        "extras/terminal-icons",
+        "extras/z",
+        "extras/zlocation"
+      ],
+      "codes": [
+        "adapter/unsupported-capability"
+      ],
+      "messages": [
+        "Not yet supported: psmodule"
+      ]
+    },
+    {
+      "mechanism": "dependency-missing",
+      "count": 5,
+      "ids": [
+        "main/buck",
+        "main/glslviewer",
+        "main/terraform-provider-ibm",
+        "extras/node-compiler",
+        "extras/rabbitmqadmin"
+      ],
+      "codes": [
+        "ir/dependency-missing"
+      ],
+      "messages": [
+        "Dependency 'versions/python27' required by 'buck' is not available in local buckets",
+        "Dependency 'versions/ffmpeg-shared-4.4.1' required by 'glslviewer' is not available in local buckets",
+        "Dependency 'versions/terraform011' required by 'terraform-provider-ibm' is not available in local buckets",
+        "Dependency 'versions/python27' required by 'node-compiler' is not available in local buckets",
+        "Dependency 'python27' required by 'rabbitmqadmin' is not available in local buckets"
+      ]
+    },
+    {
+      "mechanism": "manifest-shape",
+      "count": 6,
+      "ids": [
+        "main/dcmtk",
+        "main/retdec",
+        "main/stdiscosrv",
+        "main/wgcf",
+        "main/zigup",
+        "extras/mqtt-spy"
+      ],
+      "codes": [
+        "adapter/manifest-shape"
+      ],
+      "messages": [
+        "Invalid path component",
+        "Duplicate command alias",
+        "Invalid bin entry"
+      ]
+    },
+    {
+      "mechanism": "architecture-artifact",
+      "count": 3,
+      "ids": [
+        "main/gel-arm64",
+        "main/llvm-arm64",
+        "extras/cpu-z-arm64"
+      ],
+      "codes": [
+        "ir/missing-artifact"
+      ],
+      "messages": [
+        "No artifact for selected architecture"
+      ]
+    },
+    {
+      "mechanism": "command-entry-host",
+      "count": 11,
+      "ids": [
+        "main/git-filter-repo",
+        "main/git-quick-stats",
+        "main/lsix",
+        "main/neofetch",
+        "main/pulumi",
+        "main/retdec",
+        "main/vapoursynth",
+        "main/xtensa-esp32-elf",
+        "extras/ani-cli",
+        "extras/controlprinters",
+        "extras/pdd"
+      ],
+      "codes": [
+        "adapter/unsupported-command-host"
+      ],
+      "messages": [
+        "Command entry target type is not supported: git-filter-repo; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: git-quick-stats; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: lsix; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: neofetch; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: pulumi-language-python-exec; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: bin\\retdec-archive-decompiler.py; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: bin\\retdec-signature-from-library-creator.py; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: bin\\retdec-tests-runner.py; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: vsrepo.py; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: bin\\xtensa-esp32-elf-ct-ng.config; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: ani-cli; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: explorer; supported entries are EXE, COM, BAT, CMD, PS1 and JAR",
+        "Command entry target type is not supported: pdd.py; supported entries are EXE, COM, BAT, CMD, PS1 and JAR"
+      ]
+    },
+    {
+      "mechanism": "dependency-unsupported",
+      "count": 2,
+      "ids": [
+        "main/inadyn-mt",
+        "extras/lazy-posh-git"
+      ],
+      "codes": [
+        "capability/dependency-unsupported"
+      ],
+      "messages": [
+        "Dependency 'gsudo' cannot be installed: Manifest has unsupported or invalid requirements; inspect --dry-run",
+        "Dependency 'posh-git' cannot be installed: Manifest has unsupported or invalid requirements; inspect --dry-run"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "format": "zip",
+      "artifacts": 2326,
+      "manifests": 2302,
+      "verified_manifests": 12
+    },
+    {
+      "format": "msi",
+      "artifacts": 161,
+      "manifests": 161,
+      "verified_manifests": 1
+    },
+    {
+      "format": "none",
+      "artifacts": 862,
+      "manifests": 792,
+      "verified_manifests": 0
+    },
+    {
+      "format": "tar",
+      "artifacts": 215,
+      "manifests": 172,
+      "verified_manifests": 0
+    },
+    {
+      "format": "7z",
+      "artifacts": 610,
+      "manifests": 597,
+      "verified_manifests": 2
+    },
+    {
+      "format": "inno-setup",
+      "artifacts": 149,
+      "manifests": 149,
+      "verified_manifests": 0
+    }
+  ],
+  "hash_algorithms": [
+    {
+      "algorithm": "sha256",
+      "artifacts": 3869,
+      "manifests": 3725
+    },
+    {
+      "algorithm": "md5",
+      "artifacts": 41,
+      "manifests": 40
+    },
+    {
+      "algorithm": "sha512",
+      "artifacts": 182,
+      "manifests": 181
+    },
+    {
+      "algorithm": "sha1",
+      "artifacts": 231,
+      "manifests": 204
+    }
+  ],
+  "verified_source": {
+    "facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+    "lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+    "packages": 15
+  },
+  "verified": [
+    {
+      "bucket": "main",
+      "package": "7zip",
+      "recorded_version": "26.05",
+      "run_exit": 0,
+      "installed_manifest_sha256": "a500afa37c46fa04571566dacca691661fdfa5b1be777ef1f96e3eaf6b8c364f",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-26.03",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "a500afa37c46fa04571566dacca691661fdfa5b1be777ef1f96e3eaf6b8c364f",
+      "current_version": "26.05",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "clink",
+      "recorded_version": "1.9.34",
+      "run_exit": 0,
+      "installed_manifest_sha256": "f02d778868d89c1899b01975ab3f9a526940adf988b0e00af951b1f01e99e6d1",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "coop-real-update",
+        "scoop-uninstall-then-coop-install"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "f02d778868d89c1899b01975ab3f9a526940adf988b0e00af951b1f01e99e6d1",
+      "current_version": "1.9.35",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "cmake",
+      "recorded_version": "4.4.4",
+      "run_exit": 0,
+      "installed_manifest_sha256": "44b801fc979c08ffc350bd403787afdc48a142f2d6a55c3ef5bb63ab5739f5a3",
+      "lifecycle_steps": "scoop-reset",
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "44b801fc979c08ffc350bd403787afdc48a142f2d6a55c3ef5bb63ab5739f5a3",
+      "current_version": "4.4.4",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "fastfetch",
+      "recorded_version": "2.70.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "f87a1aff98789c8a8a9834a88bdb27edb65ee0d65107ae53dfcca5bb5b12644e",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-2.68.1",
+        "switch-back-to-current",
+        "coop-uninstall-then-install"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "f87a1aff98789c8a8a9834a88bdb27edb65ee0d65107ae53dfcca5bb5b12644e",
+      "current_version": "2.70.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "fd",
+      "recorded_version": "10.5.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "7f07892fefb984fe4f7de35f2cfd30746fc1945fb8eeca6355801ce0ac514609",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-10.4.2",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "7f07892fefb984fe4f7de35f2cfd30746fc1945fb8eeca6355801ce0ac514609",
+      "current_version": "10.5.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "fzf",
+      "recorded_version": "0.74.5",
+      "run_exit": 0,
+      "installed_manifest_sha256": "52e76f46c458b43b8f46818546156924334c3104fc38ac920ff86f1ea743569c",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-0.74.4",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "52e76f46c458b43b8f46818546156924334c3104fc38ac920ff86f1ea743569c",
+      "current_version": "0.74.5",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "gh",
+      "recorded_version": "2.103.2",
+      "run_exit": 0,
+      "installed_manifest_sha256": "c9a4951ce59c3013ea178f58402bb307fcf80eaae1482694e2c24d29516e2791",
+      "lifecycle_steps": "scoop-reset",
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "c9a4951ce59c3013ea178f58402bb307fcf80eaae1482694e2c24d29516e2791",
+      "current_version": "2.103.2",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "git",
+      "recorded_version": "2.56.0.3",
+      "run_exit": 0,
+      "installed_manifest_sha256": "7ab41bafeb68ffa7d2c4553edc9cfa0087546296956fa2bcac4e18afcc5b572b",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-2.56.0.4",
+        "switch-back-to-current",
+        "scoop-real-update"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "7ab41bafeb68ffa7d2c4553edc9cfa0087546296956fa2bcac4e18afcc5b572b",
+      "current_version": "2.56.0.4",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "innounp",
+      "recorded_version": "2.71.2",
+      "run_exit": 0,
+      "installed_manifest_sha256": "a6a7406bc86c4ac1f4c7eb5ecea781c69246b045a63a2f432864b64f6bc69579",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-2.71.1",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "a6a7406bc86c4ac1f4c7eb5ecea781c69246b045a63a2f432864b64f6bc69579",
+      "current_version": "2.71.2",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "ninja",
+      "recorded_version": "1.13.2",
+      "run_exit": 0,
+      "installed_manifest_sha256": "936760482e8e4026fd0401eba3fbef0c46e24dd45ed97e12ec8853a75eb0fa3e",
+      "lifecycle_steps": "scoop-reset",
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "936760482e8e4026fd0401eba3fbef0c46e24dd45ed97e12ec8853a75eb0fa3e",
+      "current_version": "1.13.2",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "pi-coding-agent",
+      "recorded_version": "1.4.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "717e30dc5f830bf8b3a3607a9dd2c39f90cc498de088bf22c19477f1690cd24e",
+      "lifecycle_steps": "scoop-reset",
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "717e30dc5f830bf8b3a3607a9dd2c39f90cc498de088bf22c19477f1690cd24e",
+      "current_version": "1.4.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "ripgrep",
+      "recorded_version": "15.2.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "fe578aef2cfcb6eab48ba76703f400865a8212159ed753b197851381f6f697df",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-15.1.0",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "fe578aef2cfcb6eab48ba76703f400865a8212159ed753b197851381f6f697df",
+      "current_version": "15.2.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "starship",
+      "recorded_version": "1.27.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "bdb84fe0622df39d5066351b1b973bb822b80ca4bc7b2c4196085161612f9c0c",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-1.26.0",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "bdb84fe0622df39d5066351b1b973bb822b80ca4bc7b2c4196085161612f9c0c",
+      "current_version": "1.27.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "uv",
+      "recorded_version": "0.13.5",
+      "run_exit": 0,
+      "installed_manifest_sha256": "75fc470b993a9fdd48660ecd4ecc953b34ab3f214da5a285a7d02ebfa0215330",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-0.12.17",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "75fc470b993a9fdd48660ecd4ecc953b34ab3f214da5a285a7d02ebfa0215330",
+      "current_version": "0.13.5",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    },
+    {
+      "bucket": "main",
+      "package": "zoxide",
+      "recorded_version": "0.10.0",
+      "run_exit": 0,
+      "installed_manifest_sha256": "4f508546dfd7921cba69d277f497002eac1de12737eb071a830c651056c86228",
+      "lifecycle_steps": [
+        "scoop-reset",
+        "switch-to-0.9.9",
+        "switch-back-to-current"
+      ],
+      "source_facts": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json",
+      "source_lifecycle": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/lifecycle.json",
+      "status": "real-cohort",
+      "current_manifest_sha256": "4f508546dfd7921cba69d277f497002eac1de12737eb071a830c651056c86228",
+      "current_version": "0.10.0",
+      "evidence": ".local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/facts-all.json"
+    }
+  ],
+  "shared_root": {
+    "main_worktree": "C:\\Users\\Neo\\scoop\\buckets\\main",
+    "main_worktree_revision": "5be7f8c702856c72800a0a4945b88fe6ea2bd52f",
+    "main_branch_reference": "refs/heads/master",
+    "main_registered_revision": "89b4cf8078b4968bca637b2ae226b16e8d04dbce",
+    "main_registry_matches_worktree": false,
+    "main_registry_synced_at": "2026-10-26T05:09:07Z"
+  },
+  "manifest_verification": {
+    "shared_manifests": 1701,
+    "inventory_manifests": 1701,
+    "missing_in_inventory": [],
+    "extra_in_inventory": [],
+    "mismatched_content": [],
+    "identical": true
+  },
+  "external_helper_links": {
+    "innounp": "C:\\Users\\Neo\\scoop\\apps\\innounp\\current",
+    "7zip": "C:\\Users\\Neo\\scoop\\apps\\7zip\\current"
+  }
+}
