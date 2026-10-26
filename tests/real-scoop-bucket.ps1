@@ -28,6 +28,13 @@ function Get-Hash([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLower()
 }
+# Scoop's --version also prints bucket update hints on this release; read the installed
+# changelog instead so the evidence field contains the actual release.
+function Get-ScoopVersion {
+    $changelog = Join-Path $ScoopRoot 'apps/scoop/current/CHANGELOG.md'
+    if (Test-Path -LiteralPath $changelog) { return (Get-Content -LiteralPath $changelog -TotalCount 1).Trim() }
+    return 'unknown'
+}
 function Invoke-Guarded([string]$Label) {
     $start = [Diagnostics.ProcessStartInfo]::new($guard)
     $start.UseShellExecute = $false
@@ -105,7 +112,7 @@ $evidence = [ordered]@{
     bucket = $Bucket
     shared_path = $shared
     coop = (& $CoopExe --version)
-    scoop_version = (@(scoop --version 2>&1 | Select-Object -First 2) -join ' ')
+    scoop_version = (Get-ScoopVersion)
     git_used_for_verification = (@(git --version) -join ' ')
     branch = $branchBefore
     remote = $remoteBefore
