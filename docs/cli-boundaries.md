@@ -81,16 +81,17 @@ coop --arch=64bit install main/ripgrep
 | 代码基线 | 本票提交 `HEAD`（报告与 Issue 评论记录完整 SHA） |
 | 平台 | Windows 11 Pro N for Workstations 10.0.26300 build 26300，x64 |
 | 工具 | Coop 0.1.0；MSVC 14.51.36231；CMake 4.4.4；Ninja；PowerShell 7.6.5（测试宿主），Windows PowerShell 5.1.26100.9711（外层） |
-| 构建 | `scripts/build.ps1 -Action build`，退出码 0（本轮运行） |
+| 构建 | `scripts/build.ps1 -Action build`，退出码 0（本轮运行；最终代码构建见 `build-07.log`） |
 | 定向测试 | `pwsh -File tests/path-batch.ps1 -CoopExe .local/build/coop.exe -TestRoot ".local/tests/path-batch 中文 space"`，退出码 0，`PASS CLI path boundaries, exit codes, long roots and per-package batch outcomes`（本轮运行；中间失败与修复见同目录编号日志） |
-| 完整 CTest | `scripts/build.ps1 -Action test`，40/40 通过，`path_batch` 6.26 s（本轮运行，见任务证据目录） |
+| 完整 CTest | `scripts/build.ps1 -Action test`，40/40 通过，`path_batch` 6.26 s（本轮运行，代码提交 6059c71；后续 `main.cpp` 控制台诊断修复由定向测试覆盖） |
 | 真实 Scoop 根 | 本票未在真实 Scoop 根执行写入；只读/写入路径由项目内真实 CLI 测试与既有真实根证据覆盖（未运行项） |
 
 证据文件（项目内、被忽略）：
 
-- `.local/pi/tasks/39/evidence/build-06.log`：最终代码构建（此前 `build-01` 至 `build-05` 为编译失败与中间修复记录）；
-- `.local/pi/tasks/39/evidence/path-batch-10.*.log`：最终定向测试全绿（`path-batch-01` 至 `-09` 保留每轮失败/修复证据，未覆盖改写）；
-- `.local/pi/tasks/39/evidence/build-tests-02.log`：最终完整 CTest（此前 `build-tests-01` 为中间构建）；
+- `.local/pi/tasks/39/evidence/build-07.log`：最终代码构建（此前 `build-01` 至 `build-06` 为编译失败与中间修复记录）；
+- `.local/pi/tasks/39/evidence/path-batch-10.*.log`：定向测试全绿（`path-batch-01` 至 `-09` 保留每轮失败/修复证据，未覆盖改写）；
+- `.local/pi/tasks/39/evidence/build-tests-02.log`：完整 CTest 40/40（代码提交 6059c71）；
+- `.local/pi/tasks/39/evidence/ctest-final-302f520.log`：最终提交 `302f520` 上的定向 `cli` 与 `path_batch` 复测；
 - `.local/pi/tasks/39/evidence/environment.json`：平台、工具、基线与 Coop 版本。
 
 ## 7. 未覆盖与后续
