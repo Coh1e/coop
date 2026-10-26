@@ -18,8 +18,28 @@ void report_source(const Json& source) {
     output.erase("files");
     std::cout << output.dump(2) << '\n';
 }
+// A refresh journal marks a Git shared-bucket operation while it is in progress. If the process
+// is terminated, the next refresh can overwrite it; the shared working tree and the previously
+// published registry record remain available to queries.
+class RefreshJournal {
+public:
+    RefreshJournal(const Context& context, const std::string& name) : path_(journal_path(context,name)) {
+        write_json(path_,{{"name",name},{"action","refresh"},{"layout","shared-worktree"}});
+    }
+    ~RefreshJournal() {
+        std::error_code ignored;
+        fs::remove(path_,ignored);
+    }
+    RefreshJournal(const RefreshJournal&) = delete;
+    RefreshJournal& operator=(const RefreshJournal&) = delete;
+private:
+    static fs::path journal_path(const Context& context, const std::string& name) {
+        return context.root/L".coop"/L"bucket-refresh"/(wide(name)+L".json");
+    }
+    fs::path path_;
+};
 // The search index is a cache: a bucket stays published when it cannot be written, and an
-// unchanged Git revision never rebuilds it. Queries then fall back to the snapshot files.
+// unchanged Git revision never rebuilds it. Queries then fall back to the shared bucket files.
 void refresh_index(const Context& context, const Json& source, bool force) {
     try {
         if (force || !catalog_index_valid(context,source)) write_catalog_index(context,source);
@@ -63,7 +83,11 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
     auto registry = bucket_sources(context);
     auto found = std::find_if(registry.begin(),registry.end(),[&](const Json& source) { return same_name(source,name); });
     if (args[0] == L"add") {
-        if (found != registry.end() && found->value("kind",std::string{}) != "removed") throw std::runtime_error("Bucket already registered");
+        if (found != registry.end() && found->value("kind",std::string{}) != "removed") {
+            if (found->value("kind",std::string{}) == "unmanaged")
+                throw std::runtime_error("A shared bucket directory with this name already exists; use bucket update to adopt it");
+            throw std::runtime_error("Bucket already registered");
+        }
         const auto source_text = utf8(args[2]);
         const fs::path source(args[2]);
         Json record;
@@ -99,13 +123,18 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
                 report_source(source);
                 continue;
             }
-            auto previous = kind == "unmanaged" ? inspect_scoop_bucket(context,source.at("name").get<std::string>()) : source;
-            auto updated = prepare_git_bucket(context,previous.at("name").get<std::string>(),previous.at("url").get<std::string>(),
+            const auto bucket_name = source.at("name").get<std::string>();
+            RefreshJournal journal(context,bucket_name);
+            auto previous = kind == "unmanaged" ? inspect_scoop_bucket(context,bucket_name) : source;
+            // Keep the fact that this shared bucket was adopted by this refresh; the inspector
+            // itself reports the repository layout, not the registry origin.
+            if (kind == "unmanaged") previous["kind"] = "unmanaged";
+            auto updated = prepare_git_bucket(context,bucket_name,previous.at("url").get<std::string>(),
                 previous.value("branch",std::string{}),previous.value("fixed_revision",std::string{}),&previous);
-            Json candidate = registry;
-            candidate.at(index) = updated;
-            write_json(registry_path,candidate);
+            // Update the in-memory registry before committing it so an update-all cannot roll a
+            // previously refreshed source back to its old record.
             source = std::move(updated);
+            write_json(registry_path,registry);
             refresh_index(context,source,source.value("changed",true));
             report_source(source);
         } catch (const std::exception& error) {

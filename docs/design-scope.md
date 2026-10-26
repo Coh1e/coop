@@ -26,6 +26,7 @@
 - 保持 C++20、Windows 与 Adapter → IR → Plan → Executor 边界。每个抽象由当前真实包需求支撑，不为 Hypha 预先建设通用调度、跨平台或 SDK。
 
 - Git 仓库操作直接使用可由 C++ 调用的库，不要求安装 git.exe；不再将 GitHub ZIP 快照作为首选同步方案。libgit2 为首选候选，具体版本、链接方式和构建配置须验证。
+- 显式 `bucket add/update` 直接维护 Scoop 共用的 `<根>/buckets/<名称>` Git 工作树：首次克隆、后续在 `.git` 内增量 fetch 并原地前进；保留实际分支、固定 revision、辅助资源和本地修改。本地修改或不支持的目标树在写入前拒绝，不自动 reset/clean。详细契约见[共用 bucket 的直接刷新](shared-bucket-support.md)。
 - Scoop 兼容的安装记录与实际文件是共用管理的依据；Coop 可保存附加缓存、操作进度与恢复信息，但不维护独占接管资格。Scoop 改动后重新识别状态，不把缓存失效当成包失去管理资格。
 - `search`、`info`、`list` 始终读取本地数据；`install` 使用当前已同步的 Manifest，不隐式刷新 bucket。仓库更新由明确命令触发，可显示上次同步时间。
 - Coop 控制的文件、命令入口和状态操作必须可恢复；任意安装脚本造成的外部改动不承诺自动回滚。脚本失败时保留日志与恢复信息，明确报告实际状态，不宣称已完整恢复。

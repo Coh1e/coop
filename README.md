@@ -2,7 +2,7 @@
 
 Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Scoop 安装，复用其 bucket 与 Manifest 生态。
 
-首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/环境暴露、持久化、依赖保护与中断恢复路径；当前只用于项目隔离测试，尚不能用于真实用户 Scoop 迁移或正式发布。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 仅作场景参考，其用户级安装脚本不是本项目的环境准备入口。
+首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/环境暴露、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。其余写入路径仍以项目内测试为主，尚不能用于完整真实用户 Scoop 迁移或正式发布。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 仅作场景参考，其用户级安装脚本不是本项目的环境准备入口。
 
 当前产品方向已由 [正式规格 #21](https://github.com/Coh1e/coop/issues/21) 更新为与 Scoop 共用安装与状态：查询和只读预览已改由独立的包管理 IR、校验与计划路径驱动，直接读取本机真实 Scoop 安装事实，无需先执行接管；实际写入仍沿用原型执行路径，待后续任务迁移。模块边界与证据见 [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)，本轮真实安装与只读核对见 [真实 Scoop 安装基线](docs/real-scoop-baseline.md)。
 
@@ -11,6 +11,7 @@ Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Sc
 - [与 Scoop 共用状态的决定](docs/adr/0002-share-scoop-state.md)
 - [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)
 - [真实 Scoop 安装基线](docs/real-scoop-baseline.md)
+- [共用 bucket 的直接刷新](docs/shared-bucket-support.md)
 - [原型正式规格（历史，#2）](https://github.com/Coh1e/coop/issues/2)
 - [设计背景、验收路径与下一步](docs/architecture.md)
 - [Git 库选择方向](docs/adr/0001-use-embedded-git-library.md)
@@ -42,9 +43,9 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 
 可运行 `.local/build/coop.exe --version` 或 `--help`；无效命令退出码为 2，运行失败为 1，正常命令为 0。通过 `--root <目录> list|search <查询>|info <bucket/包名>` 查询本地安装及 bucket，添加 `--json` 获取结构化输出；`--global-root` 可明确指定另一个只读系统级安装根。未指定根时查询当前用户的默认 Scoop 位置。
 
-`bucket add <名称> <公开HTTPS Git URL或本地目录>` 注册来源；Git来源可指定 `--branch` 或 `--revision`。`bucket update [名称]` 显式同步，`bucket list` 查看，`bucket remove <名称>` 只撤销注册并保留源文件。Git使用内嵌库，无需git.exe；私有/SSH来源不联网更新。标准代理仅在当前进程环境中通过HTTPS_PROXY/NO_PROXY读取，不修改系统代理。
+`bucket add <名称> <公开HTTPS Git URL或本地目录>` 注册来源；Git来源可指定 `--branch` 或 `--revision`。Git来源直接克隆到 Scoop 共用的 `<根>/buckets/<名称>` 工作树并保留完整历史；`bucket update [名称]` 在该工作树内 fetch 后原地前进，已存在的 Scoop bucket 会被就地识别和刷新。`bucket list` 查看，`bucket remove <名称>` 只撤销注册并保留源文件。Git使用内嵌库，无需git.exe；私有/SSH来源不联网更新。标准代理仅在当前进程环境中通过HTTPS_PROXY/NO_PROXY读取，不修改系统代理。
 
-Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop bucket和旧快照不会被强制重置或清除。发现本地文件修改会拒绝更新。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+刷新前验证目标树、检查工作树是否干净，并在检查点前后保留 `.git`、实际分支和本地修改；发现本地文件修改或链接/子模块等不安全条目会拒绝更新，不做 `reset --hard`/`clean` 覆盖。首次、有变化、无变化刷新分别记录 `refresh_kind`、revision、`changed_files`、`received_bytes`、`files_count` 和 `synced_at`。分支、本地修改、失败保留和边界见[共用 bucket 的直接刷新](docs/shared-bucket-support.md)。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 `install|update|uninstall|adopt <包名>... --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本、依赖顺序及预计操作；接管检查同时查看本地更新清单。已知不支持/无效项与尚未验证的生命周期分别报告。
 
@@ -65,8 +66,8 @@ Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop
 - MSI 管理安装在执行前阻塞，因为 `msiexec /a` 会写入 `%WINDIR%\Installer`；InnoSetup/NSIS、`installer.file/args`、`reg import`、服务/注册表/用户环境写入仍明确拒绝。脚本只执行固定样本证明的阶段与语句子集，其他脚本在下载和写入前诊断拒绝。
 - 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除声明的 store，`cleanup` 才删除已记录且摘要未变的旧版本。外部删除或修改入口、链接和 store 会被重新核对，不自动覆盖或猜测修复。
 - 异常退出留下 pending 事务时阻止新的写入但仍允许查询；`coop list` 显示恢复方式，`coop recover [包名...] [--dry-run]` 只回滚可安全还原的 Coop 自有路径，不重跑脚本，外部副作用标为未知。
-- 不自动同步 bucket、不自动发布、不修改真实用户 Scoop 根；Git 私有/SSH 来源与跨工具交替写入不在首版范围。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)。
+- 不自动同步 bucket、不自动发布；只有显式 `bucket update` 会刷新共用 bucket（真实 Scoop 根内已按 #23 验证），安装/更新/卸载等其余写入仍不在真实用户根内自动执行。Git 私有/SSH 来源与跨工具同时写入不在首版范围。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)。
 
 ## 测试范围
 
-默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 原地接管到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），包管理 IR 的安装事实、分层诊断、操作序列与无副作用查询/预览（`tests/ir-pipeline.ps1`），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、Git 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书；`tests/real-scoop-readonly.ps1` 对人工选定的本机真实 Scoop 根执行只读盘点、查询与预览，并核对根内文件未被改动。
+默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 原地接管到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），包管理 IR 的安装事实、分层诊断、操作序列与无副作用查询/预览（`tests/ir-pipeline.ps1`），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、共用 bucket 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书；`tests/real-scoop-readonly.ps1` 对人工选定的本机真实 Scoop 根执行只读盘点、查询与预览，并核对根内文件未被改动；`tests/real-scoop-bucket.ps1` 在明确授权下只刷新一个真实共用 bucket，并核对分支、修订、本地修改、无变化刷新和无辅助进程。

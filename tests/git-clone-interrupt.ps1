@@ -25,7 +25,7 @@ $client = $null
 try {
     if (-not $accept.Wait(10000)) { throw 'Clone did not reach controlled proxy' }
     $client = $accept.GetAwaiter().GetResult()
-    $cache = @(Get-ChildItem -LiteralPath "$root/.coop/repositories" -Directory -ErrorAction SilentlyContinue)
+    $cache = @(Get-ChildItem -LiteralPath "$root/.coop/staging" -Directory -ErrorAction SilentlyContinue)
     if (-not $cache.Count -or $process.HasExited) { throw 'Clone initialization was not observed in progress' }
     $process.Kill($true)
     $process.WaitForExit()
@@ -52,7 +52,7 @@ $retryOutput.GetAwaiter().GetResult() | Set-Content -LiteralPath "$root/retry-ou
 $retryError.GetAwaiter().GetResult() | Set-Content -LiteralPath "$root/retry-error.txt" -Encoding utf8
 if ($retry.ExitCode -ne 0) { throw ('Retry after actual clone interruption failed; evidence: '+$root) }
 $record = (Get-Content "$root/.coop/buckets.json" -Raw | ConvertFrom-Json)[0]
-if ($record.branch -ne 'master' -or -not (Test-Path -LiteralPath (Join-Path $record.path 'bucket/jq.json'))) { throw 'Retry did not publish a usable bucket' }
-@{ root=$root; interrupted_exit=$process.ExitCode; retry_exit=$retry.ExitCode; revision=$record.revision; observed_partial_cache=$cache.Name } |
+if ($record.branch -ne 'master' -or $record.path -ne (Join-Path $root 'buckets/main') -or -not (Test-Path -LiteralPath (Join-Path $record.path '.git')) -or -not (Test-Path -LiteralPath (Join-Path $record.path 'bucket/jq.json'))) { throw 'Retry did not publish a usable shared bucket' }
+@{ root=$root; interrupted_exit=$process.ExitCode; retry_exit=$retry.ExitCode; revision=$record.revision; shared_path=$record.path; observed_partial_staging=$cache.Name } |
     ConvertTo-Json | Set-Content -LiteralPath "$root/evidence.json" -Encoding utf8
 Write-Output ('PASS clone initialization interruption + retry: '+$root+'/evidence.json')

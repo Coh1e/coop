@@ -29,7 +29,7 @@
 | 链接/入口/记录提交冲突 | 已有外部内容不被覆盖，失败事务日志准确 | `tests/lifecycle-race.ps1`、`tests/exposure.ps1`、`tests/update.ps1` |
 | 脚本失败/中断 | 退出码与输出可查，不自动重试；恢复不重跑脚本 | `tests/hooks.ps1`、`tests/installers.ps1`、`tests/recovery.ps1` |
 | 数据删除失败/中断 | 不跟随链接、不误删未声明内容，中断清理可完成 | `tests/cleanup.ps1` |
-| bucket 同步中断/失败 | 旧发布快照和查询状态保持，重试可完成 | `tests/bucket.ps1`、`tests/git-clone-interrupt.ps1` |
+| bucket 同步中断/失败 | 共用工作树保留旧修订或进行中标记；旧注册表/查询状态保持，重试可完成；checkout 中途强杀不自动猜测覆盖 | `tests/bucket.ps1`、`tests/git-clone-interrupt.ps1` |
 | 多进程写 | 第二写进程非零退出，状态不变；读取不被写锁阻塞 | `tests/recovery.ps1`、`tests/bucket.ps1` |
 | 发布阶段 rollback | 新 current/版本/入口被删除，旧 current/入口/记录移回，旧程序可运行 | `tests/recovery.ps1`（实际协议状态夹具） |
 

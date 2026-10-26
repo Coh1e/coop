@@ -265,11 +265,10 @@ New-Item -ItemType Directory -Path $gitRoot -Force | Out-Null
 $refreshFirst = Invoke-Measured @('--root', $gitRoot, 'bucket', 'add', 'main', $repositoryUrl, '--branch', 'trunk', '--json')
 Assert ($refreshFirst.exit -eq 0) "git bucket add failed: $($refreshFirst.error)"
 $firstRecord = $refreshFirst.output | ConvertFrom-Json
-Assert ($firstRecord.changed -eq $true -and $firstRecord.revision -eq (Invoke-FixtureGit @('-C', $repository, 'rev-parse', 'HEAD'))) 'git first fetch published the wrong revision'
+Assert ($firstRecord.changed -eq $true -and $firstRecord.first_refresh -eq $true -and $firstRecord.refresh_kind -eq 'first' -and $firstRecord.revision -eq (Invoke-FixtureGit @('-C', $repository, 'rev-parse', 'HEAD'))) 'git first fetch published the wrong revision or evidence'
 Assert (Test-Path -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')) 'git synchronization did not write a search index'
-$snapshotDirectory = Join-Path $gitRoot '.coop/snapshots'
+Assert ($firstRecord.path -eq (Join-Path $gitRoot 'buckets/main') -and (Test-Path -LiteralPath (Join-Path $firstRecord.path '.git'))) 'git bucket is not a shared working tree'
 $gitRegistry = Join-Path $gitRoot '.coop/buckets.json'
-$snapshotsBefore = @(Get-ChildItem -LiteralPath $snapshotDirectory -Directory).Count
 $gitIndexHashBefore = (Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash
 $registryHashBefore = (Get-FileHash -LiteralPath $gitRegistry).Hash
 $registryBefore = @(Get-Content -LiteralPath $gitRegistry -Raw | ConvertFrom-Json)[0]
@@ -277,24 +276,24 @@ $refreshSame = Invoke-Measured @('--root', $gitRoot, 'bucket', 'update', 'main',
 Assert ($refreshSame.exit -eq 0) "git no-change refresh failed: $($refreshSame.error)"
 $sameRecord = $refreshSame.output | ConvertFrom-Json
 $registryAfter = @(Get-Content -LiteralPath $gitRegistry -Raw | ConvertFrom-Json)[0]
-Assert ($sameRecord.changed -eq $false -and $sameRecord.path -eq $firstRecord.path) 'unchanged revision was republished'
-Assert (@(Get-ChildItem -LiteralPath $snapshotDirectory -Directory).Count -eq $snapshotsBefore) 'no-change refresh created a snapshot'
+Assert ($sameRecord.changed -eq $false -and $sameRecord.refresh_kind -eq 'unchanged' -and $sameRecord.path -eq $firstRecord.path) 'unchanged revision was republished'
 Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash -eq $gitIndexHashBefore) 'no-change refresh rebuilt the search index'
 Assert ($registryAfter.revision -eq $registryBefore.revision -and $registryAfter.path -eq $registryBefore.path -and
-    (($registryAfter.files | ConvertTo-Json -Compress) -eq ($registryBefore.files | ConvertTo-Json -Compress))) 'no-change refresh changed the published snapshot record'
+    $registryAfter.files_count -eq $registryBefore.files_count) 'no-change refresh changed the shared bucket record'
 $registryMetadataRewritten = (Get-FileHash -LiteralPath $gitRegistry).Hash -ne $registryHashBefore
-$snapshotFilesBefore = Get-ChildItem -LiteralPath $firstRecord.path -Recurse -File | Measure-Object -Property Length -Sum
+$unchangedManifestBefore = Get-FileHash -LiteralPath (Join-Path $firstRecord.path 'bucket/pkg00042.json') -Algorithm SHA256
 New-ManifestFile (Join-Path $repository 'bucket/pkg09999.json') 'pkg09999' '3.0.0'
 Invoke-FixtureGit @('-C', $repository, 'add', 'bucket/pkg09999.json') | Out-Null
 Invoke-FixtureGit @('-C', $repository, '-c', 'user.name=CoopPerf', '-c', 'user.email=coop@example.invalid', 'commit', '-m', 'add pkg09999') | Out-Null
 $refreshChanged = Invoke-Measured @('--root', $gitRoot, 'bucket', 'update', 'main', '--json')
 Assert ($refreshChanged.exit -eq 0) "git changed refresh failed: $($refreshChanged.error)"
 $changedRecord = $refreshChanged.output | ConvertFrom-Json
-Assert ($changedRecord.changed -eq $true -and $changedRecord.path -ne $firstRecord.path) 'new revision was not published'
-Assert (@(Get-ChildItem -LiteralPath $snapshotDirectory -Directory).Count -eq $snapshotsBefore + 1) 'changed refresh did not publish one new snapshot'
+Assert ($changedRecord.changed -eq $true -and $changedRecord.refresh_kind -eq 'changed' -and $changedRecord.path -eq $firstRecord.path -and $changedRecord.previous_revision -eq $firstRecord.revision -and $changedRecord.changed_files -gt 0) 'new revision was not published in place with evidence'
+Assert ((Invoke-FixtureGit @('-C', $firstRecord.path, 'rev-parse', 'HEAD')) -eq $changedRecord.revision) 'shared working tree did not advance to the new revision'
 Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash -ne $gitIndexHashBefore) 'changed refresh did not rebuild the search index'
 $newPackage = Invoke-Measured @('--root', $gitRoot, 'info', 'main/pkg09999', '--json')
 Assert ($newPackage.exit -eq 0 -and @($newPackage.output | ConvertFrom-Json)[0].version -eq '3.0.0') 'new revision is not queryable'
+Assert ((Get-FileHash -LiteralPath (Join-Path $firstRecord.path 'bucket/pkg00042.json') -Algorithm SHA256).Hash -eq $unchangedManifestBefore.Hash) 'in-place refresh modified an unrelated manifest'
 $measurements.Add((Measure-Coop 'info-git-index-1500' 50 @('--root', $gitRoot, 'info', 'main/pkg00042', '--json')))
 $measurements.Add((Measure-Coop 'search-git-index-1500' 100 @('--root', $gitRoot, 'search', 'pkg00042', '--json')))
 # A repeat first fetch in a fresh root separates repository cache warm-up from Coop's own work.
@@ -303,9 +302,8 @@ New-Item -ItemType Directory -Path $warmRoot -Force | Out-Null
 $refreshFirstWarm = Invoke-Measured @('--root', $warmRoot, 'bucket', 'add', 'main', $repositoryUrl, '--branch', 'trunk', '--json')
 Assert ($refreshFirstWarm.exit -eq 0) "warm git bucket add failed: $($refreshFirstWarm.error)"
 $warmRecord = $refreshFirstWarm.output | ConvertFrom-Json
-Assert ($warmRecord.changed -eq $true -and $warmRecord.revision -eq $changedRecord.revision) 'warm first fetch published a wrong revision'
-$oldSnapshot = Get-ChildItem -LiteralPath $firstRecord.path -Recurse -File | Measure-Object -Property Length -Sum
-Assert ($oldSnapshot.Count -eq $snapshotFilesBefore.Count -and $oldSnapshot.Sum -eq $snapshotFilesBefore.Sum) 'old snapshot was modified by the refresh'
+Assert ($warmRecord.changed -eq $true -and $warmRecord.first_refresh -eq $true -and $warmRecord.revision -eq $changedRecord.revision) 'warm first fetch published a wrong revision'
+Assert ($warmRecord.path -eq (Join-Path $warmRoot 'buckets/main') -and (Test-Path -LiteralPath (Join-Path $warmRecord.path '.git'))) 'warm git bucket is not a shared working tree'
 
 $disk = 'unavailable'
 try {
@@ -335,8 +333,8 @@ $refresh = [ordered]@{
     transport = 'file:// (offline libgit2 fixture; no external network)'
     first = [ordered]@{ ms = [math]::Round($refreshFirst.ms, 1); received_bytes = $firstRecord.received_bytes; changed = $firstRecord.changed; revision = $firstRecord.revision; cache = 'first fetch after fixture creation (repository data not yet read by Coop)' }
     first_warm = [ordered]@{ ms = [math]::Round($refreshFirstWarm.ms, 1); received_bytes = $warmRecord.received_bytes; changed = $warmRecord.changed; revision = $warmRecord.revision; cache = 'repeat first fetch in a fresh root after the fixture is in the OS cache' }
-    no_change = [ordered]@{ ms = [math]::Round($refreshSame.ms, 1); received_bytes = $sameRecord.received_bytes; changed = $sameRecord.changed; snapshots_created = 0; index_rebuilt = $false; snapshot_path = $sameRecord.path; snapshot_files_unchanged = $true; registry_metadata_rewritten = $registryMetadataRewritten }
-    changed = [ordered]@{ ms = [math]::Round($refreshChanged.ms, 1); received_bytes = $changedRecord.received_bytes; changed = $changedRecord.changed; snapshots_created = 1; index_rebuilt = $true; snapshot_files_unchanged = $true; old_snapshot_retained = $true }
+    no_change = [ordered]@{ ms = [math]::Round($refreshSame.ms, 1); received_bytes = $sameRecord.received_bytes; changed = $sameRecord.changed; refresh_kind = $sameRecord.refresh_kind; index_rebuilt = $false; shared_path = $sameRecord.path; shared_files_unchanged = $true; registry_metadata_rewritten = $registryMetadataRewritten }
+    changed = [ordered]@{ ms = [math]::Round($refreshChanged.ms, 1); received_bytes = $changedRecord.received_bytes; changed = $changedRecord.changed; refresh_kind = $changedRecord.refresh_kind; changed_files = $changedRecord.changed_files; index_rebuilt = $true; shared_path = $changedRecord.path; unrelated_manifest_unchanged = $true }
 }
 $report = [ordered]@{
     generated_at = [DateTime]::UtcNow.ToString('o')
@@ -363,5 +361,5 @@ Write-Output ("refresh: first={0}ms bytes={1}; first-warm={2}ms bytes={3}; no-ch
     $refresh.first.ms, $refresh.first.received_bytes, $refresh.first_warm.ms, $refresh.first_warm.received_bytes,
     $refresh.no_change.ms, $refresh.no_change.received_bytes, $refresh.no_change.changed,
     $refresh.changed.ms, $refresh.changed.received_bytes, $refresh.changed.changed)
-Write-Output 'PASS: measured version/list/info/search, index hit/fallback/rebuild, unchanged Git refresh without rebuild, changed Git refresh'
+Write-Output 'PASS: measured version/list/info/search, index hit/fallback/rebuild, unchanged shared Git refresh without rebuild, changed in-place shared Git refresh'
 

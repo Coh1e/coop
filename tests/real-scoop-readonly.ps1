@@ -21,6 +21,7 @@ function Invoke-Coop([string[]]$Arguments) {
     [pscustomobject]@{ code = $LASTEXITCODE; text = ($output -join "`n") }
 }
 $started = [DateTime]::UtcNow.ToString('o')
+$stateBefore = Test-Path (Join-Path $ScoopRoot '.coop')
 $before = Get-RootSnapshot $ScoopRoot
 $list = Invoke-Coop @('--root',$ScoopRoot,'list','--json')
 $list.text | Set-Content (Join-Path $EvidenceDir 'real-scoop-list.json') -Encoding utf8
@@ -47,6 +48,7 @@ $guarded | Set-Content (Join-Path $EvidenceDir 'real-scoop-process-evidence.txt'
 $after = Get-RootSnapshot $ScoopRoot
 $changed = @(Compare-Object $before $after)
 $state = Test-Path (Join-Path $ScoopRoot '.coop')
+$stateCreated = -not $stateBefore -and $state
 $updatePlan = $null
 if ($update.code -in 0,1 -and $update.text.Trim().StartsWith('{')) { $updatePlan = $update.text | ConvertFrom-Json }
 $evidence = [ordered]@{
@@ -61,13 +63,14 @@ $evidence = [ordered]@{
     preview_ir_operations = if ($updatePlan) { @($updatePlan.ir_operations | ForEach-Object { $_.operation }) } else { @() }
     preview_execution_available = if ($updatePlan) { $updatePlan.execution_available } else { $null }
     preview_diagnostic_codes = if ($updatePlan) { @($updatePlan.diagnostics | ForEach-Object { $_.code }) } else { @() }
-    coop_state_directory_created = $state
+    coop_state_directory_was_present = $stateBefore
+    coop_state_directory_created = $stateCreated
     shared_files_changed = $changed.Count
     snapshot_method = 'recursive file path + length + LastWriteTimeUtc before and after; content hashes are compared in the project-local IR test'
     started_at = $started
 }
 $evidence | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $EvidenceDir 'real-scoop-readonly-evidence.json') -Encoding utf8
-if ($state) { throw 'A read-only query created a Coop state directory inside the real Scoop root' }
+if ($stateCreated) { throw 'A read-only query created a Coop state directory inside the real Scoop root' }
 if ($changed.Count) { throw "Read-only query or preview modified $($changed.Count) files under the real Scoop root" }
 $installed | Format-Table name,version,bucket,architecture,source -AutoSize | Out-String -Width 160 | Write-Output
 Write-Output ("PASS real Scoop read-only inventory ({0} packages), query, info and previews with no state writes" -f $installed.Count)
