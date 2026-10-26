@@ -91,7 +91,7 @@ coop --arch=64bit install main/ripgrep
 - `.local/pi/tasks/39/evidence/build-07.log`：最终代码构建（此前 `build-01` 至 `build-06` 为编译失败与中间修复记录）；
 - `.local/pi/tasks/39/evidence/path-batch-10.*.log`：定向测试全绿（`path-batch-01` 至 `-09` 保留每轮失败/修复证据，未覆盖改写）；
 - `.local/pi/tasks/39/evidence/build-tests-02.log`：完整 CTest 40/40（代码提交 6059c71）；
-- `.local/pi/tasks/39/evidence/ctest-final-302f520.log`：最终提交 `302f520` 上的定向 `cli` 与 `path_batch` 复测；
+- `.local/pi/tasks/39/evidence/ctest-final-302f520.log`：最终代码提交 `302f520` 上的定向 `cli` 与 `path_batch` 复测；文档提交后的同一代码复测见 `ctest-final-f59085d.log` 及报告记录的最终提交日志；
 - `.local/pi/tasks/39/evidence/environment.json`：平台、工具、基线与 Coop 版本。
 
 ## 7. 未覆盖与后续
