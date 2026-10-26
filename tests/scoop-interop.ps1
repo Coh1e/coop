@@ -12,6 +12,26 @@ if ((Get-FileHash -LiteralPath $scoopShim -Algorithm SHA256).Hash.ToLower() -ne 
 function Manifest([string]$version,[string]$program) {
     @{version=$version;url=([Uri][IO.Path]::GetFullPath($program)).AbsoluteUri+'#/shared.exe';hash=(Get-FileHash -LiteralPath $program -Algorithm SHA256).Hash.ToLower();bin='shared.exe'} | ConvertTo-Json -Depth 5
 }
+function MultiManifest([string]$version,[string]$first,[string]$second) {
+    @{version=$version;url=@((([Uri][IO.Path]::GetFullPath($first)).AbsoluteUri+'#/alpha.exe'),(([Uri][IO.Path]::GetFullPath($second)).AbsoluteUri+'#/beta.exe'));
+      hash=@((Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash.ToLower(),(Get-FileHash -LiteralPath $second -Algorithm SHA256).Hash.ToLower());
+      bin=@('alpha.exe','beta.exe')} | ConvertTo-Json -Depth 5
+}
+function New-MultiRoot([string]$name,[string]$version,[string]$first,[string]$second) {
+    $root = Join-Path $session $name
+    New-Item -ItemType Directory -Path "$root/buckets/test/bucket","$root/apps/multi/$version","$root/shims" -Force | Out-Null
+    [IO.File]::WriteAllText("$root/buckets/test/bucket/multi.json",(MultiManifest '2' $fixture2 $fixture1))
+    Copy-Item -LiteralPath $first -Destination "$root/apps/multi/$version/alpha.exe"
+    Copy-Item -LiteralPath $second -Destination "$root/apps/multi/$version/beta.exe"
+    [IO.File]::WriteAllText("$root/apps/multi/$version/manifest.json",(MultiManifest $version $first $second))
+    [IO.File]::WriteAllText("$root/apps/multi/$version/install.json",'{"bucket":"test","architecture":"64bit"}')
+    New-Item -ItemType Junction -Path "$root/apps/multi/current" -Target "$root/apps/multi/$version" | Out-Null
+    foreach ($entry in @(@{name='alpha';file='alpha.exe'},@{name='beta';file='beta.exe'})) {
+        Copy-Item -LiteralPath $scoopShim -Destination "$root/shims/$($entry.name).exe"
+        [IO.File]::WriteAllText("$root/shims/$($entry.name).shim",'path = "'+[IO.Path]::GetFullPath("$root/apps/multi/current/$($entry.file)")+'"'+"`r`n")
+    }
+    return $root
+}
 function New-Root([string]$name,[string]$version,[string]$program) {
     $root = Join-Path $session $name
     New-Item -ItemType Directory -Path "$root/buckets/test/bucket","$root/apps/shared/$version","$root/shims" -Force | Out-Null
@@ -52,6 +72,24 @@ if ((& "$rootA/shims/shared.exe") -ne 'fixture 2') { throw 'Scoop-style shim did
 $removed = & $CoopExe --root $rootA uninstall shared --json
 if ($LASTEXITCODE -ne 0) { throw "shared uninstall failed: $removed" }
 if ((Test-Path "$rootA/apps/shared/current") -or (Test-Path "$rootA/shims/shared.exe") -or (Test-Path "$rootA/shims/shared.shim") -or (Test-Path "$rootA/.coop/packages/shared.json")) { throw 'shared uninstall left published state' }
+# A shared installation with multiple direct-file artifacts is verified file by file. Coop must
+# update it without a private record and remove both command entries on uninstall.
+$rootMulti = New-MultiRoot 'scoop-owned-multi' '1' $fixture1 $fixture2
+$multiPreview = & $CoopExe --root $rootMulti update multi --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "shared multi-artifact preview failed: $multiPreview" }
+$multiEntry = $multiPreview | ConvertFrom-Json
+if (-not $multiEntry.execution_available -or $multiEntry.artifacts.Count -ne 2) { throw "shared multi-artifact preview was not executable: $multiPreview" }
+$multiPlanned = @($multiEntry.ir_operations | ForEach-Object operation)
+$multiUpdated = & $CoopExe --root $rootMulti update multi --json
+if ($LASTEXITCODE -ne 0) { throw "shared multi-artifact update failed: $multiUpdated" }
+$multiResult = $multiUpdated | ConvertFrom-Json
+$multiJournal = Get-Content -LiteralPath $multiResult.journal -Raw | ConvertFrom-Json
+if ((@($multiJournal.observed_steps) -join ',') -ne ($multiPlanned -join ',')) { throw 'shared multi-artifact execution did not follow the displayed plan' }
+if ((& "$rootMulti/shims/alpha.exe") -ne 'fixture 2' -or (& "$rootMulti/shims/beta.exe") -ne 'fixture 1') { throw 'shared multi-artifact update did not switch both programs' }
+if (-not (Test-Path "$rootMulti/apps/multi/1/alpha.exe")) { throw 'shared multi-artifact update did not retain the old version' }
+$multiRemoved = & $CoopExe --root $rootMulti uninstall multi --json
+if ($LASTEXITCODE -ne 0) { throw "shared multi-artifact uninstall failed: $multiRemoved" }
+if ((Test-Path "$rootMulti/apps/multi/current") -or (Test-Path "$rootMulti/shims/alpha.exe") -or (Test-Path "$rootMulti/shims/beta.exe") -or (Test-Path "$rootMulti/shims/alpha.shim") -or (Test-Path "$rootMulti/shims/beta.shim")) { throw 'shared multi-artifact uninstall left published state' }
 # Reverse direction: Coop creates a standard single-file installation, Scoop resets the entry, and
 # Coop continues to manage it without re-adoption or a private-record precondition.
 $rootB = Join-Path $session 'coop-owned'
@@ -108,5 +146,5 @@ $foreignEntry = $foreignPreview | ConvertFrom-Json
 if ($foreignEntry.execution_available -ne $false -or @($foreignEntry.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw "foreign launcher was not blocked in preview: $foreignPreview" }
 $foreignUpdate = & $CoopExe --root $foreignRoot update gui --json 2>&1
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$foreignRoot/.coop/packages/gui.json")) { throw "foreign launcher was accepted: $foreignUpdate" }
-@{root_scoop=$rootA;root_coop=$rootB;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
-Write-Output "PASS shared Scoop/Coop single-file update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"
+@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
+Write-Output "PASS shared Scoop/Coop single-file and multi-artifact update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"

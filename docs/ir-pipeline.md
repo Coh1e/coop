@@ -37,7 +37,9 @@ IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例�
 
 ## 验证与证据
 
-- `tests/ir-pipeline.ps1`（CTest 名称 `ir_pipeline`）：无私有记录的安装事实、过期/损坏私有记录、IR 操作与效果、摘要算法缺口、MSI 能力缺口、查询/预览无副作用与无子进程。
+- `tests/ir-pipeline.ps1`（CTest 名称 `ir_pipeline`）：无私有记录的安装事实、过期/损坏私有记录、IR 操作与效果、摘要算法支持与缺口、MSI 能力缺口、查询/预览无副作用与无子进程。
+- `tests/scoop-interop.ps1`（CTest 名称 `scoop_interop`）：无私有记录的单文件与多产物直接文件安装更新/卸载、Scoop reset、GUI/外来启动器判断。
+- `tests/multi-artifact.ps1`（CTest 名称 `multi_artifact`）：多下载项、改名、架构选择、SHA512/SHA1/MD5、预览/日志对应与下载/校验失败保护。
 - `tests/real-scoop-readonly.ps1`：对本机真实 Scoop 根执行 `list`、`info`、`update --dry-run`、`uninstall --dry-run`，核对安装清单与预览结论，并证明根内文件未改变、未创建 `.coop`。
 - 本轮真实安装基线、环境与复现命令见 [真实 Scoop 安装基线](real-scoop-baseline.md)。
 
