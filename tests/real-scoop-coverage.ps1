@@ -317,13 +317,29 @@ if ($VerifiedFacts) {
     if (-not (Test-Path -LiteralPath $factsPath)) { throw "Verified cohort facts not found: $factsPath" }
     $facts = @(Get-Content -LiteralPath $factsPath -Raw | ConvertFrom-Json)
     $steps = @{}
+    $lifecycleVerifications = @{}
     if ($VerifiedLifecycle) {
         $lifecyclePath = [IO.Path]::GetFullPath($VerifiedLifecycle)
         if (-not (Test-Path -LiteralPath $lifecyclePath)) { throw "Verified cohort lifecycle not found: $lifecyclePath" }
         foreach ($entry in @(Get-Content -LiteralPath $lifecyclePath -Raw | ConvertFrom-Json)) {
             if (-not $steps.ContainsKey($entry.package)) { $steps[$entry.package] = [System.Collections.Generic.List[string]]::new() }
-            foreach ($step in @($entry.steps | ForEach-Object { [string]$_.step })) {
-                if (-not $steps[$entry.package].Contains($step)) { $steps[$entry.package].Add($step) }
+            if (-not $lifecycleVerifications.ContainsKey($entry.package)) { $lifecycleVerifications[$entry.package] = [System.Collections.Generic.List[object]]::new() }
+            foreach ($step in @($entry.steps)) {
+                if ($null -eq $step) { continue }
+                [string]$stepName = $step.step
+                if (-not $steps[$entry.package].Contains($stepName)) { $steps[$entry.package].Add($stepName) }
+                foreach ($key in @('verification','coop_verify','scoop_verify')) {
+                    $verification = $step.$key
+                    if (-not $verification) { continue }
+                    $lifecycleVerifications[$entry.package].Add([ordered]@{
+                        step = $stepName; label = [string]$verification.label
+                        coop_version = [string]$verification.coop_version
+                        scoop_version = [string]$verification.scoop_version
+                        run_exit = $verification.run_exit
+                        current_target = [string]$verification.current_target
+                        log_dir = [string]$verification.log_dir
+                    })
+                }
             }
         }
     }
@@ -331,10 +347,12 @@ if ($VerifiedFacts) {
         $id = ([string]$fact.bucket) + '/' + ([string]$fact.package)
         $verified[$id] = [ordered]@{
             bucket = [string]$fact.bucket; package = [string]$fact.package
-            recorded_version = $fact.manifest_version
-            run_exit = if ($fact.run) { $fact.run.exit } else { $null }
+            facts_version = [string]$fact.manifest_version
+            facts_run_exit = if ($fact.run) { $fact.run.exit } else { $null }
+            facts_run_log = if ($fact.run) { [string]$fact.run.log } else { $null }
             installed_manifest_sha256 = Get-Sha256 ([string]$fact.manifest_path)
-            lifecycle_steps = if ($steps.ContainsKey([string]$fact.package)) { $steps[[string]$fact.package] } else { @() }
+            lifecycle_steps = if ($steps.ContainsKey([string]$fact.package)) { @($steps[[string]$fact.package]) } else { @() }
+            lifecycle_verifications = if ($lifecycleVerifications.ContainsKey([string]$fact.package)) { @($lifecycleVerifications[[string]$fact.package]) } else { @() }
             source_facts = Get-ProjectPath $factsPath
             source_lifecycle = if ($VerifiedLifecycle) { Get-ProjectPath $lifecyclePath } else { $null }
         }
@@ -455,19 +473,41 @@ foreach ($record in $allRecords) {
     $record['gap_mechanisms'] = @()
     if ($verified.ContainsKey($record.id)) {
         $fact = $verified[$record.id]
-        if ($fact.run_exit -eq 0 -and $fact.installed_manifest_sha256 -eq $record.manifest_sha256) {
+        $currentVersion = $record.version
+        $lifecycleMatch = $null
+        foreach ($verification in @($fact.lifecycle_verifications)) {
+            if ($verification.run_exit -ne 0) { continue }
+            if (($verification.coop_version -eq $currentVersion) -or ($verification.scoop_version -eq $currentVersion)) {
+                $lifecycleMatch = $verification
+                break
+            }
+        }
+        $factsMatch = $fact.facts_run_exit -eq 0 -and $fact.facts_version -and $fact.facts_version -eq $currentVersion
+        if ($fact.installed_manifest_sha256 -eq $record.manifest_sha256 -and ($lifecycleMatch -or $factsMatch)) {
             $fact.status = 'real-cohort'
+            $fact.verified_version = $currentVersion
             $fact.current_manifest_sha256 = $record.manifest_sha256
-            $fact.current_version = $record.version
-            $fact.evidence = $fact.source_facts
-        } elseif ($fact.run_exit -eq 0) {
-            $fact.status = 'historical-cohort'
+            $fact.current_version = $currentVersion
+            if ($lifecycleMatch) {
+                $fact.run_exit = $lifecycleMatch.run_exit
+                $fact.run_source = 'lifecycle:' + $lifecycleMatch.step + '/' + $lifecycleMatch.label
+                $fact.run_log = $lifecycleMatch.log_dir
+            } else {
+                $fact.run_exit = $fact.facts_run_exit
+                $fact.run_source = 'facts-all.json'
+                $fact.run_log = $fact.facts_run_log
+            }
+            $fact.evidence = @($fact.source_facts,$fact.source_lifecycle) | Where-Object { $_ }
+        } elseif ($fact.installed_manifest_sha256 -eq $record.manifest_sha256) {
+            $fact.status = 'cohort-run-not-bound'
             $fact.current_manifest_sha256 = $record.manifest_sha256
-            $fact.current_version = $record.version
-            $fact.note = 'the recorded installed manifest differs from this denominator manifest, so it is not counted as verified for this revision'
+            $fact.current_version = $currentVersion
+            $fact.note = 'no cohort run covers the installed manifest version; not counted as verified for this revision'
         } else {
-            $fact.status = 'cohort-run-failed'
+            $fact.status = 'cohort-manifest-mismatch'
             $fact.current_manifest_sha256 = $record.manifest_sha256
+            $fact.current_version = $currentVersion
+            $fact.note = 'the recorded installed manifest differs from this denominator manifest, so it is not counted as verified for this revision'
         }
         $record.verified = $fact
     }
@@ -483,8 +523,11 @@ $envInstalled = @($allRecords | Where-Object { $_.plan.reason -eq 'already-insta
 $verifiedRecords = @($allRecords | Where-Object { $_.verified.status -eq 'real-cohort' })
 $historicalRecords = @($allRecords | Where-Object { $_.verified.status -eq 'historical-cohort' })
 foreach ($record in $allRecords) {
-    if ($record.verified.status -eq 'real-cohort' -and $record.manifest_sha256 -ne $verified[$record.id].installed_manifest_sha256) {
-        throw "Internal verification binding failed for $($record.id)"
+    if ($record.verified.status -eq 'real-cohort') {
+        if ($record.manifest_sha256 -ne $verified[$record.id].installed_manifest_sha256) { throw "Internal verification binding failed for $($record.id)" }
+        if ($record.verified.verified_version -ne $record.version) { throw "Verified version is not the denominator manifest version for $($record.id)" }
+        if ($record.verified.run_exit -ne 0) { throw "Verified run did not succeed for $($record.id)" }
+        if (-not $record.verified.run_source) { throw "Verified run source is missing for $($record.id)" }
     }
 }
 if (($planStatusCounts.Values | Measure-Object -Sum).Sum -ne $allRecords.Count) { throw 'Plan status accounting does not cover every manifest' }

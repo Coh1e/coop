@@ -48,8 +48,17 @@ function Read-ManifestFeatures([System.Collections.IDictionary]$Manifest) {
         if ($view.Contains('bin')) {
             foreach ($entry in @($view.bin)) {
                 if ($null -eq $entry) { continue }
-                $target = if ($entry -is [System.Collections.IDictionary]) { [string]$entry.path } else { [string]$entry }
-                $extension = [IO.Path]::GetExtension(($target -split '\s+')[0]).TrimStart('.').ToLower()
+                # A bin entry is a target path, or a list whose first element is the path
+                # (the remaining elements are arguments). Keep the whole path: targets can
+                # contain spaces, and splitting on whitespace invents fake host types.
+                $target = if ($entry -is [System.Collections.IDictionary]) { [string]$entry.path }
+                          elseif ($entry -is [System.Collections.IEnumerable] -and $entry -isnot [string]) { [string]@($entry)[0] }
+                          else { [string]$entry }
+                $target = $target.Trim()
+                if ($target.Length -ge 2 -and (($target[0] -eq '"' -and $target[-1] -eq '"') -or ($target[0] -eq "'" -and $target[-1] -eq "'"))) {
+                    $target = $target.Substring(1,$target.Length-2).Trim()
+                }
+                $extension = [IO.Path]::GetExtension($target).TrimStart('.').ToLower()
                 if (-not $extension) { $extension = 'no-extension' }
                 [void]$features.Add('command.'+$extension)
             }
