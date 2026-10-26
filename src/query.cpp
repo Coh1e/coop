@@ -44,7 +44,7 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
     // whether an installed package is visible or block a query when they are missing or stale.
     for (const auto& fact : ir::read_installations(root)) {
         Json item = {{"name",fact.name}, {"version",fact.present ? Json(fact.version) : Json(nullptr)},
-            {"scope",scope}, {"management","unadopted"}, {"diagnostics",Json::array()}};
+            {"scope",scope}, {"read_only",scope == "global"}, {"management","unadopted"}, {"diagnostics",Json::array()}};
         Json details = Json::array();
         for (const auto& diagnostic : fact.diagnostics) {
             item["diagnostics"].push_back(diagnostic.message);
@@ -251,10 +251,10 @@ static Json validation_json(const Context& context, const Json& item) {
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
     Json result = Json::array();
     if (command == L"list") {
-        if (!args.empty()) throw std::runtime_error("list does not accept package arguments");
+        if (!args.empty()) throw UsageError("list does not accept package arguments");
         result = installed_packages(context);
     } else {
-        if (args.size() != 1) throw std::runtime_error("search/info requires exactly one package or query");
+        if (args.size() != 1) throw UsageError("search/info requires exactly one package or query");
         const auto needle = lowercase(utf8(args[0]));
         for (const auto& item : catalog(context)) {
             const auto name = item.at("name").get<std::string>();

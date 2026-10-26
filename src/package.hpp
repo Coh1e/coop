@@ -80,6 +80,10 @@ struct Plan {
     std::vector<Diagnostic> diagnostics;
     bool execution_available = false;
     LocalFacts local;
+    // A package that exists only in the system-level root stays read-only. A user-scope install
+    // still runs in the current-user root; update/uninstall/reset/adopt are refused instead of
+    // silently targeting the wrong scope.
+    std::optional<fs::path> global_installation;
     std::optional<Package> update_candidate;
     std::optional<AdoptionAssessment> adoption;
     std::vector<std::string> blocking_dependents;

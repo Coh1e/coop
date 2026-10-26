@@ -109,8 +109,8 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         std::error_code path_error;
         if (fs::is_directory(source,path_error)) {
             if (!branch.empty() || !revision.empty()) throw std::runtime_error("Branch/revision applies to a Git URL, not a plain local bucket");
-            record = {{"name",name},{"kind","local"},{"path",path_text(fs::canonical(source))},
-                {"url",path_text(source)},{"synced_at",nullptr}};
+            record = {{"name",name},{"kind","local"},{"path",path_text(operating_path(fs::canonical(source)))},
+                {"url",path_text(operating_path(fs::absolute(source)))},{"synced_at",nullptr}};
         } else {
             const auto shared = context.root/L"buckets"/wide(name);
             const bool reregister = found != registry.end() && found->value("kind",std::string{}) == "removed" &&

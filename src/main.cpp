@@ -8,7 +8,35 @@
 #include "init.hpp"
 #include <windows.h>
 
+namespace {
+// Coop writes UTF-8 to stdout/stderr so redirected output and JSON stay stable. When attached to a
+// real console, the console must interpret those bytes as UTF-8 too; the previous code page is
+// restored before the process exits so the invoking shell is not changed permanently.
+class ConsoleOutputEncoding {
+public:
+    ConsoleOutputEncoding() {
+        const auto handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        if (handle == INVALID_HANDLE_VALUE || handle == nullptr || !GetConsoleMode(handle,&mode)) return;
+        original_ = GetConsoleOutputCP();
+        if (original_ != 0 && original_ != CP_UTF8) SetConsoleOutputCP(CP_UTF8);
+    }
+    ~ConsoleOutputEncoding() {
+        // Flush while the UTF-8 code page is still active so the last buffered line is translated
+        // correctly, then restore the invoking shell's code page.
+        std::cout.flush();
+        std::cerr.flush();
+        if (original_ != 0 && original_ != CP_UTF8) SetConsoleOutputCP(original_);
+    }
+    ConsoleOutputEncoding(const ConsoleOutputEncoding&) = delete;
+    ConsoleOutputEncoding& operator=(const ConsoleOutputEncoding&) = delete;
+private:
+    UINT original_ = 0;
+};
+}
+
 int wmain(int argc, wchar_t** argv) {
+    ConsoleOutputEncoding console_encoding;
     try {
         int result = 0;
         if (coop::run_shim(argc,argv,result)) return result;
@@ -18,11 +46,13 @@ int wmain(int argc, wchar_t** argv) {
                      "\nOptions:\n"
                      "  --version  Print version\n"
                      "  --help     Print help\n"
-                     "  --root <path>  Select installation root\n"
-                     "  --global-root <path>  Read a global installation root\n"
-                     "  --arch 64bit|32bit|arm64  Select package architecture\n"
+                     "  --root <path>  Select installation root (also --root=<path>)\n"
+                     "  --global-root <path>  Read a global installation root (also --global-root=<path>)\n"
+                     "  --arch 64bit|32bit|arm64  Select package architecture (also --arch=<value>)\n"
                      "  --dry-run  Preview without changing state\n"
                      "  --json     Print machine-readable results\n"
+                     "\nOutput is UTF-8; exit codes: 0 success, 1 operational or partial-batch failure,\n"
+                     "2 command-line misuse.\n"
                      "\nCommands:\n  init [--dry-run]\n  list\n  search <query>\n  info [bucket/]package\n"
                      "  bucket list|add|remove|update ...\n"
                      "  install <package>... [--dry-run]\n"
@@ -42,15 +72,27 @@ int wmain(int argc, wchar_t** argv) {
         coop::Context context;
         std::string architecture;
         std::vector<std::wstring> arguments;
+        const auto option_value = [argc,argv](int& index, std::wstring_view arg, std::wstring_view name) -> std::wstring {
+            const std::wstring prefix = std::wstring(name)+L"=";
+            if (std::wstring_view(arg).starts_with(prefix)) return std::wstring(arg.substr(prefix.size()));
+            if (++index == argc) throw coop::UsageError(coop::utf8(std::wstring(arg))+" requires a value");
+            return argv[index];
+        };
+        const auto set_root = [&context](std::wstring_view arg, const std::wstring& value) {
+            auto root = coop::normalized_root(value);
+            if (arg == L"--root") context.root = std::move(root);
+            else context.global_root = std::move(root);
+        };
         for (int i = 1; i < argc; ++i) {
             const std::wstring_view arg(argv[i]);
-            if (arg == L"--root" || arg == L"--global-root") {
-                if (++i == argc) throw std::runtime_error("Root option requires a path");
-                if (arg == L"--root") context.root = argv[i];
-                else context.global_root = argv[i];
-            } else if (arg == L"--arch") {
-                if (++i == argc) throw std::runtime_error("--arch requires an architecture");
-                architecture = coop::utf8(argv[i]);
+            if (arg == L"--root" || arg == L"--global-root" ||
+                std::wstring_view(arg).starts_with(L"--root=") || std::wstring_view(arg).starts_with(L"--global-root=")) {
+                const auto name = arg.starts_with(L"--global-root") ? std::wstring_view(L"--global-root") : std::wstring_view(L"--root");
+                set_root(name,option_value(i,arg,name));
+            } else if (arg == L"--arch" || std::wstring_view(arg).starts_with(L"--arch=")) {
+                architecture = coop::utf8(option_value(i,arg,L"--arch"));
+                if (architecture != "64bit" && architecture != "32bit" && architecture != "arm64")
+                    throw coop::UsageError("--arch must be 64bit, 32bit or arm64");
             } else if (arg == L"--json") context.json_output = true;
             else arguments.emplace_back(arg);
         }
@@ -59,12 +101,10 @@ int wmain(int argc, wchar_t** argv) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
                 if (!length || length >= 32768) throw std::runtime_error("Use --root to specify an installation root");
-                context.root = coop::fs::path(profile) / L"scoop";
+                context.root = coop::normalized_root(std::wstring(profile)+L"\\scoop");
             }
             const auto command = arguments.front();
             arguments.erase(arguments.begin());
-            context.root = coop::fs::absolute(context.root).lexically_normal();
-            if (context.global_root) context.global_root = coop::fs::absolute(*context.global_root).lexically_normal();
             if (command == L"init") return coop::init_command(context,arguments);
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);
@@ -72,7 +112,9 @@ int wmain(int argc, wchar_t** argv) {
                 return coop::package_command(context,command,arguments,architecture);
             return coop::query(context, command, arguments);
         }
-        std::cerr << "coop: unknown command; use --help\n";
+        throw coop::UsageError("unknown command; use --help");
+    } catch (const coop::UsageError& error) {
+        std::cerr << "coop: " << error.what() << '\n';
         return 2;
     } catch (const std::exception& error) {
         std::cerr << "coop: " << error.what() << '\n';

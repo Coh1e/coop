@@ -4,8 +4,52 @@
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
+#include <cwctype>
 
 namespace coop {
+namespace {
+bool extended_path(const std::wstring& value) {
+    return value.starts_with(L"\\\\?\\") || value.starts_with(L"\\\\.\\");
+}
+// Windows accepts extended-length paths for the whole derived tree. The prefix is only added when
+// the plain absolute root is long enough that apps/<package>/<version>/... would exceed MAX_PATH;
+// shorter roots keep their familiar form in output and in Scoop script context.
+std::wstring extended_form(const std::wstring& value) {
+    if (extended_path(value)) return value;
+    if (value.starts_with(L"\\\\")) return L"\\\\?\\UNC\\"+value.substr(2);
+    if (value.size() >= 2 && value[1] == L':' ) return L"\\\\?\\"+value;
+    return value;
+}
+std::wstring without_trailing_separator(std::wstring value) {
+    while (value.size() > 1) {
+        const auto last = value.back();
+        if (last != L'\\' && last != L'/') break;
+        // A drive root (C:\ or \\?\C:\) keeps its separator; everything else loses it.
+        if (value[value.size()-2] == L':') break;
+        value.pop_back();
+    }
+    return value;
+}
+}
+fs::path operating_path(const fs::path& path) {
+    if (extended_path(path.wstring())) return path;
+    if (!path.is_absolute()) return path;
+    const auto text = path.wstring();
+    if (text.size() >= 240) return fs::path(extended_form(text));
+    return path;
+}
+fs::path normalized_root(const std::wstring& value) {
+    if (value.empty() || std::all_of(value.begin(),value.end(),[](wchar_t character) { return std::iswspace(character) != 0; }))
+        throw UsageError("Root path must not be empty");
+    const auto text = fs::path(value).wstring();
+    if (extended_path(text)) return fs::path(without_trailing_separator(text));
+    std::error_code error;
+    const auto absolute = fs::absolute(fs::path(text),error);
+    if (error) throw std::runtime_error("Installation root path cannot be resolved: "+utf8(text));
+    auto resolved = without_trailing_separator(absolute.lexically_normal().wstring());
+    if (resolved.size() >= 240) resolved = extended_form(resolved);
+    return fs::path(resolved);
+}
 std::string utf8(const std::wstring& value) {
     if (value.empty()) return {};
     const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),

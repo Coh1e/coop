@@ -197,6 +197,8 @@ if(BUILD_TESTING)
   find_program(POWERSHELL_EXECUTABLE NAMES pwsh REQUIRED)
   add_test(NAME query COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/query.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/query 中文 space")
+  add_test(NAME path_batch COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/path-batch.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/path-batch 中文 space")
   add_test(NAME initialization COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/initialization.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/initialization 中文 space")
   add_test(NAME init_no_children COMMAND process_guard "$<TARGET_FILE:coop>" --root "${PROJECT_SOURCE_DIR}/.local/tests/initialization no children" init)

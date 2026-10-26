@@ -668,7 +668,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (!recorded) {
                 const auto install_record = installed_record(plan.local.directory,L"install");
                 version_history.push_back({{"version",installed.version},
-                    {"directory",path_text(fs::canonical(plan.local.directory))},
+                    {"directory",path_text(operating_path(fs::canonical(plan.local.directory)))},
                     {"manifest_sha256",installed.manifest_sha256},
                     {"install_record_sha256",fs::is_regular_file(install_record) ? sha256_file(install_record) : std::string{}},
                     {"tree_stamp",version_tree_stamp(plan.local.directory)},
@@ -1407,13 +1407,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         return entry.is_object() && equal_name(entry.value("version",std::string{}),package.version);
                     }),version_history.end());
                     const auto installed_record_path = installed_record(version,L"install");
-                    version_history.push_back({{"version",package.version},{"directory",path_text(fs::canonical(version))},
+                    version_history.push_back({{"version",package.version},{"directory",path_text(operating_path(fs::canonical(version)))},
                         {"manifest_sha256",package.manifest_sha256},
                         {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
                         {"tree_stamp",version_tree_stamp(version)},
                         {"provenance",resetting ? "coop-reset" : updating ? "coop-update" : "coop-install"}});
                     publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
-                        {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
+                        {"bucket",package.bucket},{"directory",path_text(operating_path(fs::canonical(version)))},{"manifest_sha256",package.manifest_sha256},
                         {"status","ready"},{"shim_format",legacy_shims.empty() ? "coop" : "scoop"},
                         {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
@@ -1507,12 +1507,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         result["data_rollback"] = "none";
         if (resetting) {
             result["reset_from"] = installed.version;
-            result["local_version_reference"] = path_text(fs::canonical(version));
+            result["local_version_reference"] = path_text(operating_path(fs::canonical(version)));
             result["lifecycle_hooks"] = "not-run";
         }
     } else {
         result["retained_versions"] = Json::array();
     }
+    // A user-scope install never writes the system-level root. Report the read-only installation
+    // it was planned beside so the result cannot be mistaken for a change to that copy.
+    if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
+        {"directory",path_text(*plan.global_installation)}};
     return result;
 }
 Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {

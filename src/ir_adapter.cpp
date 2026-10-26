@@ -389,7 +389,7 @@ std::vector<InstalledFact> read_installations(const fs::path& root) {
             } catch (const std::exception& error) {
                 fact.diagnostics.push_back({Layer::adapter,"install-record-unreadable",error.what()});
             }
-            fact.directory = fs::canonical(current);
+            fact.directory = operating_path(fs::canonical(current));
         } catch (const Json::parse_error& error) {
             fact.diagnostics.push_back({Layer::syntax,"install-record-syntax",error.what()});
         } catch (const std::exception& error) {

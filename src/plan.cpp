@@ -393,7 +393,24 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     validate_component(name);
     plan.local.current = context.root/L"apps"/wide(name)/L"current";
     plan.local.exists = fs::is_directory(plan.local.current);
-    if (plan.local.exists) plan.local.directory = fs::canonical(plan.local.current);
+    if (plan.local.exists) plan.local.directory = operating_path(fs::canonical(plan.local.current));
+    // The system-level root is a read-only source of installation facts. A request that names a
+    // package installed only there must not be reinterpreted as a user-scope change: update,
+    // uninstall, reset and adopt would otherwise silently target a different installation than
+    // the one the user can see in `list`. A fresh user-scope install remains available and never
+    // writes to the global root.
+    if (!plan.local.exists && context.global_root) {
+        const auto global_current = *context.global_root/L"apps"/wide(name)/L"current";
+        if (fs::is_directory(global_current)) {
+            std::error_code error;
+            const auto canonical = fs::weakly_canonical(global_current,error);
+            plan.global_installation = operating_path(error ? global_current : canonical);
+            if (action != Action::install)
+                throw std::runtime_error("global-scope-readonly: package '"+name+"' is installed only in the "
+                    "read-only system-level root "+path_text(*context.global_root)+
+                    "; Coop does not update, remove or adopt system-level installations");
+        }
+    }
     const auto read_installed = [&]() {
         if (!plan.local.exists) throw std::runtime_error("No usable local current installation");
         const auto manifest = installed_record(plan.local.current,L"manifest");
@@ -570,7 +587,7 @@ void recheck_plan(const Plan& plan) {
         if (input.sha256.empty() || sha256_file(input.path) != input.sha256)
             throw std::runtime_error("Plan input changed; generate a new plan");
     if (fs::is_directory(plan.local.current) != plan.local.exists ||
-        (plan.local.exists && fs::canonical(plan.local.current) != plan.local.directory))
+        (plan.local.exists && operating_path(fs::canonical(plan.local.current)) != plan.local.directory))
         throw std::runtime_error("Current installation changed; generate a new plan");
 }
 static Json describe_plan(const Context& context, const Plan& plan) {
@@ -583,6 +600,8 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         {"external_tools",external_tools_json(context,plan.package)},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
+    if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
+        {"directory",path_text(*plan.global_installation)}};
     result["scoop_entry_wrappers"] = Json::array();
     for (const auto& wrapper : plan.scoop_entry_wrappers)
         result["scoop_entry_wrappers"].push_back(path_text(wrapper));
@@ -877,6 +896,8 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
         if (outcome.failed && !outcome.reason.empty()) root_result["reason"] = outcome.reason;
     }
     root_result["packages"] = packages;
+    if (plan.global_installation) root_result["global_installation"] = {{"scope","global"},{"read_only",true},
+        {"directory",path_text(*plan.global_installation)}};
     root_result["transaction_scope"] = "per-package; completed dependency installs are not rolled back when a later package fails";
     if (!outcome.failed) outcome.status = "success";
     outcome.value = root_result;
@@ -967,6 +988,23 @@ int install_single(const Context& context, const std::string& request, const std
     }
     return outcome.failed ? 1 : 0;
 }
+// Batch text output keeps every per-package line on stdout and adds one overall line so a partial
+// failure is visible without parsing JSON. The exit code remains the contract: 0 only when every
+// requested package succeeded or was skipped.
+void print_batch_summary(const Json& results) {
+    std::size_t success = 0, skipped = 0, failed = 0, other = 0;
+    for (const auto& item : results) {
+        const auto status = item.value("status",std::string{});
+        if (status == "success") ++success;
+        else if (status == "skipped") ++skipped;
+        else if (status == "failed" || status == "blocked" || status == "partial") ++failed;
+        else ++other;
+    }
+    std::cout << results.size() << " package(s): " << success << " succeeded, " << skipped
+              << " skipped, " << failed << " failed";
+    if (other) std::cout << ", " << other << " other";
+    std::cout << '\n';
+}
 int install_batch(const Context& context, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run) {
     Json results = Json::array();
     bool failed = false;
@@ -981,9 +1019,12 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
         failed = failed || outcome.failed;
     }
     if (context.json_output) print_json(results);
-    else for (const auto& item : results) {
-        std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
-        if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
+    else {
+        for (const auto& item : results) {
+            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
+            if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
+        }
+        print_batch_summary(results);
     }
     return failed ? 1 : 0;
 }
@@ -1013,9 +1054,12 @@ int simple_batch(const Context& context, Action action, const std::vector<std::w
         failed = failed || outcome.failed;
     }
     if (context.json_output) print_json(results);
-    else for (const auto& item : results) {
-        std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
-        if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
+    else {
+        for (const auto& item : results) {
+            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
+            if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
+        }
+        print_batch_summary(results);
     }
     return failed ? 1 : 0;
 }
@@ -1038,21 +1082,21 @@ int package_command(const Context& context, const std::wstring& command, const s
     std::vector<std::wstring> names;
     for (const auto& arg : args) {
         if (arg == L"--dry-run") {
-            if (dry_run) throw std::runtime_error("--dry-run was specified more than once");
+            if (dry_run) throw UsageError("--dry-run was specified more than once");
             dry_run = true;
         } else if (arg == L"--purge") {
-            if (purge) throw std::runtime_error("--purge was specified more than once");
+            if (purge) throw UsageError("--purge was specified more than once");
             purge = true;
-        } else if (arg.starts_with(L"--")) throw std::runtime_error("Unknown package option");
+        } else if (arg.starts_with(L"--")) throw UsageError("Unknown package option: "+utf8(arg));
         else names.push_back(arg);
     }
     if (command == L"cleanup") {
-        if (purge) throw std::runtime_error("--purge is only supported by uninstall");
+        if (purge) throw UsageError("--purge is only supported by uninstall");
         return cleanup_command(context,names,dry_run);
     }
-    if (purge && command != L"uninstall") throw std::runtime_error("--purge is only supported by uninstall");
-    if (names.empty()) throw std::runtime_error("Use one or more packages [--dry-run]");
-    if (purge && names.size() > 1) throw std::runtime_error("--purge accepts one package at a time");
+    if (purge && command != L"uninstall") throw UsageError("--purge is only supported by uninstall");
+    if (names.empty()) throw UsageError("Use one or more packages [--dry-run]");
+    if (purge && names.size() > 1) throw UsageError("--purge accepts one package at a time");
     const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update :
         command == L"adopt" ? Action::adopt : command == L"reset" ? Action::reset : Action::uninstall;
     if (action == Action::install) return names.size() > 1

@@ -90,7 +90,14 @@ void download_file(const std::string& url, const fs::path& destination) {
     if (!output) throw std::runtime_error("Cannot finish artifact file");
 }
 void make_junction(const fs::path& link, const fs::path& target) {
-    const auto print = fs::absolute(target).wstring();
+    // Reparse points use the NT namespace (\??\) directly, which is not limited by MAX_PATH.
+    // A \\?\ prefix copied from an extended input would produce \??\\\?\... and make the link
+    // unusable, so the plain drive/UNC spelling is stored while long targets stay fully supported.
+    auto text = fs::absolute(target).wstring();
+    if (text.starts_with(L"\\\\?\\UNC\\")) text = L"\\\\"+text.substr(8);
+    else if (text.starts_with(L"\\\\?\\")) text = text.substr(4);
+    else if (text.starts_with(L"\\\\.\\")) text = text.substr(4);
+    const auto print = text;
     const auto substitute = L"\\??\\"+print;
     const auto bytes = (substitute.size()+print.size()+2)*sizeof(wchar_t);
     if (bytes > MAXIMUM_REPARSE_DATA_BUFFER_SIZE-16) throw std::runtime_error("Junction target too long");

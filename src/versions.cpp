@@ -172,7 +172,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
     }
     const auto current_link = context.root/L"apps"/wide(package_name)/L"current";
     if (fs::is_directory(current_link)) {
-        try { current_directory = fs::canonical(current_link); }
+        try { current_directory = operating_path(fs::canonical(current_link)); }
         catch (const std::exception&) { /* A dangling link is handled by the inventory. */ }
     }
     if (!fs::is_regular_file(managed_path) && !fs::is_regular_file(retained_path)) {
