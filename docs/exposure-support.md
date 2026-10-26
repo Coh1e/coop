@@ -52,7 +52,7 @@
 | Scoop 安装的 BAT 入口 | 真实已安装 `clink` 只有 `clink.cmd`/sh 包装；`coop update clink --dry-run` 与 `uninstall clink --dry-run` 均 `execution_available=true`，预览列出两个包装，未执行真实写入 |
 | Scoop reset 后继续管理 | 五个包逐个 `scoop reset` 后 Coop 仍识别同一版本；Coop 卸载成功，只撤销 Coop 入口、已核对归属的快捷方式和内容指向该包的 Scoop `.cmd`/`.ps1`/sh 包装，不影响其他软件 |
 
-入口/快捷方式参数的 `$dir` 展开在隔离测试 `tests/exposure.ps1` 中用真实 CLI、真实程序与真实 `.lnk` 验证（预览、`.shim`、管理记录与子进程观察一致）；所选真实包没有声明这些变量，因此没有在真实根重复制造该组合。上述真机运行的原始日志与 JSON 保存在 `.local/pi/tasks/28/evidence/real-exposure-final/`（最终 head 运行；中间修复运行不作为证据）。
+入口/快捷方式参数的 `$dir` 展开在隔离测试 `tests/exposure.ps1` 中用真实 CLI、真实程序与真实 `.lnk` 验证（预览、`.shim`、管理记录与子进程观察一致）；所选真实包没有声明这些变量，因此没有在真实根重复制造该组合。上述真机运行的原始日志与 JSON 保存在 `.local/pi/tasks/28/evidence/real-exposure-head/`（最终 head 运行；中间修复运行不作为证据）。
 
 ## 隔离验证
 
