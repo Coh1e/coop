@@ -12,6 +12,10 @@ foreach ($path in @(
     (Join-Path $archives 'air_1.67.3_windows_amd64.tar.gz'),
     (Join-Path $archives 'air_1.67.4_windows_amd64.tar.gz'),
     (Join-Path $archives 'air_1.67.4_windows_386.tar.gz'),
+    (Join-Path $archives 'tidy-5.8.0-win64.zip'),
+    (Join-Path $archives 'luajit-2.1.1791988261-1-any.pkg.tar.zst'),
+    (Join-Path $archives 'curl-8.23.0_5-win64-mingw.tar.xz'),
+    (Join-Path $archives 'unz600xn.exe'),
     $fixture1, $fixture2
 )) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing fixed test input: $path; run scripts/fetch-deps.ps1" } }
 
@@ -137,6 +141,103 @@ $air32Output = (& "$root32/shims/air.exe" -v) -join "`n"
 if ($LASTEXITCODE -ne 0 -or $air32Output -notmatch '1\.67\.4,') { throw '32bit tar.gz entry ran wrong version' }
 $uninstall32 = Invoke-CoopRetry '32bit tar.gz uninstall' @('--root',$root32,'uninstall','air','--json')
 Assert-Exit '32bit tar.gz uninstall failed'
+
+# Nested ZIP layout: the real Main/tidy zip keeps its files below <version>\win64\bin.
+$root = New-TestRoot
+$tidy = Join-Path $archives 'tidy-5.8.0-win64.zip'
+Write-Manifest $root 'tidy' @{version='5.8.0';architecture=@{'64bit'=@{url=(File-Uri $tidy);hash='ffb2f86484c66e70e6a6da369cb8f0f459ad2ffec7c7ca80d09a13445ee51a40';extract_dir='tidy-5.8.0-win64\bin'}};bin='tidy.exe'}
+$tidyInstall = & $CoopExe --root $root install test/tidy --json
+Assert-Exit 'nested ZIP install failed'
+if (-not (Test-Path "$root/apps/tidy/current/tidy.exe")) { throw 'nested ZIP extract_dir did not flatten the selected directory' }
+$tidyOutput = (& "$root/shims/tidy.exe" --version) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $tidyOutput -notmatch '5\.8\.0') { throw "nested ZIP entry ran wrong version: $tidyOutput" }
+$tidyUninstall = & $CoopExe --root $root uninstall tidy --json
+Assert-Exit 'nested ZIP uninstall failed'
+
+# tar.zst with a nested extract_dir: the real Main/luajit package is an Arch package whose
+# mingw64 tree is selected before publishing.
+$root = New-TestRoot
+$luajit = Join-Path $archives 'luajit-2.1.1791988261-1-any.pkg.tar.zst'
+Write-Manifest $root 'luajit' @{version='2.1.1791988261-1';architecture=@{'64bit'=@{url=(File-Uri $luajit);hash='d559881bffc105af4482eab52a34fa57963047cf45e735a5c0f8daca605c68a1';extract_dir='mingw64'}};bin='bin\luajit.exe'}
+$plan = & $CoopExe --root $root install test/luajit --dry-run --json | ConvertFrom-Json
+Assert-Exit 'tar.zst preview failed'
+if (-not $plan.execution_available -or $plan.artifacts[0].archive -ne 'tar' -or $plan.artifacts[0].extract_dir -ne 'mingw64') { throw 'tar.zst preview did not preserve the nested layout' }
+$guard = Join-Path (Split-Path $CoopExe) 'process_guard.exe'
+if (-not (Test-Path -LiteralPath $guard)) { throw "Missing process guard: $guard" }
+# Observe the real process tree during a zstd tar install: only coop.exe may run, no external
+# 7z.exe, tar.exe or bzip2.exe is allowed to perform the extraction.
+$luajitInstall = & $guard $CoopExe --root $root install test/luajit --json
+Assert-Exit 'tar.zst install failed or started an external extractor'
+$luajitOutput = (& "$root/shims/luajit.exe" -v) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1') { throw "tar.zst entry failed to run: $luajitOutput" }
+if (-not (Test-Path "$root/apps/luajit/current/bin/luajit.exe") -or (Test-Path "$root/apps/luajit/current/mingw64")) { throw 'tar.zst extract_dir layout is wrong' }
+# A corrupt tar.zst update must leave the working current version in place.
+$badZst = Join-Path $root 'bad.tar.zst'
+[IO.File]::WriteAllBytes($badZst,[byte[]](1..512 | ForEach-Object { $_ % 251 }))
+Write-Manifest $root 'luajit' @{version='2.1.999';architecture=@{'64bit'=@{url=(File-Uri $badZst);hash=(Get-FileHash -LiteralPath $badZst -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
+$failed = & $CoopExe --root $root update luajit --json 2>&1
+if ($LASTEXITCODE -eq 0) { throw 'corrupt tar.zst update unexpectedly succeeded' }
+$luajitOutput = (& "$root/shims/luajit.exe" -v) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1' -or (Test-Path "$root/apps/luajit/2.1.999")) { throw 'corrupt tar.zst update damaged the current version' }
+$luajitUninstall = & $CoopExe --root $root uninstall luajit --json
+Assert-Exit 'tar.zst uninstall failed'
+
+# tar.xz with a nested extract_dir: the real Main/curl archive contains a version root.
+$root = New-TestRoot
+$curl = Join-Path $archives 'curl-8.23.0_5-win64-mingw.tar.xz'
+Write-Manifest $root 'curl' @{version='8.23.0_5';architecture=@{'64bit'=@{url=(File-Uri $curl);hash='b6ad235d1907d96615334532eab1db0040860e6b5adc3b8749a4331924449c3b';extract_dir='curl-8.23.0_5-win64-mingw'}};bin='bin\curl.exe'}
+$curlInstall = & $CoopExe --root $root install test/curl --json
+Assert-Exit 'tar.xz install failed'
+$curlOutput = (& "$root/shims/curl.exe" --version) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $curlOutput -notmatch '8\.23\.0') { throw "tar.xz entry ran wrong version: $curlOutput" }
+if (-not (Test-Path "$root/apps/curl/current/bin/curl.exe")) { throw 'tar.xz extract_dir layout is wrong' }
+$curlUninstall = & $CoopExe --root $root uninstall curl --json
+Assert-Exit 'tar.xz uninstall failed'
+
+# A 7z self-extracting download: the real Main/unzip manifest downloads an .exe and renames it
+# to dl.7z, so extraction has to read the 7z container behind the PE stub.
+$root = New-TestRoot
+$unzip = Join-Path $archives 'unz600xn.exe'
+Write-Manifest $root 'unzip' @{version='6.00';url=((File-Uri $unzip)+'#/dl.7z');hash='7869ee36346b47701ef01efd0bc2889f970266b66c80b30f74303d50bf7fa33d';bin='unzip.exe'}
+$unzipPlan = & $CoopExe --root $root install test/unzip --dry-run --json | ConvertFrom-Json
+Assert-Exit '7z SFX preview failed'
+if (-not $unzipPlan.execution_available -or $unzipPlan.artifacts[0].archive -ne '7z' -or $unzipPlan.artifacts[0].filename -ne 'dl.7z' -or -not $unzipPlan.artifacts[0].renamed) { throw '7z SFX preview did not preserve the rename and format' }
+$unzipInstall = & $guard $CoopExe --root $root install test/unzip --json
+Assert-Exit '7z SFX install failed or started an external extractor'
+$unzipOutput = (& "$root/shims/unzip.exe" -v) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $unzipOutput -notmatch 'UnZip 6\.00') { throw "7z SFX entry ran wrong version: $unzipOutput" }
+$unzipUninstall = & $CoopExe --root $root uninstall unzip --json
+Assert-Exit '7z SFX uninstall failed'
+
+# bzip2 and lzma tar streams plus the "move the contents of extract_dir" rule. The archive used by
+# Scoop contains wrap/deep/wrap/deep/bin so extracting wrap\deep must leave wrap/deep/bin at the
+# package root. The compression is produced with the system bsdtar only as a test fixture.
+$root = New-TestRoot
+$fixtures = Join-Path $root 'fixtures'
+New-Item -ItemType Directory -Path "$fixtures/wrap/deep/wrap/deep/bin" -Force | Out-Null
+Copy-Item -LiteralPath $fixture1 -Destination "$fixtures/wrap/deep/wrap/deep/bin/nested.exe"
+Push-Location $fixtures
+try {
+    & tar.exe -cjf (Join-Path $fixtures 'nested.tar.bz2') 'wrap'
+    if ($LASTEXITCODE -ne 0) { throw 'bzip2 fixture creation failed' }
+    & tar.exe --lzma -cf (Join-Path $fixtures 'nested.tar.lzma') 'wrap'
+    if ($LASTEXITCODE -ne 0) { throw 'lzma fixture creation failed' }
+} finally { Pop-Location }
+foreach ($case in @(
+    @{name='bz2'; file='nested.tar.bz2'; alias='bz2tool'},
+    @{name='lzma'; file='nested.tar.lzma'; alias='lzmatool'}
+)) {
+    $archive = Join-Path $fixtures $case.file
+    Write-Manifest $root $case.name @{version='1';url=(File-Uri $archive);hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLower();extract_dir='wrap\deep';bin=@(,@('wrap\deep\bin\nested.exe',$case.alias))}
+    $install = & $CoopExe --root $root install "test/$($case.name)" --json
+    Assert-Exit "$($case.name) install failed"
+    $program = Join-Path $root "shims/$($case.alias).exe"
+    $programOutput = (& $program) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $programOutput -notmatch 'fixture 1') { throw "$($case.name) nested extract_dir entry failed to run: $programOutput" }
+    if (-not (Test-Path "$root/apps/$($case.name)/current/wrap/deep/bin/nested.exe")) { throw "$($case.name) nested same-name extract_dir layout is wrong" }
+    $uninstall = & $CoopExe --root $root uninstall $case.name --json
+    Assert-Exit "$($case.name) uninstall failed"
+}
 
 # Unicode ZIP entry and multi-artifact extract_to scheduling.
 $root = New-TestRoot

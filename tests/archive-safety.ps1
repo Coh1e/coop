@@ -125,8 +125,7 @@ if ((Get-Content $journal.FullName -Raw | ConvertFrom-Json).state -ne 'rolled-ba
 # Unsupported mechanisms fail clearly without starting an external installer.
 $root = New-TestRoot
 $unsupported = @(
-    @{Name='msi'; Manifest=@{version='1';url='https://example.invalid/setup.msi';hash=('0'*64);bin='setup.exe'}; Pattern='msiexec'},
-    @{Name='bzip2'; Manifest=@{version='1';url='https://example.invalid/tool.tar.bz2';hash=('0'*64);bin='tool.exe'}; Pattern='tar compression'}
+    @{Name='msi'; Manifest=@{version='1';url='https://example.invalid/setup.msi';hash=('0'*64);bin='setup.exe'}; Pattern='msiexec'}
 )
 $previousMsiExec = $env:COOP_MSIEXEC
 foreach ($item in $unsupported) {

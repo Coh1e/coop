@@ -7,7 +7,8 @@ $session = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
 $fixture1 = Join-Path (Split-Path $CoopExe) 'fixture-1.exe'
 $fixture2 = Join-Path (Split-Path $CoopExe) 'fixture-2.exe'
 $scoopShim = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/deps/test-fixtures/scoop-shim-kiennq.exe'))
-foreach ($path in @($fixture1,$fixture2,$scoopShim)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing fixed test input: $path" } }
+$luajitArchive = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/deps/test-archives/luajit-2.1.1791988261-1-any.pkg.tar.zst'))
+foreach ($path in @($fixture1,$fixture2,$scoopShim,$luajitArchive)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing fixed test input: $path" } }
 if ((Get-FileHash -LiteralPath $scoopShim -Algorithm SHA256).Hash.ToLower() -ne '140e3801d8adeda639a21b14e62b93a4c7d26b7a758421f43c82be59753be49b') { throw 'unverified original Scoop test shim' }
 function Manifest([string]$version,[string]$program) {
     @{version=$version;url=([Uri][IO.Path]::GetFullPath($program)).AbsoluteUri+'#/shared.exe';hash=(Get-FileHash -LiteralPath $program -Algorithm SHA256).Hash.ToLower();bin='shared.exe'} | ConvertTo-Json -Depth 5
@@ -90,6 +91,56 @@ if (-not (Test-Path "$rootMulti/apps/multi/1/alpha.exe")) { throw 'shared multi-
 $multiRemoved = & $CoopExe --root $rootMulti uninstall multi --json
 if ($LASTEXITCODE -ne 0) { throw "shared multi-artifact uninstall failed: $multiRemoved" }
 if ((Test-Path "$rootMulti/apps/multi/current") -or (Test-Path "$rootMulti/shims/alpha.exe") -or (Test-Path "$rootMulti/shims/beta.exe") -or (Test-Path "$rootMulti/shims/alpha.shim") -or (Test-Path "$rootMulti/shims/beta.shim")) { throw 'shared multi-artifact uninstall left published state' }
+# A shared archive installation has no digest for the extracted tree. Coop recognizes the standard
+# apps/<name>/current layout, saved Manifest and command target, then updates and uninstalls it
+# without a private record. The seed installation is created by Coop and then stripped of its
+# private record so the shared path is exercised exactly like a Scoop-created archive install.
+$seed = Join-Path $session 'archive-seed'
+New-Item -ItemType Directory -Path "$seed/buckets/test/bucket" -Force | Out-Null
+$luajitManifest = @{version='2.1.1791988261-1';architecture=@{'64bit'=@{url=([Uri]$luajitArchive).AbsoluteUri;hash=(Get-FileHash -LiteralPath $luajitArchive -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
+$luajitManifest | ConvertTo-Json -Depth 8 | Set-Content "$seed/buckets/test/bucket/luajit.json" -Encoding utf8
+$seedInstall = & $CoopExe --root $seed install test/luajit --json
+if ($LASTEXITCODE -ne 0) { throw "archive seed install failed: $seedInstall" }
+$rootArchive = Join-Path $session 'scoop-owned-archive'
+New-Item -ItemType Directory -Path "$rootArchive/buckets/test/bucket","$rootArchive/apps/luajit/1","$rootArchive/shims" -Force | Out-Null
+Copy-Item -Path "$seed/apps/luajit/2.1.1791988261-1/*" -Destination "$rootArchive/apps/luajit/1" -Recurse -Force
+Remove-Item -LiteralPath "$rootArchive/apps/luajit/1/scoop-manifest.json" -Force -ErrorAction SilentlyContinue
+$sharedManifest = @{version='1';architecture=@{'64bit'=@{url=([Uri]$luajitArchive).AbsoluteUri;hash=(Get-FileHash -LiteralPath $luajitArchive -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
+$latestManifest = @{version='2';architecture=@{'64bit'=@{url=([Uri]$luajitArchive).AbsoluteUri;hash=(Get-FileHash -LiteralPath $luajitArchive -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
+$sharedManifest | ConvertTo-Json -Depth 8 | Set-Content "$rootArchive/apps/luajit/1/manifest.json" -Encoding utf8
+$latestManifest | ConvertTo-Json -Depth 8 | Set-Content "$rootArchive/buckets/test/bucket/luajit.json" -Encoding utf8
+Set-Content "$rootArchive/apps/luajit/1/install.json" '{"bucket":"test","architecture":"64bit"}' -Encoding utf8
+New-Item -ItemType Junction -Path "$rootArchive/apps/luajit/current" -Target "$rootArchive/apps/luajit/1" | Out-Null
+Copy-Item -LiteralPath $scoopShim -Destination "$rootArchive/shims/luajit.exe"
+[IO.File]::WriteAllText("$rootArchive/shims/luajit.shim",'path = "'+[IO.Path]::GetFullPath("$rootArchive/apps/luajit/1/bin/luajit.exe")+'"'+"`r`n")
+if (Test-Path "$rootArchive/.coop/packages/luajit.json") { throw 'shared archive fixture unexpectedly has a Coop record' }
+$archivePreview = & $CoopExe --root $rootArchive update luajit --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "shared archive preview failed: $archivePreview" }
+$archiveEntry = $archivePreview | ConvertFrom-Json
+if (-not $archiveEntry.execution_available) { throw "shared archive update was not executable: $archivePreview" }
+$archivePlanned = @($archiveEntry.ir_operations | ForEach-Object operation)
+$archiveUpdate = & $CoopExe --root $rootArchive update luajit --json
+if ($LASTEXITCODE -ne 0) { throw "shared archive update failed: $archiveUpdate" }
+$archiveJournal = Get-Content -LiteralPath (($archiveUpdate | ConvertFrom-Json).journal) -Raw | ConvertFrom-Json
+if ((@($archiveJournal.observed_steps) -join ',') -ne ($archivePlanned -join ',')) { throw 'shared archive execution did not follow the displayed plan' }
+$luajitOutput = (& "$rootArchive/shims/luajit.exe" -v) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1') { throw "shared archive updated program did not run: $luajitOutput" }
+if (-not (Test-Path "$rootArchive/apps/luajit/2/bin/luajit.exe") -or -not (Test-Path "$rootArchive/apps/luajit/1/bin/luajit.exe")) { throw 'shared archive update did not publish and retain the expected trees' }
+$archiveRemoved = & $CoopExe --root $rootArchive uninstall luajit --json
+if ($LASTEXITCODE -ne 0) { throw "shared archive uninstall failed: $archiveRemoved" }
+if ((Test-Path "$rootArchive/apps/luajit/current") -or (Test-Path "$rootArchive/shims/luajit.exe") -or (Test-Path "$rootArchive/shims/luajit.shim")) { throw 'shared archive uninstall left published state' }
+if (-not (Test-Path "$rootArchive/apps/luajit/1/bin/luajit.exe")) { throw 'shared archive uninstall did not retain the previous version' }
+# A changed archive tree with a missing command target is refused before writing.
+$brokenArchive = Join-Path $session 'scoop-owned-archive-broken'
+New-Item -ItemType Directory -Path "$brokenArchive/buckets/test/bucket","$brokenArchive/apps/luajit/1","$brokenArchive/shims" -Force | Out-Null
+$latestManifest | ConvertTo-Json -Depth 8 | Set-Content "$brokenArchive/buckets/test/bucket/luajit.json" -Encoding utf8
+$sharedManifest | ConvertTo-Json -Depth 8 | Set-Content "$brokenArchive/apps/luajit/1/manifest.json" -Encoding utf8
+Set-Content "$brokenArchive/apps/luajit/1/install.json" '{"bucket":"test","architecture":"64bit"}' -Encoding utf8
+New-Item -ItemType Junction -Path "$brokenArchive/apps/luajit/current" -Target "$brokenArchive/apps/luajit/1" | Out-Null
+$brokenOutput = & $CoopExe --root $brokenArchive update luajit --json 2>&1
+if ($LASTEXITCODE -eq 0 -or ($brokenOutput -join "`n") -notmatch 'command target is missing') { throw "a shared archive with a missing command target was not refused: $brokenOutput" }
+if (Test-Path "$brokenArchive/.coop/packages/luajit.json") { throw 'refused shared archive created management state' }
+
 # Reverse direction: Coop creates a standard single-file installation, Scoop resets the entry, and
 # Coop continues to manage it without re-adoption or a private-record precondition.
 $rootB = Join-Path $session 'coop-owned'
@@ -146,5 +197,5 @@ $foreignEntry = $foreignPreview | ConvertFrom-Json
 if ($foreignEntry.execution_available -ne $false -or @($foreignEntry.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw "foreign launcher was not blocked in preview: $foreignPreview" }
 $foreignUpdate = & $CoopExe --root $foreignRoot update gui --json 2>&1
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$foreignRoot/.coop/packages/gui.json")) { throw "foreign launcher was accepted: $foreignUpdate" }
-@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
-Write-Output "PASS shared Scoop/Coop single-file and multi-artifact update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"
+@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_archive=$rootArchive;root_archive_broken=$brokenArchive;root_gui=$guiRoot;root_foreign=$foreignRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);archive_planned=$archivePlanned;archive_observed=@($archiveJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
+Write-Output "PASS shared Scoop/Coop single-file, multi-artifact and archive update, reset, GUI shim and foreign-launcher refusal: $session/evidence.json"

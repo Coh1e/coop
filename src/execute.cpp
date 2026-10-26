@@ -69,8 +69,10 @@ void require_capabilities(const Package& package) {
         case ArchiveKind::tar: {
             const auto name = lower_name(artifact.filename);
             const bool supported = name.ends_with(".tar") || name.ends_with(".tar.gz") || name.ends_with(".tgz") ||
-                name.ends_with(".tar.xz") || name.ends_with(".txz");
-            if (!supported) throw std::runtime_error("This tar compression is not supported; only .tar, .tar.gz, .tgz, .tar.xz and .txz are enabled");
+                name.ends_with(".tar.xz") || name.ends_with(".txz") || name.ends_with(".tar.lzma") ||
+                name.ends_with(".tlz") || name.ends_with(".tar.bz2") || name.ends_with(".tbz") ||
+                name.ends_with(".tbz2") || name.ends_with(".tar.zst") || name.ends_with(".tzst");
+            if (!supported) throw std::runtime_error("This tar compression is not supported; gzip, xz, lzma, bzip2 and zstd tar streams are enabled");
             break;
         }
         case ArchiveKind::seven_zip:
@@ -189,17 +191,37 @@ void publish_new(const fs::path& source, const fs::path& destination) {
 }
 // A shared Scoop installation has no Coop record. Its direct-file artifacts are still verifiable
 // from the saved Manifest: each declared file must exist in the version directory and match the
-// declared algorithm. Archive layouts are extracted trees, so they stay refused until their
-// content evidence is implemented instead of guessing.
+// declared algorithm. An archive installation is an extracted tree, and Scoop records no digest
+// for that tree. For it, the installation facts are the standard apps/<name>/current layout, the
+// saved Manifest/install record already parsed into the package, every declared command or
+// shortcut target existing below the version directory, and an inspectable tree with no reparse
+// point at its root. This is the same ownership boundary Scoop uses for reset/uninstall; the
+// version directory itself is package-owned, while declared persistent data is handled separately.
 void verify_shared_artifacts(const Package& installed, const fs::path& directory) {
     if (installed.artifacts.empty()) throw std::runtime_error("Shared installation has no recorded artifacts");
+    bool archive_layout = false;
     for (const auto& artifact : installed.artifacts) {
-        if (artifact.archive != ArchiveKind::none)
-            throw std::runtime_error("This shared installation has no Coop management record and its archive layout cannot be verified yet");
+        if (artifact.archive != ArchiveKind::none) { archive_layout = true; continue; }
         const auto path = directory/wide(artifact.filename);
         if (!fs::is_regular_file(path)) throw std::runtime_error("Shared installation artifact is missing: "+artifact.filename);
         if (digest_file(path,artifact.algorithm) != artifact.digest)
             throw std::runtime_error("Shared installation artifact changed: "+artifact.filename);
+    }
+    if (!archive_layout) return;
+    if (!fs::is_directory(directory)) throw std::runtime_error("Shared archive installation directory is missing");
+    try { version_tree_stamp(directory); }
+    catch (const std::exception& error) {
+        throw std::runtime_error(std::string("Shared archive layout cannot be inspected: ")+error.what());
+    }
+    for (const auto& command : installed.commands) {
+        const auto target = directory/command.target;
+        if (!fs::is_regular_file(target))
+            throw std::runtime_error("Shared archive command target is missing: "+path_text(command.target));
+    }
+    for (const auto& shortcut : installed.shortcuts) {
+        const auto target = directory/shortcut.target;
+        if (!fs::is_regular_file(target))
+            throw std::runtime_error("Shared archive shortcut target is missing: "+path_text(shortcut.target));
     }
 }
 bool path_is_under(const fs::path& path, const fs::path& base) {
@@ -399,8 +421,9 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if ((plan.action == Action::uninstall || plan.action == Action::update) && !plan.local.exists)
         return "No usable current installation exists for this package";
     // Shared Scoop installations have no Coop private record. Direct-file artifacts (including
-    // multiple downloads) are verified from the saved Manifest and actual files; archive layouts
-    // remain unverifiable until their content evidence exists.
+    // multiple downloads) are verified from the saved Manifest and actual files. Archive layouts
+    // are verified from the standard apps/<name>/current tree, the saved records and every declared
+    // entry target; no private Coop record is a precondition.
     if ((plan.action == Action::uninstall || plan.action == Action::update) &&
         !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
         const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
@@ -827,9 +850,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
                 extract_archive(downloaded_files[step.index],raw);
                 const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
-                // Fixed Scoop 0.6.0 only applies extract_dir to non-tar archives.
-                const auto extract_directory = artifact.archive == ArchiveKind::tar ? fs::path{} : artifact.extract_directory;
-                merge_archive_tree(raw,extract_directory,destination);
+                // Scoop 0.6.0 unpacks a compressed tar wrapper first and applies extract_dir while
+                // extracting the inner tar; plain tar applies it directly. Merge the tree below the
+                // selected directory for every archive kind, so nested layouts behave the same for
+                // ZIP, 7z, tar, tar.gz, tar.xz, tar.bz2 and tar.zst.
+                merge_archive_tree(raw,artifact.extract_directory,destination);
                 erase_tree(raw);
                 break;
             }

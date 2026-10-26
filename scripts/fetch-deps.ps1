@@ -39,12 +39,17 @@ Write-Output 'Verified libgit2 v1.9.7 sources'
 $archiveDependencies = @(
     @{Name='libarchive-3.7.7.tar.gz'; Url='https://codeload.github.com/libarchive/libarchive/tar.gz/refs/tags/v3.7.7'; Hash='fa62384995e8aa4f5a901c184fb5c91e56a29e24c05b6881a7f8fd5bbea694d2'; Directory='libarchive-3.7.7'},
     @{Name='zlib-1.3.1.tar.gz'; Url='https://codeload.github.com/madler/zlib/tar.gz/refs/tags/v1.3.1'; Hash='17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c'; Directory='zlib-1.3.1'},
-    @{Name='xz-5.6.4.tar.gz'; Url='https://codeload.github.com/tukaani-project/xz/tar.gz/refs/tags/v5.6.4'; Hash='f6820629a1f7304b4c7364b5f5dae04fa8b799e41224e96cae1a8d94cf7d0b55'; Directory='xz-5.6.4'}
+    @{Name='xz-5.6.4.tar.gz'; Url='https://codeload.github.com/tukaani-project/xz/tar.gz/refs/tags/v5.6.4'; Hash='f6820629a1f7304b4c7364b5f5dae04fa8b799e41224e96cae1a8d94cf7d0b55'; Directory='xz-5.6.4'},
+    @{Name='zstd-1.5.7.tar.gz'; Url='https://codeload.github.com/facebook/zstd/tar.gz/refs/tags/v1.5.7'; Hash='37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3'; Directory='zstd-1.5.7'; Exclude='*/tests/*'},
+    @{Name='bzip2-1.0.8.tar.gz'; Url='https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz'; Hash='ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269'; Directory='bzip2-1.0.8'}
 )
 foreach ($dependency in $archiveDependencies) {
     $archive = Get-PinnedFile $dependency.Name $dependency.Url $dependency.Hash $sources
-    if (-not (Test-Path -LiteralPath (Join-Path $sources ($dependency.Directory+'/CMakeLists.txt')))) {
-        & tar.exe -xf $archive -C $sources
+    $marker = if ($dependency.Directory -eq 'zstd-1.5.7') { 'build/cmake/CMakeLists.txt' } elseif ($dependency.Directory -eq 'bzip2-1.0.8') { 'bzlib.c' } else { 'CMakeLists.txt' }
+    if (-not (Test-Path -LiteralPath (Join-Path $sources ($dependency.Directory+'/'+$marker)))) {
+        $extractArguments = @('-xf',$archive,'-C',$sources)
+        if ($dependency.Exclude) { $extractArguments += ('--exclude='+$dependency.Exclude) }
+        & tar.exe @extractArguments
         if ($LASTEXITCODE -ne 0) { throw "Archive dependency extraction failed: $($dependency.Name)" }
     }
     if ($dependency.Directory -eq 'xz-5.6.4') {
@@ -72,7 +77,11 @@ $testArchives = @(
     @{Name='air_1.67.4_windows_amd64.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_amd64.tar.gz'; Hash='c35dbd568cff98055cc382d003bfda06bcdae82389568fb5e60ce5da278fa79d'},
     @{Name='air_1.67.4_windows_386.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_386.tar.gz'; Hash='91df7ef7f35da4a23129e172675137e1b8cd6835392736d817bb443c0dc424c8'},
     @{Name='7z2605-x64.msi'; Url='https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.msi'; Hash='3fe4ab99fa15629c652944309a2b2bc6e41fc933fc6b63f5df1ebcf3aea68263'},
-    @{Name='node-v26.12.1-win-x64.7z'; Url='https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.7z'; Hash='4deef78146a60555c9518438cae38da8df71722ca856920b90078f5cdeb642a6'}
+    @{Name='node-v26.12.1-win-x64.7z'; Url='https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.7z'; Hash='4deef78146a60555c9518438cae38da8df71722ca856920b90078f5cdeb642a6'},
+    @{Name='luajit-2.1.1791988261-1-any.pkg.tar.zst'; Url='https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-luajit-2.1.1791988261-1-any.pkg.tar.zst'; Hash='d559881bffc105af4482eab52a34fa57963047cf45e735a5c0f8daca605c68a1'},
+    @{Name='tidy-5.8.0-win64.zip'; Url='https://github.com/htacg/tidy-html5/releases/download/5.8.0/tidy-5.8.0-win64.zip'; Hash='ffb2f86484c66e70e6a6da369cb8f0f459ad2ffec7c7ca80d09a13445ee51a40'},
+    @{Name='unz600xn.exe'; Url='https://raw.githubusercontent.com/ScoopInstaller/Binary/master/unzip/unz600xn.exe'; Hash='7869ee36346b47701ef01efd0bc2889f970266b66c80b30f74303d50bf7fa33d'},
+    @{Name='curl-8.23.0_5-win64-mingw.tar.xz'; Url='https://curl.se/windows/dl-8.23.0_5/curl-8.23.0_5-win64-mingw.tar.xz'; Hash='b6ad235d1907d96615334532eab1db0040860e6b5adc3b8749a4331924449c3b'}
 )
 foreach ($file in $testArchives) { Get-PinnedFile $file.Name $file.Url $file.Hash $archives | Out-Null }
-Write-Output 'Verified fixed real ZIP, tar.gz, 7z and MSI test archives'
+Write-Output 'Verified fixed real ZIP, tar.gz/tar.xz/tar.zst, 7z, 7z SFX and MSI test archives'

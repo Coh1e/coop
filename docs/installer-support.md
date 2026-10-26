@@ -10,7 +10,7 @@
 | --- | --- | --- | --- |
 | ZIP / tar.gz 普通归档 | Main/ripgrep、Main/air | 原生 libarchive，既有 T09 覆盖 | `tests/archive-lifecycle.ps1` |
 | 7z 普通归档 | Main/nodejs `node-v26.12.1-win-x64.7z` | 原生 libarchive 解压，`extract_dir` 与 `bin` 正常工作，不启动 7z.exe 或 PowerShell | `tests/installers.ps1` 安装真实 node 产物并运行 `node --version` → `v26.12.1` |
-| `#/dl.7z` 自解压安装器载荷 | Extras/git、Extras/vscode、Extras/firefox、Extras/aider-desk | 按普通 7z 载荷交给 libarchive；不解析 NSIS/Inno 安装器结构。未下载这些大体积真实产物，因此生命周期未验证 | 仅计划层与机制边界；未运行 |
+| `#/dl.7z` 自解压安装器载荷 | Main/unzip 6.00；Extras/git、Extras/vscode、Extras/firefox、Extras/aider-desk | 按普通 7z 载荷交给 libarchive；不解析 NSIS/Inno 安装器结构。R05 已用 Main/unzip 的真实下载改名、安装、运行和 Scoop reset 验证机制；大体积 Extras 安装器载荷仍未逐个运行 | `tests/archive-lifecycle.ps1`、`tests/real-scoop-archives.ps1`；大体积 Extras 载荷未运行 |
 | MSI 管理安装提取 | Main/7zip `7z2605-x64.msi` | **未启用**。计划仍检测 `msiexec.exe` 并列出工具、可用性和隔离限制；`msiexec.exe /a` 会写入 `%WINDIR%\Installer` 的机器级 Windows Installer 缓存，超出项目根。为避免静默修改系统，执行明确阻塞 | 验证者在 `6203f08` 复现：`.local/pi/tasks/16/verify/06-msi-system-write.log`；本轮测试只验证预览/拒绝且测量缓存未变化 |
 | `installer.script` | Main/python（实际样本） | 阶段已接入生命周期；只有落在已证明脚本子集内的文本可执行。python 的 installer.script 依赖 `Expand-DarkArchive`、`Expand-MsiArchive`、子表达式等，明确阻塞 | 子集执行路径用测试脚本验证；python 样本只做诊断 |
 | `uninstaller.script` | Main/rclone（实际样本） | 文本落在扩展后的子集内，按 `uninstaller` 阶段执行；`Get-Item` 只读取受限根下的 `LinkType`/`Length` | `tests/installers.ps1` 使用 rclone 原文在卸载时把 `rclone.conf` 保存到 persist |

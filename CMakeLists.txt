@@ -9,7 +9,8 @@ endif()
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/CMakeLists.txt")
   message(FATAL_ERROR "Run scripts/fetch-deps.ps1 to fetch libgit2")
 endif()
-foreach(dependency IN ITEMS zlib-1.3.1/CMakeLists.txt xz-5.6.4/CMakeLists.txt libarchive-3.7.7/CMakeLists.txt)
+foreach(dependency IN ITEMS zlib-1.3.1/CMakeLists.txt xz-5.6.4/CMakeLists.txt
+    zstd-1.5.7/build/cmake/CMakeLists.txt bzip2-1.0.8/bzlib.c libarchive-3.7.7/CMakeLists.txt)
   if(NOT EXISTS "${PROJECT_SOURCE_DIR}/.local/deps/sources/${dependency}")
     message(FATAL_ERROR "Run scripts/fetch-deps.ps1 to fetch archive dependencies")
   endif()
@@ -71,8 +72,38 @@ set(HAVE_WCSCMP TRUE CACHE BOOL "" FORCE)
 set(HAVE_WCSCPY TRUE CACHE BOOL "" FORCE)
 set(HAVE_WCSLEN TRUE CACHE BOOL "" FORCE)
 set(HAVE_WMEMCMP TRUE CACHE BOOL "" FORCE)
-set(ENABLE_BZip2 OFF CACHE BOOL "" FORCE)
-set(ENABLE_ZSTD OFF CACHE BOOL "" FORCE)
+# bzip2 has no CMake build of its own. Compile the fixed release sources directly so the core
+# archive path needs neither bzip2.exe nor a system SDK.
+set(BZIP2_SOURCE "${PROJECT_SOURCE_DIR}/.local/deps/sources/bzip2-1.0.8")
+add_library(coop_bzip2 STATIC
+  "${BZIP2_SOURCE}/blocksort.c" "${BZIP2_SOURCE}/bzlib.c" "${BZIP2_SOURCE}/compress.c"
+  "${BZIP2_SOURCE}/crctable.c" "${BZIP2_SOURCE}/decompress.c" "${BZIP2_SOURCE}/huffman.c"
+  "${BZIP2_SOURCE}/randtable.c" "${PROJECT_SOURCE_DIR}/src/bzip2_glue.c")
+target_include_directories(coop_bzip2 PUBLIC "${BZIP2_SOURCE}")
+target_compile_definitions(coop_bzip2 PRIVATE BZ_NO_STDIO _CRT_SECURE_NO_WARNINGS)
+set_target_properties(coop_bzip2 PROPERTIES ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bzip2"
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+set(BZIP2_INCLUDE_DIR "${BZIP2_SOURCE}" CACHE STRING "" FORCE)
+set(BZIP2_LIBRARIES "${PROJECT_BINARY_DIR}/bzip2/coop_bzip2.lib" CACHE STRING "" FORCE)
+set(BZIP2_FOUND TRUE CACHE BOOL "" FORCE)
+# zstd is built from its pinned CMake project and only its static library is linked. Configure the
+# feature probes up front because the static archive does not exist until the build phase.
+set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ZSTD_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
+set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "" FORCE)
+add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/zstd-1.5.7/build/cmake" "${PROJECT_BINARY_DIR}/zstd" EXCLUDE_FROM_ALL)
+set(ZSTD_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/.local/deps/sources/zstd-1.5.7/lib" CACHE PATH "" FORCE)
+set(ZSTD_LIBRARY "${PROJECT_BINARY_DIR}/zstd/lib/zstd_static.lib" CACHE STRING "" FORCE)
+set(ZSTD_FOUND TRUE CACHE BOOL "" FORCE)
+set(HAVE_ZSTD_H 1 CACHE INTERNAL "" FORCE)
+set(HAVE_LIBZSTD 1 CACHE INTERNAL "" FORCE)
+set(HAVE_ZSTD_compressStream 1 CACHE INTERNAL "" FORCE)
+set(ENABLE_BZip2 ON CACHE BOOL "" FORCE)
+set(ENABLE_ZSTD ON CACHE BOOL "" FORCE)
 set(ENABLE_LZ4 OFF CACHE BOOL "" FORCE)
 set(ENABLE_LZO OFF CACHE BOOL "" FORCE)
 set(ENABLE_OPENSSL OFF CACHE BOOL "" FORCE)
@@ -91,11 +122,12 @@ set(ENABLE_UNZIP OFF CACHE BOOL "" FORCE)
 set(ENABLE_TEST OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7" "${PROJECT_BINARY_DIR}/archive" EXCLUDE_FROM_ALL)
+add_dependencies(archive_static coop_bzip2 libzstd_static)
 add_executable(coop src/main.cpp src/data.cpp src/query.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/scoop_adapter.cpp src/plan.cpp src/native.cpp src/archive.cpp src/persist.cpp src/execute.cpp src/adoption.cpp src/exposure.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp)
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/include")
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/include")
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7/libarchive")
-target_link_libraries(coop PRIVATE libgit2package archive_static coop_zlib liblzma bcrypt winhttp shlwapi shell32 ole32 uuid)
+target_link_libraries(coop PRIVATE libgit2package archive_static coop_zlib liblzma coop_bzip2 libzstd_static bcrypt winhttp shlwapi shell32 ole32 uuid)
 configure_file("${PROJECT_SOURCE_DIR}/.local/deps/include/nlohmann/LICENSE.MIT"
   "${PROJECT_BINARY_DIR}/licenses/nlohmann-json.txt" COPYONLY)
 configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/COPYING"
@@ -106,6 +138,10 @@ configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/zlib-1.3.1/LICENSE"
   "${PROJECT_BINARY_DIR}/licenses/zlib.txt" COPYONLY)
 configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/xz-5.6.4/COPYING.0BSD"
   "${PROJECT_BINARY_DIR}/licenses/xz.txt" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/zstd-1.5.7/LICENSE"
+  "${PROJECT_BINARY_DIR}/licenses/zstd.txt" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/bzip2-1.0.8/LICENSE"
+  "${PROJECT_BINARY_DIR}/licenses/bzip2.txt" COPYONLY)
 target_compile_features(coop PRIVATE cxx_std_20)
 target_compile_definitions(coop PRIVATE UNICODE _UNICODE LIBARCHIVE_STATIC COOP_VERSION="${PROJECT_VERSION}")
 if(MSVC)

@@ -50,7 +50,11 @@ ArchiveFormat archive_format(const std::string& filename) {
     if (name.ends_with(".zip")) return ArchiveFormat::zip;
     if (name.ends_with(".7z")) return ArchiveFormat::seven_zip;
     if (name.ends_with(".msi")) return ArchiveFormat::msi;
-    for (const auto* suffix : {".tar",".tar.gz",".tgz",".tar.xz",".txz",".tar.bz2",".tbz2",".tar.zst"})
+    // All of these are read by the native libarchive path with the compression filter compiled in:
+    // gzip, xz, lzma, bzip2 and zstd all wrap an ordinary tar stream. The suffix list is source
+    // recognition only; extraction decides whether the bytes really are a usable tar archive.
+    for (const auto* suffix : {".tar",".tar.gz",".tgz",".tar.xz",".txz",".tar.lzma",".tlz",
+                               ".tar.bz2",".tbz",".tbz2",".tar.zst",".tzst"})
         if (name.ends_with(suffix)) return ArchiveFormat::tar;
     return ArchiveFormat::file;
 }

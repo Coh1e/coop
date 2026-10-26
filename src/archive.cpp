@@ -120,9 +120,15 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination) 
     ensure_directory(destination);
     ArchivePtr source{archive_read_new()};
     if (!source) throw std::runtime_error("Cannot initialize native archive reader");
+    // The tar family is handled by the same native reader for every compression Scoop exposes:
+    // plain tar, gzip/tgz, xz/txz, bzip2/tbz and zstd/tzst. Each filter is linked into coop.exe;
+    // no external 7z.exe, tar.exe or bzip2.exe is started.
     if (archive_read_support_filter_none(source.get()) != ARCHIVE_OK ||
         archive_read_support_filter_gzip(source.get()) != ARCHIVE_OK ||
         archive_read_support_filter_xz(source.get()) != ARCHIVE_OK ||
+        archive_read_support_filter_lzma(source.get()) != ARCHIVE_OK ||
+        archive_read_support_filter_bzip2(source.get()) != ARCHIVE_OK ||
+        archive_read_support_filter_zstd(source.get()) != ARCHIVE_OK ||
         archive_read_support_format_all(source.get()) != ARCHIVE_OK)
         throw std::runtime_error("Cannot initialize native archive formats");
     if (archive_read_open_filename_w(source.get(),archive_path.wstring().c_str(),64*1024) != ARCHIVE_OK)
