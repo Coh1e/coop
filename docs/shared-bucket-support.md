@@ -57,7 +57,7 @@ libgit2 不继承用户的凭据 helper、URL 重写或可执行 filter；只从
 
 ## 真实环境结果
 
-本机已选定的真实 Scoop 根为 `C:\Users\Neo\scoop`，Scoop v0.6.0，`main` 来源 `https://github.com/ScoopInstaller/Main`，原分支 `master`、原修订 `dfc3b581001b2afb4242acabeec4ccde6528ed6d`。任务授权范围内只刷新了 bucket，没有安装、更新、卸载软件或执行 Manifest 脚本。
+本机已选定的真实 Scoop 根为 `C:\Users\Neo\scoop`，Scoop v0.6.0，`main` 来源 `https://github.com/ScoopInstaller/Main`，原分支 `master`、原修订 `dfc3b581001b2afb4242acabeec4ccde6528ed6d`。任务授权范围内只刷新了 bucket，没有安装、更新、卸载软件或执行 Manifest 脚本。最终代码提交为 `32e8573`；真实 `main` 无变化重跑和真实 `nerd-fonts` 接管/变化/无变化均在该构建上执行。
 
 | 操作 | 结果 |
 | --- | --- |
