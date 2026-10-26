@@ -27,7 +27,7 @@ const char* action_name(Action action) {
 const char* step_name(StepKind kind) {
     switch (kind) {
     case StepKind::download: return "download";
-    case StepKind::verify: return "verify-sha256";
+    case StepKind::verify: return "verify";
     case StepKind::extract: return "extract";
     case StepKind::script: return "script";
     case StepKind::installer: return "installer";
@@ -385,7 +385,7 @@ void append_ir_plan(Plan& plan, ir::Action action, bool retain_previous_version)
     const auto package_plan = ir::plan(action,*plan.package.definition,
         plan.previous && plan.previous->definition ? plan.previous->definition.get() : nullptr,retain_previous_version);
     for (const auto& step : package_plan.steps)
-        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous});
+        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous,step.effect});
     plan.ir_steps = package_plan.steps;
 }
 Json external_tools_json(const Package& package) {
@@ -537,7 +537,10 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         plan.adoption = assess_adoption(context,plan);
         plan.diagnostics.insert(plan.diagnostics.end(),plan.adoption->diagnostics.begin(),plan.adoption->diagnostics.end());
         if (plan.adoption->eligibility == AdoptionEligibility::eligible) {
-            plan.preconditions.push_back({plan.local.directory/wide(plan.package.artifacts.front().filename),plan.package.artifacts.front().sha256});
+            // Plan preconditions compare raw file bytes with SHA256; the artifact's declared digest
+            // algorithm is separate evidence and may be SHA512, SHA1 or MD5.
+            plan.preconditions.push_back({plan.local.directory/wide(plan.package.artifacts.front().filename),
+                sha256_file(plan.local.directory/wide(plan.package.artifacts.front().filename))});
             for (const auto& command : plan.adoption->commands) {
                 plan.preconditions.push_back(command.executable);
                 plan.preconditions.push_back(command.metadata);
@@ -663,8 +666,18 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             result["lifecycle_checks"]["uninstall"] = "supported-path";
         }
     }
-    for (const auto& item : plan.package.artifacts) result["artifacts"].push_back({{"archive",archive_name(item.archive)},{"url",item.url},{"filename",item.filename},{"sha256",item.sha256},{"extract_dir",path_text(item.extract_directory)},{"extract_to",path_text(item.extract_destination)}});
-    for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package}});
+    for (const auto& item : plan.package.artifacts) {
+        Json artifact = {{"archive",archive_name(item.archive)},{"url",item.url},{"filename",item.filename},
+            {"algorithm",ir::digest_algorithm_name(item.algorithm)},{"digest",item.digest},
+            {"hash",std::string(ir::digest_algorithm_name(item.algorithm))+":"+item.digest},
+            {"renamed",item.renamed},{"extract_dir",path_text(item.extract_directory)},
+            {"extract_to",path_text(item.extract_destination)}};
+        // Keep the historical key only for genuine SHA256 artifacts. A SHA512 value must never be
+        // labelled sha256.
+        if (item.algorithm == ir::DigestAlgorithm::sha256) artifact["sha256"] = item.digest;
+        result["artifacts"].push_back(std::move(artifact));
+    }
+    for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package},{"detail",item.detail}});
     // The same IR operations the plan carries, with the effect each one has. Kept beside the legacy
     // operation list while both paths coexist; a transition can be checked by comparing the two.
     result["ir_operations"] = Json::array();
@@ -680,7 +693,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages without installer or uninstaller processes; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure applied to command processes are supported, while persistent user environment changes and persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; lifecycle hooks run in the fixed Scoop order only for pre_install, installer, post_install, pre_uninstall and uninstaller scripts that stay inside the context and helpers proven by the sample corpus, and any other script is refused before adoption or execution"}});
     return result;
 }
 struct PackageOutcome {

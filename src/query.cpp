@@ -204,7 +204,7 @@ static Json validation_json(const Context& context, const Json& item) {
         break;
     }
     Json validation = {{"architecture",architecture},{"manifest_digest",nullptr},
-        {"diagnostics",Json::array()},{"capabilities",Json::array()}};
+        {"artifacts",Json::array()},{"diagnostics",Json::array()},{"capabilities",Json::array()}};
     try {
         auto validated = ir::adapt_manifest(fs::path(wide(item.at("path").get<std::string>())),
             item.at("name").get<std::string>(),item.at("bucket").get<std::string>(),architecture);
@@ -212,6 +212,10 @@ static Json validation_json(const Context& context, const Json& item) {
         validation["manifest_digest"] = validated.manifest_digest;
         validation["version"] = validated.version;
         validation["downloads"] = validated.downloads.size();
+        for (const auto& download : validated.downloads)
+            validation["artifacts"].push_back({{"url",download.url},{"filename",download.filename},
+                {"renamed",download.renamed},{"algorithm",ir::digest_algorithm_name(download.digest.algorithm)},
+                {"digest",download.digest.value},{"archive",ir::archive_format_name(download.format)}});
         for (const auto& diagnostic : validated.diagnostics)
             validation["diagnostics"].push_back({{"layer",ir::layer_name(diagnostic.layer)},{"code",diagnostic.code},{"message",diagnostic.message}});
         for (const auto& capability : validated.capabilities)

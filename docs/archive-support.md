@@ -43,8 +43,8 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自固定 Main 修订 `9f7439b
 
 ## 执行与安全边界
 
-1. 计划先显示 `download`、`verify-sha256`、`extract`、发布入口等操作；预览不下载、不写安装状态。
-2. 下载到事务目录，按 Manifest SHA256 校验；全部产物校验通过并重查计划后才解压。
+1. 计划先显示 `download`、`verify`、`extract`、发布入口等操作；`detail` 与 `artifacts[].algorithm` 保留声明算法。预览不下载、不写安装状态。
+2. 下载到事务目录，按 Manifest 声明的 SHA256/SHA512/SHA1/MD5 校验；全部产物校验通过并重查计划后才解压。多下载项、`#/` 改名和架构覆盖见[多产物、架构与摘要算法支持](multi-artifact-support.md)。
 3. 归档条目只允许普通文件和目录。绝对路径、`..`、盘符、保留名、尾部空格/点、链接条目、设备/FIFO 等特殊类型会被拒绝；已存在的 reparse point 不会被跟随。
 4. `extract_dir` 按固定版 Scoop 0.6.0 语义只作用于非 tar 归档；`extract_to` 只作用于归档产物。多产物按顺序合并，重名文件冲突失败，不覆盖其他包或用户数据。
 5. 解压、`extract_dir` 和入口目标检查都在事务 staging 内完成；失败时当前 `current`、入口和管理记录保持原样。提交后删除临时下载；失败事务保留 pending/rolled-back 日志。

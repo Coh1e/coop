@@ -17,10 +17,23 @@ std::string lower(std::string text) {
 void report(Package& package, Layer layer, const char* code, std::string message) {
     package.diagnostics.push_back({layer,code,std::move(message)});
 }
+std::size_t digest_length(DigestAlgorithm algorithm) {
+    switch (algorithm) {
+    case DigestAlgorithm::sha256: return 64;
+    case DigestAlgorithm::sha512: return 128;
+    case DigestAlgorithm::sha1: return 40;
+    case DigestAlgorithm::md5: return 32;
+    case DigestAlgorithm::missing:
+    case DigestAlgorithm::other:
+        break;
+    }
+    return 0;
+}
 bool supported_digest(const Digest& digest) {
-    // Only SHA256 verification is implemented natively today. Other declared algorithms stay visible
-    // as an IR gap instead of being silently treated as SHA256.
-    return digest.algorithm == DigestAlgorithm::sha256 && digest.value.size() == 64 && hexadecimal(digest.value);
+    // Coop verifies the digest with the algorithm the Manifest declared. An unknown algorithm or a
+    // mismatched value length stays an explicit IR gap instead of being read as SHA256.
+    const auto length = digest_length(digest.algorithm);
+    return length != 0 && digest.value.size() == length && hexadecimal(digest.value);
 }
 bool supported_url(const std::string& url) {
     return url.starts_with("https://") || url.starts_with("http://") || url.starts_with("file://");
@@ -42,8 +55,12 @@ void validate(Package& package) {
     if (package.declared_hash_count != package.downloads.size())
         report(package,Layer::validation,"artifact-hash-count","Each artifact requires its own hash");
     for (const auto& download : package.downloads) {
-        if (download.digest.declared && !supported_digest(download.digest))
-            report(package,Layer::validation,"unsupported-hash","A valid SHA256 is required for "+download.filename);
+        if (download.digest.declared && !supported_digest(download.digest)) {
+            const auto expected = digest_length(download.digest.algorithm);
+            report(package,Layer::validation,"unsupported-hash",expected ?
+                "A valid "+std::string(digest_algorithm_name(download.digest.algorithm))+" digest is required for "+download.filename :
+                "Unsupported declared digest algorithm for "+download.filename+"; native verification covers SHA256, SHA512, SHA1 and MD5");
+        }
         if (!supported_url(download.url))
             report(package,Layer::validation,"unsupported-download","Artifact URL scheme is not supported");
         if (download.format == ArchiveFormat::msi)

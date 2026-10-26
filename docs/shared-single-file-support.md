@@ -5,7 +5,7 @@
 ## 事实来源
 
 - 安装身份以 `apps/<包>/current` 指向的版本目录为准；Manifest 与安装记录使用 Scoop 的 `scoop-manifest.json`/`scoop-install.json`（兼容读取旧的 `manifest.json`/`install.json`）。
-- 单文件包没有归档布局，安装事实可通过当前 Manifest 声明的单个产物 SHA256 与真实文件核对。
+- 直接文件包没有归档布局，安装事实可通过当前 Manifest 声明的每个产物及其算法/摘要与真实文件逐个核对；R04 起同一条证据路径可覆盖多个下载项，不再局限于单个文件（真机多产物证据见[多产物、架构与摘要算法支持](multi-artifact-support.md)）。
 - 命令入口同时识别：
   - Scoop 原生 `<shim>.shim`（`path`/`args`）及 Scoop shim 可执行文件；
   - Coop 旧 `<shim>.coop-shim.json` 及 Coop 启动器。
@@ -27,4 +27,4 @@
 
 - `tests/scoop-interop.ps1`（CTest 名称 `scoop_interop`）：真实 Scoop 风格的 `.shim`、无 Coop 私有记录的更新/卸载、计划与执行日志逐项对应、Scoop reset 后 Coop 继续识别，以及反向 Coop 安装后由 Scoop 风格入口继续管理。
 - `tests/real-scoop-alternating.ps1`：在本机同一 Scoop 根上顺序执行 Scoop 安装 → Coop 更新 → Scoop 运行/识别，再由 Coop 安装 → Scoop reset/运行 → Coop 卸载/识别；下载、入口、版本、标准记录与退出码写入任务证据目录。
-- 小样本通过只证明该机制路径，不证明 Main/Extras 全量、所有入口类型、用户环境、安装器或多产物布局已完成。
+- 小样本通过只证明该机制路径，不证明 Main/Extras 全量、所有入口类型、用户环境、安装器或归档多产物布局已完成。共享归档布局仍需内容证据，当前会明确拒绝更新/卸载。

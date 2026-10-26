@@ -184,6 +184,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup 中文 space")
   add_test(NAME update COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update 中文")
+  add_test(NAME multi_artifact COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/multi-artifact.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/multi-artifact 中文 space")
   add_test(NAME persistence COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/persist.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/persist 中文 space")
   add_test(NAME dependencies COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/dependencies.ps1"

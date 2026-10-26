@@ -8,7 +8,7 @@ namespace coop::ir {
 const char* operation_name(Operation operation) {
     switch (operation) {
     case Operation::download: return "download";
-    case Operation::verify: return "verify-sha256";
+    case Operation::verify: return "verify";
     case Operation::extract: return "extract";
     case Operation::hook: return "hook";
     case Operation::installer: return "installer";
@@ -63,9 +63,10 @@ void add_installation(Plan& plan) {
     const auto& package = plan.package;
     for (std::size_t index = 0; index < package.downloads.size(); ++index) {
         const auto& download = package.downloads[index];
-        plan.steps.push_back({Operation::download,index,false,"download "+download.filename});
+        plan.steps.push_back({Operation::download,index,false,"download "+download.filename+
+            (download.renamed ? " (renamed from "+download.url+")" : " from "+download.url)});
         plan.steps.push_back({Operation::verify,index,false,"verify "+download.filename+" with "+
-            digest_algorithm_name(download.digest.algorithm)});
+            digest_algorithm_name(download.digest.algorithm)+" digest"});
         if (download.format != ArchiveFormat::file)
             plan.steps.push_back({Operation::extract,index,false,"extract "+download.filename+" as "+
                 archive_format_name(download.format)});

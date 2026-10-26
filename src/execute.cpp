@@ -106,8 +106,14 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
         }
         return;
     }
-    const auto artifact = directory/wide(installed.artifacts.front().filename);
-    if (sha256_file(artifact) != installed.artifacts.front().sha256) throw std::runtime_error("Installed executable changed; refusing operation");
+    for (const auto& artifact : installed.artifacts) {
+        if (artifact.archive != ArchiveKind::none)
+            throw std::runtime_error("Installed archive layout has no verified file evidence; refusing operation");
+        const auto path = directory/wide(artifact.filename);
+        if (!fs::is_regular_file(path)) throw std::runtime_error("Installed artifact is missing; refusing operation");
+        if (digest_file(path,artifact.algorithm) != artifact.digest)
+            throw std::runtime_error("Installed artifact changed; refusing operation");
+    }
 }
 bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link,
                                const fs::path& installed_directory) {
@@ -180,6 +186,21 @@ void publish_new(const fs::path& source, const fs::path& destination) {
         Sleep(200);
     }
     throw std::runtime_error("Destination cannot be published (Windows error "+std::to_string(error)+"); close the program and retry");
+}
+// A shared Scoop installation has no Coop record. Its direct-file artifacts are still verifiable
+// from the saved Manifest: each declared file must exist in the version directory and match the
+// declared algorithm. Archive layouts are extracted trees, so they stay refused until their
+// content evidence is implemented instead of guessing.
+void verify_shared_artifacts(const Package& installed, const fs::path& directory) {
+    if (installed.artifacts.empty()) throw std::runtime_error("Shared installation has no recorded artifacts");
+    for (const auto& artifact : installed.artifacts) {
+        if (artifact.archive != ArchiveKind::none)
+            throw std::runtime_error("This shared installation has no Coop management record and its archive layout cannot be verified yet");
+        const auto path = directory/wide(artifact.filename);
+        if (!fs::is_regular_file(path)) throw std::runtime_error("Shared installation artifact is missing: "+artifact.filename);
+        if (digest_file(path,artifact.algorithm) != artifact.digest)
+            throw std::runtime_error("Shared installation artifact changed: "+artifact.filename);
+    }
 }
 bool path_is_under(const fs::path& path, const fs::path& base) {
     const auto normalized = path.lexically_normal();
@@ -377,13 +398,14 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.action == Action::install && plan.local.exists) return "Package already exists; use update";
     if ((plan.action == Action::uninstall || plan.action == Action::update) && !plan.local.exists)
         return "No usable current installation exists for this package";
-    // Shared Scoop installations have no Coop private record. The first migrated action is a
-    // single-file package, whose installed artifact and standard records can be verified directly.
+    // Shared Scoop installations have no Coop private record. Direct-file artifacts (including
+    // multiple downloads) are verified from the saved Manifest and actual files; archive layouts
+    // remain unverifiable until their content evidence exists.
     if ((plan.action == Action::uninstall || plan.action == Action::update) &&
         !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
         const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
-        if (facts.artifacts.size() != 1 || facts.artifacts.front().archive != ArchiveKind::none)
-            return "This shared installation has no Coop management record and its archive layout cannot be verified yet";
+        try { verify_shared_artifacts(facts,plan.local.directory); }
+        catch (const std::exception& error) { return error.what(); }
     }
     if (plan.action == Action::uninstall || plan.action == Action::update) {
         const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
@@ -487,12 +509,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             managed["bucket"] = installed.bucket;
         }
         if (has_managed_record) verify_installed_files(managed,plan.local.directory,installed);
-        else if (installed.artifacts.size() == 1 && installed.artifacts.front().archive == ArchiveKind::none) {
-            const auto artifact = plan.local.directory/wide(installed.artifacts.front().filename);
-            if (!fs::is_regular_file(artifact)) throw std::runtime_error("Installed executable is missing");
-            if (sha256_file(artifact) != installed.artifacts.front().sha256)
-                throw std::runtime_error("Installed executable changed; refusing operation");
-        }
+        else verify_shared_artifacts(installed,plan.local.directory);
         persistence = verify_persistence(context,installed,plan.local.directory);
         if (plan.purge) purge_entries = purge_scope(context,installed,plan.local.directory,
             managed.value("persistence",Json::array()));
@@ -685,6 +702,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     " and "+path_text(run.stderr_path));
         }
     };
+    // Preserve the declared source of every artifact in the transaction journal, including a
+    // fragment rename and the declared digest algorithm, so preview, execution and recovery
+    // evidence describe the same inputs.
+    journal["artifacts"] = Json::array();
+    for (std::size_t index = 0; index < package.artifacts.size(); ++index) {
+        const auto& artifact = package.artifacts[index];
+        journal["artifacts"].push_back({{"index",index},{"url",artifact.url},{"filename",artifact.filename},
+            {"renamed",artifact.renamed},{"algorithm",ir::digest_algorithm_name(artifact.algorithm)},
+            {"digest",artifact.digest}});
+    }
+    journal["downloads"] = Json::array();
     save();
     try {
         const auto stage = transaction/L"payload";
@@ -756,14 +784,33 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto downloaded = downloads/(std::to_wstring(step.index)+L"-"+wide(artifact.filename));
                 download_file(artifact.url,downloaded);
                 downloaded_files[step.index] = downloaded;
+                journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
+                    {"filename",artifact.filename},{"renamed",artifact.renamed},
+                    {"algorithm",ir::digest_algorithm_name(artifact.algorithm)},{"expected_digest",artifact.digest},
+                    {"bytes",fs::file_size(downloaded)}});
+                save();
                 break;
             }
             case ir::Operation::verify: {
                 if (step.index >= package.artifacts.size() || downloaded_files[step.index].empty())
                     throw std::runtime_error("Plan verification has no downloaded artifact");
                 const auto& artifact = package.artifacts[step.index];
-                if (sha256_file(downloaded_files[step.index]) != artifact.sha256)
-                    throw std::runtime_error("Artifact SHA256 mismatch: "+artifact.filename);
+                // The IR declaration is authority for the algorithm; the projected record only
+                // mirrors it for the legacy helpers. Never fall back to SHA256 for a SHA512 or
+                // SHA1 declaration.
+                auto algorithm = artifact.algorithm;
+                auto expected = artifact.digest;
+                if (package.definition && step.index < package.definition->downloads.size()) {
+                    algorithm = package.definition->downloads[step.index].digest.algorithm;
+                    expected = package.definition->downloads[step.index].digest.value;
+                }
+                const auto actual = digest_file(downloaded_files[step.index],algorithm);
+                if (actual != expected)
+                    throw std::runtime_error("Artifact "+std::string(ir::digest_algorithm_name(algorithm))+
+                        " mismatch: "+artifact.filename+" (expected "+expected+", observed "+actual+")");
+                journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
+                journal["downloads"][std::size_t(step.index)]["verified"] = true;
+                save();
                 if (artifact.archive == ArchiveKind::none) {
                     ensure_stage();
                     const auto target = stage/wide(artifact.filename);

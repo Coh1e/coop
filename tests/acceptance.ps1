@@ -132,7 +132,9 @@ $expectedClasses = @{
     'Main/git'='unsupported'; 'Main/7zip'='unsupported'; 'Main/python'='unsupported'; 'Main/rclone'='unsupported';
     'Main/android-clt'='unsupported'; 'Main/azure-cli'='unsupported'; 'Extras/notepadplusplus'='unsupported';
     'Extras/vscode'='unsupported'; 'Extras/everything'='unsupported';
-    'Main/wget'='rejected'; 'Extras/firefox'='rejected'; 'Extras/adventuregamestudio'='rejected'; 'Extras/aider-desk'='rejected'
+    # SHA512 itself is executable since R04; these two now fail on lifecycle/other capability gaps.
+    'Extras/firefox'='unsupported'; 'Extras/aider-desk'='unsupported';
+    'Main/wget'='rejected'; 'Extras/adventuregamestudio'='rejected'
 }
 if ($index.samples.Count -ne 20 -or $expectedClasses.Count -ne 20) { throw 'The fixed corpus no longer contains exactly 20 audited samples' }
 $corpusResults = @()

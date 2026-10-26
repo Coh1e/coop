@@ -104,7 +104,9 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         const auto expected = context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version);
         if (!fs::exists(expected) || !fs::equivalent(expected,plan.local.directory)) throw std::runtime_error("Current does not identify its recorded version directory");
         const auto artifact = expected/wide(plan.package.artifacts.front().filename);
-        if (sha256_file(artifact) != plan.package.artifacts.front().sha256) throw std::runtime_error("Installed executable SHA256 differs from original Manifest");
+        const auto& declared = plan.package.artifacts.front();
+        if (digest_file(artifact,declared.algorithm) != declared.digest)
+            throw std::runtime_error("Installed executable digest differs from original Manifest");
         verify_program(artifact,plan.package.architecture);
         verify_persistence(context,plan.package,plan.local.directory);
         static const std::set<std::string> known_shims = {

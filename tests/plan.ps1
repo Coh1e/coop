@@ -16,7 +16,9 @@ $plan = ($text -join "`n") | ConvertFrom-Json
 if ($plan.action -ne 'install' -or $plan.package.name -ne 'jq' -or $plan.package.version -ne '1.8.2' -or $plan.package.architecture -ne '64bit') { throw 'wrong target identity' }
 if ($plan.artifacts.Count -ne 1 -or $plan.artifacts[0].filename -ne 'jq.exe' -or $plan.artifacts[0].sha256 -ne 'a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627') { throw 'artifact mapping wrong' }
 if ($plan.manifest_sha256 -ne (Get-FileHash "$root/buckets/main/bucket/jq.json" -Algorithm SHA256).Hash.ToLower()) { throw 'manifest precondition not bound to bytes' }
-if ('download' -notin $plan.operations.kind -or 'verify-sha256' -notin $plan.operations.kind -or 'commit-state' -notin $plan.operations.kind) { throw 'incomplete operation plan' }
+if ('download' -notin $plan.operations.kind -or 'verify' -notin $plan.operations.kind -or 'commit-state' -notin $plan.operations.kind) { throw 'incomplete operation plan' }
+$verifyOperation = @($plan.operations | Where-Object kind -eq 'verify')[0]
+if ($verifyOperation.detail -notmatch 'sha256') { throw 'the operation detail lost the declared digest algorithm' }
 $after = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { $_.FullName+':'+(Get-FileHash -LiteralPath $_.FullName).Hash })
 if (@(Compare-Object $before $after).Count -or (Test-Path "$root/.coop")) { throw 'preview changed state' }
 $text = & $CoopExe --root $root adopt jq --dry-run --json

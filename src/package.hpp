@@ -11,7 +11,11 @@ enum class ArchiveKind { none, zip, seven_zip, tar, msi };
 struct Artifact {
     std::string url;
     std::string filename;
-    std::string sha256;
+    // The declared digest value paired with its algorithm. The IR remains authority for the
+    // declaration; this projection only lets the legacy execution helpers read the same value.
+    std::string digest;
+    ir::DigestAlgorithm algorithm = ir::DigestAlgorithm::sha256;
+    bool renamed = false;
     ArchiveKind archive = ArchiveKind::none;
     fs::path extract_directory;
     fs::path extract_destination;
@@ -51,7 +55,7 @@ enum class StepKind {
     shortcuts, environment, persistence, commit_state, remove_commands,
     unlink_current, remove_environment, unlink_persistence, remove_version, adopt_state, uninstaller, remove_shortcuts
 };
-struct Step { StepKind kind; std::size_t index = 0; bool previous_package = false; };
+struct Step { StepKind kind; std::size_t index = 0; bool previous_package = false; std::string detail; };
 struct FilePrecondition { fs::path path; std::string sha256; };
 struct LocalFacts { fs::path current; fs::path directory; bool exists = false; };
 enum class AdoptionEligibility { eligible, already_managed, unsupported, untested, inconsistent };
@@ -93,6 +97,9 @@ struct Plan {
 };
 DiagnosticKind diagnostic_kind(ir::Layer layer);
 std::string sha256_file(const fs::path& path);
+// Native digest with the algorithm the Manifest declared. Unsupported or missing algorithms throw
+// instead of silently falling back to SHA256.
+std::string digest_file(const fs::path& path, ir::DigestAlgorithm algorithm);
 std::string sha256_text(const std::string& value);
 // Windows identity boundaries: names and paths are ordinal case-insensitive; existing paths are also
 // compared by filesystem identity so junctions, short names and separator differences cannot split one package.

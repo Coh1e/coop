@@ -53,7 +53,9 @@ Package project(const ir::Package& definition) {
         Artifact artifact;
         artifact.url = item.url;
         artifact.filename = item.filename;
-        artifact.sha256 = item.digest.value;
+        artifact.digest = item.digest.value;
+        artifact.algorithm = item.digest.algorithm;
+        artifact.renamed = item.renamed;
         artifact.archive = legacy_archive(item.format);
         if (!item.extract_directory.empty()) artifact.extract_directory = fs::path(wide(item.extract_directory));
         if (!item.extract_destination.empty()) artifact.extract_destination = fs::path(wide(item.extract_destination));

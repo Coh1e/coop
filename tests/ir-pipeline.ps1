@@ -60,13 +60,15 @@ if (Test-Path "$root/.coop") { throw 'query or preview wrote management state' }
 $plan = ($preview.text | ConvertFrom-Json)
 if ($plan.action -ne 'update' -or $plan.package.version -ne '1.8.2') { throw 'update preview lost the installed target' }
 $kinds = @($plan.operations | ForEach-Object { $_.kind })
-if ('download' -notin $kinds -or 'verify-sha256' -notin $kinds -or 'publish-current' -notin $kinds -or 'commit-state' -notin $kinds) { throw "preview operations are incomplete: $kinds" }
+if ('download' -notin $kinds -or 'verify' -notin $kinds -or 'publish-current' -notin $kinds -or 'commit-state' -notin $kinds) { throw "preview operations are incomplete: $kinds" }
+$verifyOperations = @($plan.operations | Where-Object kind -eq 'verify')
+if ($verifyOperations.Count -ne 1 -or $verifyOperations[0].detail -notmatch 'sha256') { throw 'the verify operation lost its declared algorithm' }
 if ('remove-version' -in $kinds) { throw 'update preview planned to delete the retained previous version' }
 $irKinds = @($plan.ir_operations | ForEach-Object { $_.operation })
 if ($irKinds.Count -ne $kinds.Count) { throw "IR plan and legacy operation list disagree: $($irKinds.Count) vs $($kinds.Count)" }
 if (@($plan.ir_operations | Where-Object { [string]::IsNullOrWhiteSpace($_.effect) }).Count) { throw 'an IR operation has no stated effect' }
 $firstPublish = [array]::IndexOf($irKinds,'publish-current')
-$verify = [array]::IndexOf($irKinds,'verify-sha256')
+$verify = [array]::IndexOf($irKinds,'verify')
 if ($verify -ge $firstPublish) { throw 'verification is not planned before publishing' }
 $capability = @($plan.capabilities | Where-Object id -eq 'native-download')
 if ($capability.Count -ne 1 -or $capability[0].supported -ne $true) { throw 'the IR capabilities of a native download package are missing' }
@@ -97,15 +99,23 @@ if (@($archValidation.diagnostics | Where-Object code -eq 'missing-artifact').Co
 
 # --- The validator reports algorithm and mechanism gaps instead of hiding them --------
 $sha512 = '0' * 128
-$sha512Manifest = @{version='1.0.0';url='https://invalid.example/tool.zip';hash="sha512:$sha512"} | ConvertTo-Json -Compress
+$sha512Manifest = @{version='1.0.0';url='https://invalid.example/tool.zip#/renamed.zip';hash="sha512:$sha512"} | ConvertTo-Json -Compress
 $sha512Manifest | Set-Content "$root/buckets/main/bucket/algo.json" -Encoding utf8
 $algoPreview = Invoke-Coop @('--root',$root,'install','algo','--dry-run','--json')
 $algoPlan = ($algoPreview.text | ConvertFrom-Json)
-if ($algoPreview.code -eq 0 -or 'unsupported-hash' -notin @($algoPlan.diagnostics | ForEach-Object { $_.code })) { throw 'a declared SHA512 digest was silently treated as SHA256' }
+if ($algoPreview.code -ne 0 -or $algoPlan.execution_available -ne $true) { throw "a declared SHA512 digest was not honoured: $($algoPreview.text)" }
+if (@($algoPlan.artifacts).Count -ne 1 -or @($algoPlan.artifacts | Where-Object { $_.algorithm -ne 'sha512' -or $_.digest -ne $sha512 -or $_.filename -ne 'renamed.zip' -or $_.renamed -ne $true }).Count -ne 0) { throw 'the SHA512 artifact declaration or rename was not preserved' }
+if (@($algoPlan.diagnostics | Where-Object { $_.code -eq 'unsupported-hash' }).Count -ne 0) { throw 'a supported SHA512 digest was reported as unsupported' }
 $algoInfoResult = Invoke-Coop @('--root',$root,'info','main/algo','--json')
-if ($algoInfoResult.code -ne 0) { throw "info failed for an unsupported package: $($algoInfoResult.text)" }
+if ($algoInfoResult.code -ne 0) { throw "info failed for a supported digest package: $($algoInfoResult.text)" }
 $algoInfo = @($algoInfoResult.text | ConvertFrom-Json)
-if (@($algoInfo[0].validation.diagnostics | Where-Object { $_.code -eq 'unsupported-hash' -and $_.layer -eq 'ir' }).Count -ne 1) { throw 'info did not report the normalized digest gap' }
+if (@($algoInfo[0].validation.diagnostics | Where-Object { $_.code -eq 'unsupported-hash' }).Count -ne 0) { throw 'info reported a supported digest as a gap' }
+if ($algoInfo[0].validation.artifacts[0].algorithm -ne 'sha512' -or $algoInfo[0].validation.artifacts[0].renamed -ne $true) { throw 'info did not preserve the declared digest algorithm and rename' }
+$sha3Manifest = @{version='1.0.0';url='https://invalid.example/tool.zip';hash=('sha3:'+('0'*128))} | ConvertTo-Json -Compress
+$sha3Manifest | Set-Content "$root/buckets/main/bucket/algo3.json" -Encoding utf8
+$sha3Preview = Invoke-Coop @('--root',$root,'install','algo3','--dry-run','--json')
+$sha3Plan = ($sha3Preview.text | ConvertFrom-Json)
+if ($sha3Preview.code -eq 0 -or 'unsupported-hash' -notin @($sha3Plan.diagnostics | ForEach-Object { $_.code })) { throw 'an unknown digest algorithm was silently accepted' }
 
 $msiManifest = @{version='1.0.0';url='https://invalid.example/setup.msi';hash=('a' * 64)} | ConvertTo-Json -Compress
 $msiManifest | Set-Content "$root/buckets/main/bucket/msipkg.json" -Encoding utf8
