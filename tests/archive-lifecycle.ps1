@@ -214,20 +214,28 @@ Assert-Exit '7z SFX uninstall failed'
 # package root. The compression is produced with the system bsdtar only as a test fixture.
 $root = New-TestRoot
 $fixtures = Join-Path $root 'fixtures'
-New-Item -ItemType Directory -Path "$fixtures/wrap/deep/wrap/deep/bin" -Force | Out-Null
-Copy-Item -LiteralPath $fixture1 -Destination "$fixtures/wrap/deep/wrap/deep/bin/nested.exe"
-Push-Location $fixtures
-try {
-    & tar.exe -cjf (Join-Path $fixtures 'nested.tar.bz2') 'wrap'
-    if ($LASTEXITCODE -ne 0) { throw 'bzip2 fixture creation failed' }
-    & tar.exe --lzma -cf (Join-Path $fixtures 'nested.tar.lzma') 'wrap'
-    if ($LASTEXITCODE -ne 0) { throw 'lzma fixture creation failed' }
-} finally { Pop-Location }
+foreach ($version in @('1','2')) {
+    New-Item -ItemType Directory -Path "$fixtures/v$version/wrap/deep/wrap/deep/bin" -Force | Out-Null
+    $source = if ($version -eq '1') { $fixture1 } else { $fixture2 }
+    Copy-Item -LiteralPath $source -Destination "$fixtures/v$version/wrap/deep/wrap/deep/bin/nested.exe"
+}
+foreach ($version in @('1','2')) {
+    Push-Location "$fixtures/v$version"
+    try {
+        & tar.exe -cjf (Join-Path $fixtures "nested-$version.tar.bz2") 'wrap'
+        if ($LASTEXITCODE -ne 0) { throw 'bzip2 fixture creation failed' }
+        & tar.exe --lzma -cf (Join-Path $fixtures "nested-$version.tar.lzma") 'wrap'
+        if ($LASTEXITCODE -ne 0) { throw 'lzma fixture creation failed' }
+        & tar.exe -cJf (Join-Path $fixtures "nested-$version.tar.xz") 'wrap'
+        if ($LASTEXITCODE -ne 0) { throw 'xz fixture creation failed' }
+    } finally { Pop-Location }
+}
 foreach ($case in @(
-    @{name='bz2'; file='nested.tar.bz2'; alias='bz2tool'},
-    @{name='lzma'; file='nested.tar.lzma'; alias='lzmatool'}
+    @{name='bz2'; first='nested-1.tar.bz2'; second='nested-2.tar.bz2'; alias='bz2tool'},
+    @{name='lzma'; first='nested-1.tar.lzma'; second='nested-2.tar.lzma'; alias='lzmatool'},
+    @{name='tarxz'; first='nested-1.tar.xz'; second='nested-2.tar.xz'; alias='tarxztool'}
 )) {
-    $archive = Join-Path $fixtures $case.file
+    $archive = Join-Path $fixtures $case.first
     Write-Manifest $root $case.name @{version='1';url=(File-Uri $archive);hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLower();extract_dir='wrap\deep';bin=@(,@('wrap\deep\bin\nested.exe',$case.alias))}
     $install = & $CoopExe --root $root install "test/$($case.name)" --json
     Assert-Exit "$($case.name) install failed"
@@ -235,6 +243,13 @@ foreach ($case in @(
     $programOutput = (& $program) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $programOutput -notmatch 'fixture 1') { throw "$($case.name) nested extract_dir entry failed to run: $programOutput" }
     if (-not (Test-Path "$root/apps/$($case.name)/current/wrap/deep/bin/nested.exe")) { throw "$($case.name) nested same-name extract_dir layout is wrong" }
+    $archive = Join-Path $fixtures $case.second
+    Write-Manifest $root $case.name @{version='2';url=(File-Uri $archive);hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLower();extract_dir='wrap\deep';bin=@(,@('wrap\deep\bin\nested.exe',$case.alias))}
+    $update = & $CoopExe --root $root update $case.name --json
+    Assert-Exit "$($case.name) update failed"
+    $programOutput = (& $program) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $programOutput -notmatch 'fixture 2') { throw "$($case.name) updated nested entry failed to run: $programOutput" }
+    if (-not (Test-Path "$root/apps/$($case.name)/1/wrap/deep/bin/nested.exe")) { throw "$($case.name) update did not retain the old version" }
     $uninstall = & $CoopExe --root $root uninstall $case.name --json
     Assert-Exit "$($case.name) uninstall failed"
 }
