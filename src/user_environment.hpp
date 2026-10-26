@@ -29,4 +29,7 @@ Json revert_user_environment(const Json& previous_ownership);
 // Undo one apply/revert result if the current raw values still match what that operation wrote.
 // Otherwise leaves the user's newer value untouched and reports the conflict.
 Json restore_user_environment(const Json& undo);
+// The same classification without writing HKCU, used by `recover --dry-run` and by the recovery
+// report before any path is rolled back.
+Json preview_user_environment_undo(const Json& undo);
 }

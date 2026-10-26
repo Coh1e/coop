@@ -142,11 +142,34 @@ Json installed_packages(const Context& context) {
                     if (old.contains(field)) item[field] = old.at(field);
                 item["management"] = "managed";
                 item["diagnostics"] = Json::array();
-            } else if (recovery->second.value("action",std::string{}) == "install") {
+            } else if (recovery->second.value("action",std::string{}) == "install" && item.at("version").is_null()) {
                 item["version"] = Json(nullptr);
                 item["management"] = "none";
                 item["status"] = "pending-recovery";
                 item["diagnostics"] = Json::array();
+            } else if (recovery->second.value("action",std::string{}) == "install") {
+                // A later Scoop operation installed the same package while Coop's own install is
+                // still pending. Report the installation that actually exists now and keep the
+                // pending transaction visible instead of hiding either fact.
+                item["last_operation"] = "pending-recovery";
+                item["status"] = "pending-recovery";
+                item["diagnostics"].push_back("A pending Coop install coexists with an installation readable from the shared layout");
+            } else {
+                // The current link can already be staged in the transaction while the last
+                // committed management record is still in place. Report that record's version as
+                // the installed fact instead of an intermediate null, and keep the fact reader's
+                // diagnostic that explains the missing link.
+                const auto live = context.root/L".coop"/L"packages"/(wide(item.at("name").get<std::string>())+L".json");
+                if (fs::is_regular_file(live)) try {
+                    const auto record = read_json(live);
+                    if (record.is_object() && equal_name(record.value("name",std::string{}),item.at("name").get<std::string>())) {
+                        if (item.at("version").is_null() && record.contains("version")) item["version"] = record.at("version");
+                        for (const auto* field : {"bucket","architecture","directory","origin"})
+                            if (!item.contains(field) && record.contains(field)) item[field] = record.at(field);
+                        item["management"] = "managed";
+                        item["status"] = record.value("status",std::string("ready"));
+                    }
+                } catch (const std::exception&) { /* The pending journal remains the authoritative diagnostic. */ }
             }
             item["recovery"] = recovery->second;
         }

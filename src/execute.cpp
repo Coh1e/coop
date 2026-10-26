@@ -11,7 +11,9 @@
 #include "inno.hpp"
 #include "msi.hpp"
 #include "nsis.hpp"
+#include "faults.hpp"
 #include <windows.h>
+#include <cstdint>
 #include <array>
 #include <cctype>
 #include <iostream>
@@ -277,6 +279,86 @@ bool recovery_path_allowed(const Context& context, const fs::path& path) {
             std::next(entry) != normalized.end()) return false;
     }
     return true;
+}
+// Creation evidence. Recovery may only delete an object that is still the one Coop created.
+// The file identity (volume serial + file index) survives content changes and detects a replaced
+// object; a created regular file also records its digest, and a created reparse point records its
+// target so a later repoint is visible. Directory contents legitimately change after creation
+// (extraction, hooks, installers, persistence links), so directories use identity only.
+struct FileIdentity { std::uint64_t volume = 0; std::uint64_t index = 0; };
+bool file_identity(const fs::path& path, FileIdentity& identity) {
+    const auto handle = CreateFileW(path.c_str(),FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    const auto ok = GetFileInformationByHandle(handle,&info);
+    CloseHandle(handle);
+    if (!ok) return false;
+    identity.volume = info.dwVolumeSerialNumber;
+    identity.index = (static_cast<std::uint64_t>(info.nFileIndexHigh)<<32)|info.nFileIndexLow;
+    return true;
+}
+Json ownership_evidence(const fs::path& path) {
+    Json evidence = Json::object();
+    FileIdentity identity;
+    if (file_identity(path,identity))
+        evidence["file_identity"] = {{"volume",identity.volume},{"index",identity.index}};
+    const auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) return evidence;
+    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+        evidence["kind"] = "reparse";
+        std::error_code error;
+        const auto target = fs::read_symlink(path,error);
+        if (!error) evidence["target"] = path_text(target);
+    } else if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+        evidence["kind"] = "directory";
+    } else {
+        evidence["kind"] = "file";
+        if (fs::is_regular_file(path)) evidence["sha256"] = sha256_file(path);
+    }
+    return evidence;
+}
+// Returns an empty string when the journaled creation evidence still describes this object, a
+// stable conflict code and detail otherwise. Journals written before creation evidence existed
+// report "not-recorded" and keep the older owned-flag behavior.
+std::string ownership_conflict(const Json& evidence, const fs::path& path, std::string& detail) {
+    detail.clear();
+    if (!evidence.is_object() || evidence.empty()) return "ownership-evidence-not-recorded";
+    if (evidence.contains("file_identity")) {
+        FileIdentity current;
+        if (file_identity(path,current)) {
+            const auto& recorded = evidence.at("file_identity");
+            if (recorded.value("volume",std::uint64_t{0}) != current.volume ||
+                recorded.value("index",std::uint64_t{0}) != current.index) {
+                detail = "The created path is a different object than the one Coop recorded: "+path_text(path);
+                return "created-path-replaced";
+            }
+        } else {
+            detail = "The created path can no longer be opened for its recorded identity: "+path_text(path);
+            return "created-path-unreadable";
+        }
+    }
+    const auto kind = evidence.value("kind",std::string{});
+    if (kind == "file" && evidence.contains("sha256") && evidence.at("sha256").is_string()) {
+        if (!fs::is_regular_file(path)) {
+            detail = "The created file was replaced by a directory: "+path_text(path);
+            return "created-path-replaced";
+        }
+        if (sha256_file(path) != evidence.at("sha256").get<std::string>()) {
+            detail = "The created file was modified after Coop created it: "+path_text(path);
+            return "created-file-modified";
+        }
+    }
+    if (kind == "reparse" && evidence.contains("target") && evidence.at("target").is_string()) {
+        std::error_code error;
+        const auto target = fs::read_symlink(path,error);
+        if (error || path_text(target) != evidence.at("target").get<std::string>()) {
+            detail = "The created link now points somewhere else than Coop recorded: "+path_text(path);
+            return "created-link-repointed";
+        }
+    }
+    return {};
 }
 bool same_path_text(const fs::path& a, const fs::path& b) {
     const auto left = a.lexically_normal().wstring();
@@ -761,7 +843,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             throw;
         }
         owned.push_back(path);
-        journal["created"].back()["owned"] = true; save();
+        journal["created"].back()["owned"] = true;
+        // Creation evidence lets recovery distinguish the object Coop created from a later
+        // replacement or edit by the user or another client.
+        journal["created"].back()["evidence"] = ownership_evidence(path);
+        save();
     };
     const auto publish_json = [&](const fs::path& destination, const Json& value) {
         const auto temporary = transaction/(L"json-"+std::to_wstring(journal["created"].size())+L".json");
@@ -823,6 +909,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             record["stderr_tail"] = script_json_text(run.stderr_tail);
             save();
             script_runs.push_back(record);
+            test_fault_point(context,std::string("after-script:")+script_phase_name(phase));
             if (run.exit_code != 0)
                 throw std::runtime_error(std::string(script_phase_name(phase))+" hook failed with exit code "+
                     std::to_string(run.exit_code)+"; output was captured in "+path_text(run.stdout_path)+
@@ -877,6 +964,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         record["stderr_tail"] = script_json_text(run.stderr_tail);
         save();
         installer_runs.push_back(record);
+        test_fault_point(context,"after-installer");
         if (run.exit_code != 0)
             throw std::runtime_error(phase+" program failed with exit code "+std::to_string(run.exit_code)+
                 "; output was captured in "+path_text(run.stdout_path)+" and "+path_text(run.stderr_path));
@@ -947,6 +1035,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             fs::create_directories(app);
             create(version,[&]() { publish_new(stage,version); });
             version_published = true;
+            test_fault_point(context,"after-version-publish");
         };
         std::size_t text_sequence = 0;
         const auto publish_text = [&](const fs::path& destination, const std::string& text) {
@@ -1065,6 +1154,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // ZIP, 7z, tar, tar.gz, tar.xz, tar.bz2 and tar.zst.
                 merge_archive_tree(raw,merge_directory,destination);
                 erase_tree(raw);
+                test_fault_point(context,"after-extract");
                 break;
             }
             case ir::Operation::hook: {
@@ -1147,20 +1237,26 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                             transaction/((step.previous ? L"old-shortcut-" : L"shortcut-")+std::to_wstring(index)+L".lnk"));
                 break;
             }
-            case ir::Operation::remove_environment:
+            case ir::Operation::remove_environment: {
                 // During an update or reset the old and new declarations are reconciled by the
                 // single environment operation below, so the installed package keeps its user
                 // values until the replacement is ready. An operation without any new declarations
                 // and a normal uninstall revert immediately.
+                bool environment_reverted_now = false;
                 if ((updating || resetting) && !(package.environment.empty() && package.path_entries.empty())) {
                     journal["environment_reversion"] = "deferred; the replacement's environment operation reconciles old and new declarations";
                 } else {
                     auto reverted = revert_user_environment(user_environment_prior);
                     environment_undo.push_back(reverted.value("undo",Json::object()));
                     journal["environment_reverted"] = std::move(reverted);
+                    if (!journal.contains("environment_undo")) journal["environment_undo"] = Json::array();
+                    journal["environment_undo"].push_back(environment_undo.back());
+                    environment_reverted_now = true;
                 }
                 save();
+                if (environment_reverted_now) test_fault_point(context,"after-environment");
                 break;
+            }
             case ir::Operation::unlink_persistence:
                 // Persistence links live inside the version directory. Moving that directory at
                 // remove-version removes the links without deleting the stored data.
@@ -1213,6 +1309,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
                         publish_text(metadata,text);
                         create(exe,[&]() { publish_new(prepared,exe); });
+                        test_fault_point(context,"after-entry");
                         legacy_shims[command.name] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
                         command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
                             {"arguments",command_arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
@@ -1223,6 +1320,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                             {"launcher",launcher_text(*kind)},{"arguments",command_arguments},{"gui",gui},
                             {"environment",environment},{"path_entries",path_entries}});
                         create(exe,[&]() { publish_new(prepared,exe); });
+                        test_fault_point(context,"after-entry");
                         command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
                             {"arguments",command_arguments},{"launcher",launcher_text(*kind)},{"gui",gui},{"format","coop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
@@ -1245,6 +1343,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     write_shortcut(temporary,target,shortcut_arguments,icon);
                     try { create(link,[&]() { publish_new(temporary,link); }); }
                     catch (...) { DeleteFileW(temporary.c_str()); throw; }
+                    test_fault_point(context,"after-shortcut");
                     shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
                         {"target",path_text(target)},{"arguments",shortcut_arguments},{"sha256",sha256_file(link)}});
                 }
@@ -1257,7 +1356,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 environment_undo.push_back(applied.value("undo",Json::object()));
                 user_environment = applied.value("ownership",Json(nullptr));
                 journal["environment_applied"] = std::move(applied);
+                // Persist the undo record before the next write so an interrupted process can
+                // restore exactly the values Coop changed.
+                if (!journal.contains("environment_undo")) journal["environment_undo"] = Json::array();
+                journal["environment_undo"].push_back(journal["environment_applied"].value("undo",Json::object()));
                 save();
+                test_fault_point(context,"after-environment");
                 break;
             }
             case ir::Operation::persistence:
@@ -1272,6 +1376,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 persistence = prepare_persistence(context,package,version);
                 persistence = verify_persistence(context,package,version);
+                test_fault_point(context,"after-persistence");
                 break;
             case ir::Operation::commit_state: {
                 Json kept_versions = Json::array();
@@ -1317,6 +1422,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         {"origin",(updating || resetting) ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
                         {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
                 }
+                test_fault_point(context,"before-commit");
                 break;
             }
             case ir::Operation::adopt_state:
@@ -1411,7 +1517,20 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
 }
 Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {
     Json result = {{"journal",path_text(journal_path)},{"mode","manual"},{"status","manual"},
-        {"reason","Recovery evidence cannot be verified"},{"actions",Json::array()}};
+        {"reason","Recovery evidence cannot be verified"},{"actions",Json::array()},
+        {"diagnostics",Json::array()},{"conflicts",Json::array()}};
+    // Conflicts are collected before any mutation. They name the observed external change so a
+    // later Scoop or user operation is diagnosed instead of being rolled back blindly.
+    Json diagnostics = Json::array();
+    bool legacy_evidence = false;
+    const auto fail = [&](const std::string& code, const std::string& detail, const std::string& path = {}) -> void {
+        Json conflict = {{"code",code},{"detail",detail}};
+        if (!path.empty()) conflict["path"] = path;
+        diagnostics.push_back(conflict);
+        result["conflicts"] = diagnostics;
+        result["diagnostics"] = diagnostics;
+        throw std::runtime_error(detail);
+    };
     bool mutating = false;
     try {
         const auto journal = read_json(journal_path);
@@ -1447,15 +1566,22 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
         std::vector<std::pair<fs::path,fs::path>> restores;
         for (const auto& entry : created) {
             if (!entry.is_object() || !entry.contains("path") || !entry.at("path").is_string())
-                throw std::runtime_error("Transaction journal has an unreadable created-path record");
+                fail("journal-unreadable","Transaction journal has an unreadable created-path record");
             const fs::path path(wide(entry.at("path").get<std::string>()));
             if (!recovery_path_allowed(context,path))
-                throw std::runtime_error("Created path is outside Coop's managed locations or crosses a reparse point: "+path_text(path));
+                fail("created-path-outside-root",
+                    "Created path is outside Coop's managed locations or crosses a reparse point: "+path_text(path),path_text(path));
             const bool exists = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
             const bool owned = entry.value("owned",false);
             if (exists && !owned)
-                throw std::runtime_error("Creation ownership was not confirmed for "+path_text(path)+"; refusing to delete it");
+                fail("created-path-ownership-unconfirmed",
+                    "Creation ownership was not confirmed for "+path_text(path)+"; refusing to delete it",path_text(path));
             if (exists) {
+                const auto evidence = entry.contains("evidence") ? entry.at("evidence") : Json::object();
+                std::string detail;
+                const auto code = ownership_conflict(evidence,path,detail);
+                if (code == "ownership-evidence-not-recorded") legacy_evidence = true;
+                else if (!code.empty()) fail(code,detail,path_text(path));
                 removals.push_back(path);
                 actions.push_back({{"kind","remove"},{"path",path_text(path)}});
             } else {
@@ -1469,7 +1595,8 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
             const fs::path from(wide(entry.at("from").get<std::string>()));
             const fs::path to(wide(entry.at("to").get<std::string>()));
             if (!recovery_path_allowed(context,from) || !recovery_path_allowed(context,to))
-                throw std::runtime_error("Moved path is outside Coop's managed locations or crosses a reparse point");
+                fail("moved-path-outside-root",
+                    "Moved path is outside Coop's managed locations or crosses a reparse point: "+path_text(from));
             bool from_exists = GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES;
             const bool to_exists = GetFileAttributesW(to.c_str()) != INVALID_FILE_ATTRIBUTES;
             // A created destination at the original path (for example a newly published current
@@ -1481,12 +1608,37 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
             } else if (!to_exists && from_exists) {
                 actions.push_back({{"kind","already-restored"},{"from",path_text(from)}});
             } else if (!to_exists && !from_exists) {
-                throw std::runtime_error("Both endpoints of a journaled move are missing: "+path_text(from));
+                fail("move-endpoints-missing",
+                    "Both endpoints of a journaled move are missing; another client may have removed them: "+path_text(from),path_text(from));
             } else {
-                throw std::runtime_error("Both endpoints of a journaled move exist; recovery would overwrite data: "+path_text(from));
+                fail("move-endpoint-conflict",
+                    "Both endpoints of a journaled move exist; recovery would overwrite data: "+path_text(from),path_text(from));
             }
         }
         result["actions"] = std::move(actions);
+        if (legacy_evidence) result["ownership_evidence"] = "not-recorded";
+        else result["ownership_evidence"] = "created-object-identity-recorded";
+        // User environment values are outside the path rollback. Recovery restores exactly the
+        // values this transaction wrote, but a value the user changed in the meantime is kept and
+        // reported instead of being overwritten.
+        const auto environment_undo = journal.contains("environment_undo") && journal.at("environment_undo").is_array() ?
+            journal.at("environment_undo") : Json::array();
+        Json environment_preview = Json::array();
+        bool environment_conflict = false;
+        for (auto entry = environment_undo.rbegin(); entry != environment_undo.rend(); ++entry) {
+            const auto preview = preview_user_environment_undo(*entry);
+            environment_conflict = environment_conflict || (preview.contains("preserved") && !preview.at("preserved").empty());
+            environment_preview.push_back(preview);
+        }
+        if (!environment_preview.empty()) result["environment_rollback_preview"] = environment_preview;
+        if (environment_conflict) {
+            diagnostics.push_back({{"code","environment-value-modified"},
+                {"detail","A user environment value changed after this transaction wrote it; recovery keeps the newer value"}});
+            // A preserved newer user value is a diagnosed conflict even though recovery succeeds
+            // without overwriting it.
+            result["conflicts"] = diagnostics;
+        }
+        result["diagnostics"] = diagnostics;
         result["mode"] = "automatic";
         result["status"] = execute ? "pending" : "recoverable";
         result["reason"] = restores.empty() && removals.empty() ?
@@ -1496,11 +1648,19 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
         mutating = true;
         for (auto entry = removals.rbegin(); entry != removals.rend(); ++entry) erase_tree(*entry);
         for (auto entry = restores.rbegin(); entry != restores.rend(); ++entry) publish_new(entry->second,entry->first);
+        Json environment_rollback = Json::array();
+        if (!environment_undo.empty()) {
+            for (auto entry = environment_undo.rbegin(); entry != environment_undo.rend(); ++entry)
+                environment_rollback.push_back(restore_user_environment(*entry));
+            result["environment_rollback"] = environment_rollback;
+        }
         auto resolved = read_json(journal_path);
         resolved["state"] = "rolled-back";
         resolved["recovered"] = true;
         if (external_effects_started) resolved["recovery_external_side_effects"] =
             "unknown; journaled scripts and installer programs were not re-run and their effects outside Coop's managed paths were not rolled back";
+        if (!environment_undo.empty()) resolved["recovery_environment"] = environment_rollback;
+        if (!diagnostics.empty()) resolved["recovery_diagnostics"] = diagnostics;
         write_json(journal_path,resolved);
         if (external_effects_started) {
             // Script and installer-program logs are recovery evidence and must not be treated as
@@ -1514,15 +1674,22 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
                 result["cleanup_warning"] = std::string("Recovered state is valid, but transaction staging could not be removed: ")+error.what();
             }
         }
-        result["status"] = external_effects_started ? "recovered-with-unknown-script-effects" : "recovered";
+        result["status"] = external_effects_started ? "recovered-with-unknown-script-effects" :
+            environment_conflict ? "recovered-with-user-changes" : "recovered";
         result["reason"] = external_effects_started ?
             "Interrupted Coop state was reverted; script and installer-program side effects outside managed paths remain unknown" :
+            environment_conflict ?
+            "Interrupted Coop state was reverted; user environment values changed after the transaction were kept" :
             "Interrupted Coop state was reverted";
         return result;
     } catch (const std::exception& error) {
         result["mode"] = "manual";
         result["status"] = mutating ? "failed" : "manual";
         result["reason"] = error.what();
+        if (!diagnostics.empty()) {
+            result["conflicts"] = diagnostics;
+            result["diagnostics"] = diagnostics;
+        }
         return result;
     }
 }

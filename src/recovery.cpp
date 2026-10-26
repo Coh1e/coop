@@ -116,6 +116,9 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
             if (entry.value("skipped",false)) std::cout << " (not requested; left pending)";
             std::cout << '\n';
             if (entry.contains("reason")) std::cout << "  " << entry.at("reason").get<std::string>() << '\n';
+            if (entry.contains("conflicts")) for (const auto& conflict : entry.at("conflicts"))
+                std::cout << "  conflict " << conflict.value("code",std::string{"unknown"}) << ": "
+                          << conflict.value("detail",std::string{}) << '\n';
             if (entry.contains("actions")) for (const auto& action_entry : entry.at("actions")) {
                 std::cout << "  " << action_entry.value("kind",std::string{"action"}) << ' '
                           << action_entry.value("path",action_entry.value("from",std::string{})) << '\n';

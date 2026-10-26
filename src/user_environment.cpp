@@ -452,7 +452,8 @@ Json revert_user_environment(const Json& previous_ownership) {
         throw;
     }
 }
-Json restore_user_environment(const Json& undo) {
+namespace {
+Json apply_undo(const Json& undo, bool write) {
     Json result = {{"status","nothing-to-restore"},{"writes",Json::array()},{"preserved",Json::array()}};
     if (!undo.is_object() || !undo.contains("values") || !undo.at("values").is_array()) return result;
     bool changed = false;
@@ -469,12 +470,28 @@ Json restore_user_environment(const Json& undo) {
             continue;
         }
         if (same_value(current,before)) continue;
+        if (!write) {
+            result["status"] = "would-restore";
+            add_write(result["writes"],name,current,before,"transaction rollback");
+            continue;
+        }
         write_value(name,before);
         add_write(result["writes"],name,current,before,"transaction rollback");
         changed = true;
     }
     if (changed) result["status"] = "restored";
-    result["broadcast"] = broadcast(changed);
+    result["broadcast"] = write ? broadcast(changed) : Json{{"message","WM_SETTINGCHANGE"},
+        {"parameter","Environment"},{"attempted",false},{"sent",false},
+        {"reason","Preview only; no registry value was written"}};
     return result;
+}
+}
+Json restore_user_environment(const Json& undo) {
+    return apply_undo(undo,true);
+}
+// Recovery previews the same undo evidence without touching HKCU. It reports exactly which
+// values would be restored and which newer user values would be preserved.
+Json preview_user_environment_undo(const Json& undo) {
+    return apply_undo(undo,false);
 }
 }
