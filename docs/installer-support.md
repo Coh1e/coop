@@ -86,4 +86,4 @@
 - 静态/历史结果：真实 7z 产物的 SHA256 与固定样本一致；Scoop 源码顺序和脚本原文来自固定提交；验证者在 `6203f08` 观察到 MSI 机器缓存写入，本轮据此改为阻塞。
 - 未运行：MSI 管理安装生命周期（隔离限制阻塞，需人类批准）、git/vscode/firefox/aider-desk 的真实 `#/dl.7z` 载荷、其他厂商 MSI、lessmsi、NSIS/Inno/WiX 提取、任意 MSI 的完整安装、真实用户目录安装、需要管理员的系统级安装、python installer.script 的实际执行、`Main/vcpkg` 的实际生命周期。
 
-具体命令、退出码和证据位置见 Issue #16 / #31 / #32 报告与 `.local/pi/tasks/16|31|32/evidence`；#32 最终代码构建（`coop.exe` SHA256 `9c1f95b7ce1e…`）的真实共用根证据在 `.local/pi/tasks/32/evidence/real-groovyserv-9c1f95b7ce1e/`，更早的 `real-groovyserv-3aa377072ef3/` 是同一实现中间构建的运行记录，仅作追溯。
+具体命令、退出码和证据位置见 Issue #16 / #31 / #32 报告与 `.local/pi/tasks/16|31|32/evidence`；#32 最终代码构建（`coop.exe` SHA256 `9c1f95b7ce1e…`）的真实共用根证据在 `.local/pi/tasks/32/evidence/real-groovyserv-9c1f95b7ce1e/`，同一二进制在提交 `da62478` 上重跑的证据在 `.local/pi/tasks/32/evidence/real-groovyserv-9c1f95b7ce1e-head-da62478/`（含 `99-head-binding.txt`）；更早的 `real-groovyserv-3aa377072ef3/` 是中间构建的运行记录，仅作追溯。
