@@ -87,13 +87,13 @@
 ctest --test-dir .local/build --output-on-failure -R '^(recovery|recovery_matrix)$'
 ```
 
-本轮运行证据：`.local/pi/tasks/37/evidence/ctest-targeted-1.log`（`recovery`、`recovery_matrix`、`query`、`exposure`、`user_environment` 全部通过）；`.local/pi/tasks/37/evidence/ctest-full-1.log`（37/37 通过）；`.local/pi/tasks/37/evidence/user-env-compare-1.log`（完整测试运行前后 `HKCU\Environment` 无差异）。会话根内 `recovery-matrix-evidence.json` 记录 10 次真实进程崩溃、2 次阶段失败、真实 MSI/Inno/NSIS 产物和所有根路径；本轮最后一次会话 `checks=124`。
+本轮运行证据：`.local/pi/tasks/37/evidence/ctest-recovery-matrix-13.log`（含真实 MSI/Inno/NSIS 的 `recovery_matrix` 通过）；`.local/pi/tasks/37/evidence/ctest-full-final.log`（37/37 通过）；`.local/pi/tasks/37/evidence/user-env-compare-final.log`（完整测试运行前后 `HKCU\Environment` 无差异）。会话根内 `recovery-matrix-evidence.json` 记录 10 次真实进程崩溃、2 次阶段失败、真实 MSI/Inno/NSIS 产物和所有根路径；本轮最后一次会话 `checks=124`。
 
 真机共用根（本机 Scoop 根 `C:\Users\Neo\scoop`，Scoop v0.6.0，Coop `coop 0.1.0`，二进制 SHA256 `3da498333c65c7f7902c593702dbcbd80a72a8447f456e6924a93416c7b59ca8`）：
 
 ```powershell
 pwsh -NoProfile -File tests/real-scoop-recovery.ps1 -CoopExe .local/build/coop.exe `
-  -EvidenceDir .local/pi/tasks/37/evidence/real-scoop-recovery-run4
+  -EvidenceDir .local/pi/tasks/37/evidence/real-scoop-recovery-run5
 ```
 
 `commands.json` 记录全部命令、退出码与日志。关键结果：`update-crash`/`install-crash` 退出码 `-1073740791`；`scoop-reset-during`/`scoop-reset-v2` 与 `recover-after-crash` 退出码 0；`recover-conflict` 退出码 1 并报告 `created-path-replaced`；Scoop 卸载后最终恢复 `recovered` 且 `remove` 动作数为 0；操作前后真实根安装清单均为同样的 15 个包。测试创建并清理了临时 bucket、测试包、store、入口与 Hook 标记，根内既有安装、bucket、记录和 store 未改动。
