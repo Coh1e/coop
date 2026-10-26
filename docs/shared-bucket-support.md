@@ -66,14 +66,13 @@ libgit2 不继承用户的凭据 helper、URL 重写或可执行 filter；只从
 | main 首次刷新（process_guard） | 历史：04:20Z 预修复构建 | 退出 0；`changed=true`，`refresh_kind=changed`，`dfc3b58…` → `5cb1b7b…`，`changed_files=73`，`received_bytes=128876`；分支 `master`，`git status` 为空 |
 | main 第二次刷新 | 历史：04:20Z 预修复构建 | 退出 0；`refresh_kind=unchanged`，revision/path/分支不变，`received_bytes=0`，索引 SHA256 不变 |
 | nerd-fonts 接管 | 历史：`32e8573` 构建（二进制 `83431dcc…`） | 退出 0；`adopted=true`，`2bcffab…` → `4b36719…`，`changed_files=10`，`received_bytes=6065`，耗时 3320.5ms；分支 `master`，`git status` 为空 |
-| main `remove` → `add` → `update` | 本次修复后的最终构建 | `remove` 退出 0；`add` 重新注册现有工作树（`registered=true`、`adopted=true`，不移动 HEAD）；随后 `update` 快进 `5cb1b7b…` → `89b4cf8…`，`changed_files=8`，`received_bytes=5331`；分支 `master`，`git status` 为空 |
-| main 再次 `update` | 最终构建 | 退出 0；`changed=false`、`refresh_kind=unchanged`、`adopted=true`（来源标记保留），`received_bytes=0`，索引 SHA256 不变 |
-| nerd-fonts `remove` → `add` → `update` | 最终构建 | `registered=true`、`adopted=true`；`update` 为 `unchanged`，revision/索引不变，`adopted` 保持 true |
+| main `remove` → `add` → `update` | 修复构建（re-register 修复后、最终校验前） | `remove` 退出 0；`update <removed>` 退出 1 并提示重新注册；`add` 重新注册现有工作树（`registered=true`、`adopted=true`，不移动 HEAD）；随后 `update` 快进 `5cb1b7b…` → `89b4cf8…`，`changed_files=8`，`received_bytes=5331`；分支 `master`，`git status` 为空 |
+| main、nerd-fonts `remove` → `add` → `update` | 最终构建 `88b81ef` | 两个 `update <removed>` 均退出 1；`add` 均 `registered=true`、`adopted=true`；后续 `update` 均为 `unchanged`，revision/索引不变，`adopted` 保持 true；`received_bytes=0` |
 | `coop --root C:\Users\Neo\scoop info main/7zip --json` | 最终构建 | 退出 0；刷新后仍通过本地索引/工作树解析 Manifest |
 | `scoop bucket list` | Coop 刷新后 | Scoop 自身继续识别 `main` 和 `nerd-fonts`（分别 1700/367 个 Manifest） |
 | 进程观察 | 所有 Coop bucket 刷新 | `Observed workload processes: 1`，未启动 `git.exe` 或 PowerShell |
 
-项目内另外用完整 `main` 工作树的副本验证了相同路径：原修订 `dfc3b58…` → `5cb1b7…`，73 个文件变化，之后无变化刷新 `received_bytes=0`、索引不变，`git status` 为空。证据在 `.local/pi/tasks/23/evidence/`（被忽略）：`real-scoop-bucket/`（历史 main 变化）、`real-readopt-fix.log`（最终构建的 re-register 与 main 快进）、`real-scoop-bucket-main-fix/` 和 `real-scoop-bucket-nerd-fonts-fix/`（最终构建无变化与 adopted 保留）、`real-scoop-bucket-list-after-coop-fix.txt`（Scoop 读取）。
+项目内另外用完整 `main` 工作树的副本验证了相同路径：原修订 `dfc3b58…` → `5cb1b7…`，73 个文件变化，之后无变化刷新 `received_bytes=0`、索引不变，`git status` 为空。证据在 `.local/pi/tasks/23/evidence/`（被忽略）：`real-scoop-bucket/`（历史 main 变化）、`real-readopt-fix.log`（最终构建的 re-register 与 main 快进）、`real-readopt-final.log`（最终构建的移除/重新注册/无变化）、`real-scoop-bucket-main-final/` 和 `real-scoop-bucket-nerd-fonts-final/`（最终构建无变化与 adopted 保留）、`real-scoop-bucket-list-final.txt`（Scoop 读取）。
 
 ## 复现
 
