@@ -231,8 +231,10 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
                 validate_component(entry.alias);
                 if (!aliases.insert(lower(entry.alias)).second) throw std::runtime_error("Duplicate command alias");
                 if (parts.size() > 2) entry.arguments = parts[2];
-                const auto kind = launcher_kind(fs::path(wide(entry.target)));
-                entry.host = kind ? launcher_text(*kind) : "unknown";
+                if (!launcher_kind(fs::path(wide(entry.target))))
+                    package.diagnostics.push_back({Layer::adapter,"unsupported-command-host",
+                        "Command entry target type is not supported: "+entry.target+
+                        "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR"});
                 package.entries.push_back(std::move(entry));
             }
         }
@@ -327,7 +329,7 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
     }
     return package;
 }
-std::vector<InstalledFact> read_installations(const fs::path& root, const std::string& scope) {
+std::vector<InstalledFact> read_installations(const fs::path& root) {
     std::vector<InstalledFact> result;
     const auto apps = root / L"apps";
     if (!fs::exists(apps)) return result;
@@ -335,7 +337,6 @@ std::vector<InstalledFact> read_installations(const fs::path& root, const std::s
         if (!app.is_directory() || app.path().filename() == L"scoop") continue;
         InstalledFact fact;
         fact.name = path_text(app.path().filename());
-        fact.scope = scope;
         try {
             const auto current = app.path() / L"current";
             if (!fs::is_directory(current)) throw std::runtime_error("No usable current directory");

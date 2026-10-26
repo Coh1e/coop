@@ -40,7 +40,7 @@ foreach ($case in @('version','exe','metadata','record','manifest')) {
         $foreign = switch ($case) {
             'version' { "$root/apps/fixture/1/foreign.txt" }
             'exe' { "$root/shims/fixture.exe" }
-            'metadata' { "$root/shims/fixture.coop-shim.json" }
+            'metadata' { "$root/shims/fixture.shim" }
             'record' { "$root/.coop/packages/fixture.json" }
             'manifest' { "$root/buckets/test/bucket/fixture.json" }
         }

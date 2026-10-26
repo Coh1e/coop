@@ -38,9 +38,9 @@ struct Download {
     bool renamed = false;
 };
 
-// Command entries are identified by their package-relative target and alias; the host kind is
-// derived once by the exposure layer, so the IR does not duplicate launcher semantics.
-struct Entry { std::string target; std::string alias; std::string arguments; std::string host; };
+// Command entries are identified by their package-relative target and alias. The IR stores only
+// the source-declared target so the exposure layer remains the single owner of launcher kinds.
+struct Entry { std::string target; std::string alias; std::string arguments; };
 struct Shortcut { std::string target; std::string name; std::string arguments; std::string icon; };
 
 struct PersistenceMapping { std::string source; std::string target; };
@@ -67,7 +67,6 @@ struct Package {
     std::string architecture;
     std::string manifest_path;
     std::string manifest_digest;
-    std::string source_url;
 
     std::vector<Download> downloads;
     std::vector<Entry> entries;
@@ -95,7 +94,6 @@ struct InstalledFact {
     std::string version;
     std::string bucket;
     std::string architecture;
-    std::string scope = "user";
     std::string source;
     fs::path directory;
     std::vector<PersistenceMapping> persistence;
@@ -113,16 +111,12 @@ const char* operation_name(Operation operation);
 // A high-level operation and the effect it will have. The same sequence is what preview reports and
 // what the execution backend consumes, so preview and execution cannot drift apart.
 struct Step { Operation operation; std::size_t index = 0; bool previous = false; std::string effect; };
-struct Precondition { fs::path path; std::string digest; std::string role; };
 
 struct Plan {
     Action action = Action::install;
     Package package;
     std::optional<Package> previous;
     std::vector<Step> steps;
-    std::vector<Precondition> preconditions;
-    std::vector<Diagnostic> diagnostics;
-    bool execution_available = false;
 };
 
 // Source adapter: Scoop manifest JSON -> normalized IR. It only normalizes meaning; it never
@@ -130,7 +124,7 @@ struct Plan {
 Package adapt_manifest(const fs::path& path, const std::string& name, const std::string& bucket,
                        const std::string& architecture);
 // Source adapter: shared installation records -> facts. Also read-only.
-std::vector<InstalledFact> read_installations(const fs::path& root, const std::string& scope);
+std::vector<InstalledFact> read_installations(const fs::path& root);
 // Validator: normalized IR contract, digest support, path/identity constraints and the capability
 // requirements of the requested package. Consumes IR only; it does not re-read source fields.
 void validate(Package& package);

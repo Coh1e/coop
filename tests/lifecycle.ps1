@@ -15,11 +15,11 @@ $version = & "$root/shims/fixture.exe" --version
 if ($LASTEXITCODE -ne 0 -or $version -ne 'coop 0.1.0') { throw 'native command entry failed' }
 $items = & $CoopExe --root $root list --json | ConvertFrom-Json
 if ($items[0].management -ne 'managed') { throw 'installed package not managed' }
-$metadataPath = "$root/shims/fixture.coop-shim.json"
+$metadataPath = "$root/shims/fixture.shim"
 $metadata = [IO.File]::ReadAllText($metadataPath)
-$changed = $metadata | ConvertFrom-Json
-$changed.package = 'someone-else'
-$changed | ConvertTo-Json | Set-Content $metadataPath -Encoding utf8
+$foreign = [IO.Path]::GetFullPath("$root/shims/foreign.exe")
+$changed = [regex]::Replace($metadata,'path = "[^"]*"',('path = "'+$foreign+'"'))
+[IO.File]::WriteAllText($metadataPath,$changed)
 $failed = & $CoopExe --root $root uninstall fixture --json 2>&1
 if ($LASTEXITCODE -eq 0 -or -not (Test-Path "$root/apps/fixture/current/fixture.exe")) { throw 'changed command ownership ignored' }
 [IO.File]::WriteAllText($metadataPath,$metadata)

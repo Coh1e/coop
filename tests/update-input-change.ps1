@@ -39,12 +39,11 @@ foreach ($case in @('manifest','entry')) {
             $changedPath = "$root/buckets/test/bucket/fixture.json"
             $changed = Get-Content $changedPath -Raw | ConvertFrom-Json
             $changed.version = '3'
+            $changed | ConvertTo-Json | Set-Content $changedPath -Encoding utf8
         } else {
-            $changedPath = "$root/shims/fixture.coop-shim.json"
-            $changed = Get-Content $changedPath -Raw | ConvertFrom-Json
-            $changed | Add-Member -NotePropertyName external_note -NotePropertyValue 'preserve this change'
+            $changedPath = "$root/shims/fixture.shim"
+            Add-Content -LiteralPath $changedPath -Value '# external change' -Encoding utf8
         }
-        $changed | ConvertTo-Json | Set-Content $changedPath -Encoding utf8
         $changedHash = (Get-FileHash $changedPath).Hash
         $bytes = [IO.File]::ReadAllBytes($fixture2)
         $stream.Write([Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"))

@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iterator>
+#include <fstream>
+#include <set>
 
 namespace coop {
 namespace {
@@ -31,6 +33,8 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
 void erase_tree(const fs::path& path) {
     const auto attributes = GetFileAttributesW(path.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES) return;
+    if (attributes & FILE_ATTRIBUTE_READONLY)
+        SetFileAttributesW(path.c_str(),attributes & ~FILE_ATTRIBUTE_READONLY);
     if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
         if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
             if (!RemoveDirectoryW(path.c_str())) throw std::runtime_error("Cannot unlink managed junction");
@@ -105,32 +109,48 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
     const auto artifact = directory/wide(installed.artifacts.front().filename);
     if (sha256_file(artifact) != installed.artifacts.front().sha256) throw std::runtime_error("Installed executable changed; refusing operation");
 }
-bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link, bool legacy) {
+bool verify_shortcut_ownership(const Json& managed, const ShortcutExposure& shortcut, const fs::path& link,
+                               const fs::path& installed_directory) {
+    // A shortcut removed outside Coop is already revoked: there is nothing left to own or
+    // protect, so update/uninstall records the observation and continues. A shortcut that is
+    // still present but changed is still refused below.
+    if (!fs::is_regular_file(link)) return false;
     std::string expected;
     fs::path recorded;
-    if (legacy) {
-        if (!managed.contains("legacy_shortcuts") || !managed.at("legacy_shortcuts").is_object() ||
-            !managed.at("legacy_shortcuts").contains(shortcut.name))
-            throw std::runtime_error("Managed legacy shortcut record is missing");
+    bool has_record = false;
+    if (managed.contains("legacy_shortcuts") && managed.at("legacy_shortcuts").is_object() &&
+        managed.at("legacy_shortcuts").contains(shortcut.name)) {
         const auto& entry = managed.at("legacy_shortcuts").at(shortcut.name);
         recorded = fs::path(wide(entry.at("path").get<std::string>()));
         expected = entry.at("sha256").get<std::string>();
-    } else {
-        const auto entries = managed.value("shortcuts",Json::array());
+        has_record = true;
+    } else if (managed.contains("shortcuts") && managed.at("shortcuts").is_array()) {
+        const auto& entries = managed.at("shortcuts");
         const auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
             return item.is_object() && equal_name(item.value("name",std::string{}),shortcut.name);
         });
         if (found == entries.end()) throw std::runtime_error("Managed shortcut record is missing");
         recorded = fs::path(wide(found->at("path").get<std::string>()));
         expected = found->at("sha256").get<std::string>();
+        has_record = true;
     }
-    // A shortcut removed outside Coop is already revoked: there is nothing left to own or
-    // protect, so update/uninstall records the observation and continues. A shortcut that is
-    // still present but changed is still refused below.
-    if (!fs::is_regular_file(link)) return false;
-    if (!same_identity(recorded,link)) throw std::runtime_error("Managed shortcut path changed");
-    if (sha256_file(link) != expected)
-        throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
+    if (has_record) {
+        if (!same_identity(recorded,link)) throw std::runtime_error("Managed shortcut path changed");
+        if (sha256_file(link) != expected)
+            throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
+        return true;
+    }
+    // A shared Scoop installation has no Coop record. Its shortcut is still owned only when the
+    // current identity matches the package manifest exactly; otherwise it is left untouched.
+    const auto identity = read_shortcut(link);
+    if (!identity) throw std::runtime_error("Shared shortcut cannot be read: "+path_text(link));
+    const auto target = installed_directory/shortcut.target;
+    if (!same_identity(identity->target,target))
+        throw std::runtime_error("Shared shortcut points to a different target: "+path_text(link));
+    if (identity->arguments != shortcut.arguments)
+        throw std::runtime_error("Shared shortcut uses different arguments: "+path_text(link));
+    if (!shortcut.icon.empty() && !identity->icon.empty() && !same_identity(identity->icon,installed_directory/shortcut.icon))
+        throw std::runtime_error("Shared shortcut uses a different icon: "+path_text(link));
     return true;
 }
 void prune_empty_shortcut_directories(const Context& context, const std::vector<fs::path>& links) {
@@ -216,6 +236,69 @@ bool same_path_text(const fs::path& a, const fs::path& b) {
     const auto right = b.lexically_normal().wstring();
     return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_EQUAL;
 }
+std::string trim_ascii(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
+}
+struct ShimMetadata { std::string target; std::string arguments; };
+// Scoop shims store a path and optional argument string in <name>.shim. The same file is
+// readable by Scoop and by Coop's launcher, so both clients can keep using one entry.
+ShimMetadata read_shim_metadata(const fs::path& path) {
+    if (fs::file_size(path) > 16384) throw std::runtime_error("Scoop shim metadata exceeds size limit");
+    std::ifstream input(path,std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read command metadata: "+path_text(path));
+    ShimMetadata result;
+    std::string line;
+    std::set<std::string> keys;
+    while (std::getline(input,line)) {
+        if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
+        line = trim_ascii(line);
+        if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
+        const auto equal = line.find('=');
+        if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
+        const auto key = trim_ascii(line.substr(0,equal));
+        const auto value = trim_ascii(line.substr(equal+1));
+        if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
+        if (key == "path") result.target = value;
+        else if (key == "args") result.arguments = value;
+        else throw std::runtime_error("Unvalidated Scoop shim option: "+key);
+    }
+    if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
+        result.target = result.target.substr(1,result.target.size()-2);
+    if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
+    return result;
+}
+std::string coop_launcher_hash() {
+    std::array<wchar_t,32768> module{};
+    const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
+    if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
+    return sha256_file(fs::path(module.data()));
+}
+bool known_scoop_launcher(const std::string& digest) {
+    static const std::set<std::string> known = {
+        "140e3801d8adeda639a21b14e62b93a4c7d26b7a758421f43c82be59753be49b",
+        "70d4690b8ac3b3f715f537cdea6e07a39fda4bc0347bf6b958e4f3ff2f0e04d4",
+        "0116068768fc992fc536738396b33db3dafe6b0cf0e6f54f6d1aa8b0331f3cec"};
+    return known.contains(digest);
+}
+// Direct EXE/COM entries have an exact Scoop-compatible representation (path + optional args).
+// Other host kinds need Coop's explicit launcher metadata, so they keep the .coop-shim.json form.
+bool prefer_scoop_shim(const Package& package) {
+    return package.environment.empty() && package.path_entries.empty() &&
+        std::all_of(package.commands.begin(),package.commands.end(),[](const CommandExposure& command) {
+            const auto kind = launcher_kind(command.target);
+            return kind && *kind == LauncherKind::direct;
+        });
+}
+struct InstalledEntry {
+    std::string name;
+    std::string format;
+    fs::path executable;
+    fs::path metadata;
+    std::string executable_hash;
+    std::string metadata_hash;
+};
 }
 std::string package_execution_blocker(const Package& package) {
     try { require_capabilities(package); } catch (const std::exception& error) { return error.what(); }
@@ -266,9 +349,18 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
     if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
-    if (plan.action == Action::install && plan.local.exists) return "Package already exists; use adoption or update";
-    if ((plan.action == Action::uninstall || plan.action == Action::update) && !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json")))
-        return "Package is unadopted; update/uninstall is refused";
+    if (plan.ir_steps.empty()) return "Plan contains no IR operations; execution is refused";
+    if (plan.action == Action::install && plan.local.exists) return "Package already exists; use update";
+    if ((plan.action == Action::uninstall || plan.action == Action::update) && !plan.local.exists)
+        return "No usable current installation exists for this package";
+    // Shared Scoop installations have no Coop private record. The first migrated action is a
+    // single-file package, whose installed artifact and standard records can be verified directly.
+    if ((plan.action == Action::uninstall || plan.action == Action::update) &&
+        !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
+        const auto& facts = plan.action == Action::update && plan.previous ? *plan.previous : plan.package;
+        if (facts.artifacts.size() != 1 || facts.artifacts.front().archive != ArchiveKind::none)
+            return "This shared installation has no Coop management record and its archive layout cannot be verified yet";
+    }
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
@@ -344,27 +436,41 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         }
     }
     if (plan.action == Action::adopt) return commit_adoption_result(context,plan);
-    Json managed;
+    Json managed = Json::object();
     Json persistence = Json::array();
     Json version_history = Json::array();
     Json purge_entries = Json::array();
     std::vector<FilePrecondition> owned_inputs;
+    const bool has_managed_record = fs::exists(record_path);
     if (plan.action == Action::install) {
-        if (plan.local.exists || fs::exists(version) || fs::exists(record_path)) throw std::runtime_error("Package already exists; use adoption or update");
+        if (plan.local.exists || fs::exists(version)) throw std::runtime_error("Package already exists; use update");
     } else {
-        if (!fs::exists(record_path)) throw std::runtime_error("Package is unadopted; update/uninstall is refused");
-        managed = read_json(record_path);
-        if (!same_identity(fs::path(wide(managed.at("directory").get<std::string>())),plan.local.directory) ||
-            managed.at("manifest_sha256") != installed.manifest_sha256)
-            throw std::runtime_error("Managed installation changed; refusing operation");
-        verify_installed_files(managed,plan.local.directory,installed);
+        // Shared Scoop state is the authority. A Coop record is optional evidence: when it is
+        // missing or stale, the current installation records and actual files are re-read instead
+        // of refusing management or demanding an adoption step.
+        if (has_managed_record) managed = read_json(record_path);
+        if (!same_identity(fs::path(wide(managed.value("directory",path_text(plan.local.directory)))),plan.local.directory) ||
+            managed.value("manifest_sha256",std::string{}) != installed.manifest_sha256) {
+            managed["directory"] = path_text(plan.local.directory);
+            managed["manifest_sha256"] = installed.manifest_sha256;
+            managed["version"] = installed.version;
+            managed["architecture"] = installed.architecture;
+            managed["bucket"] = installed.bucket;
+        }
+        if (has_managed_record) verify_installed_files(managed,plan.local.directory,installed);
+        else if (installed.artifacts.size() == 1 && installed.artifacts.front().archive == ArchiveKind::none) {
+            const auto artifact = plan.local.directory/wide(installed.artifacts.front().filename);
+            if (!fs::is_regular_file(artifact)) throw std::runtime_error("Installed executable is missing");
+            if (sha256_file(artifact) != installed.artifacts.front().sha256)
+                throw std::runtime_error("Installed executable changed; refusing operation");
+        }
         persistence = verify_persistence(context,installed,plan.local.directory);
         if (plan.purge) purge_entries = purge_scope(context,installed,plan.local.directory,
             managed.value("persistence",Json::array()));
         version_history = managed.value("versions",Json::array());
         if (!version_history.is_array()) version_history = Json::array();
+        if (version_history.empty()) version_history = scan_version_evidence(app);
         if (plan.action == Action::update) {
-            if (version_history.empty()) version_history = scan_version_evidence(app);
             const bool recorded = std::any_of(version_history.begin(),version_history.end(),[&](const Json& entry) {
                 return entry.is_object() && equal_name(entry.value("version",std::string{}),installed.version);
             });
@@ -378,46 +484,69 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     {"provenance","previous-current"}});
             }
         }
-        owned_inputs.push_back({record_path,sha256_file(record_path)});
+        if (has_managed_record) owned_inputs.push_back({record_path,sha256_file(record_path)});
         for (const auto& command : installed.commands) {
             const auto target = plan.local.directory/command.target;
             owned_inputs.push_back({target,sha256_file(target)});
         }
     }
-    const bool legacy_record = managed.is_object() && managed.value("shim_format",std::string{}) == "scoop";
+    std::vector<InstalledEntry> installed_entries;
+    const auto module_hash = coop_launcher_hash();
     for (const auto& command : installed.commands) {
         const auto exe = shims/(wide(command.name)+L".exe");
-        const auto metadata = shims/(wide(command.name)+(legacy_record ? L".shim" : L".coop-shim.json"));
+        const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
+        const auto scoop_metadata = shims/(wide(command.name)+L".shim");
         if (plan.action == Action::install) {
-            if (fs::exists(exe) || fs::exists(metadata)) throw std::runtime_error("Command entry conflicts with an existing file");
-        } else {
-            if (!fs::exists(exe) || !fs::exists(metadata)) throw std::runtime_error("Managed command entry is missing");
-            ordinary_parents(context.root,exe);
-            ordinary_parents(context.root,metadata);
-            std::string executable_hash;
-            if (legacy_record) {
-                const auto& entry = managed.at("legacy_shims").at(command.name);
-                executable_hash = entry.at("executable_sha256");
-                if (sha256_file(metadata) != entry.at("metadata_sha256").get<std::string>()) throw std::runtime_error("Managed Scoop command metadata changed");
-            } else {
-                const auto entries = managed.value("commands",Json::array());
-                const auto record = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
+            if (fs::exists(exe) || fs::exists(coop_metadata) || fs::exists(scoop_metadata))
+                throw std::runtime_error("Command entry conflicts with an existing file");
+            continue;
+        }
+        if (!fs::exists(exe)) throw std::runtime_error("Managed command entry is missing");
+        if (fs::exists(coop_metadata) && fs::exists(scoop_metadata))
+            throw std::runtime_error("Command entry has conflicting Coop and Scoop metadata");
+        InstalledEntry entry{command.name,{},exe,{},sha256_file(exe),{}};
+        if (fs::exists(coop_metadata)) {
+            entry.format = "coop";
+            entry.metadata = coop_metadata;
+            entry.metadata_hash = sha256_file(coop_metadata);
+            const auto metadata = read_json(coop_metadata);
+            if (!equal_name(metadata.value("package",std::string{}),installed.name) ||
+                !same_identity(fs::path(wide(metadata.value("target",std::string{}))),plan.local.directory/command.target) ||
+                metadata.value("arguments",std::string{}) != command.arguments ||
+                metadata.value("launcher",std::string{}) != command_launcher_name(command.target))
+                throw std::runtime_error("Managed command entry ownership changed");
+            if (managed.contains("commands") && managed.at("commands").is_array()) {
+                const auto& entries = managed.at("commands");
+                const auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
                     return item.is_object() && equal_name(item.value("name",std::string{}),command.name);
                 });
-                if (record == entries.end()) throw std::runtime_error("Managed command record is missing");
-                const auto entry = read_json(metadata);
-                executable_hash = record->at("launcher_sha256").get<std::string>();
-                if (sha256_file(metadata) != record->at("metadata_sha256").get<std::string>()) throw std::runtime_error("Managed command metadata changed");
-                if (!equal_name(entry.value("package",std::string{}),package.name) ||
-                    !same_identity(fs::path(wide(entry.value("target",std::string{}))),app/L"current"/command.target) ||
-                    entry.value("arguments",std::string{}) != command.arguments ||
-                    entry.value("launcher",std::string{}) != command_launcher_name(command.target))
-                    throw std::runtime_error("Managed command entry ownership changed");
+                if (found == entries.end()) throw std::runtime_error("Managed command record is missing");
+                if (entry.metadata_hash != found->at("metadata_sha256").get<std::string>())
+                    throw std::runtime_error("Managed command metadata changed");
+                if (entry.executable_hash != found->at("launcher_sha256").get<std::string>())
+                    throw std::runtime_error("Managed command launcher changed");
             }
-            if (sha256_file(exe) != executable_hash) throw std::runtime_error("Managed command launcher changed");
-            owned_inputs.push_back({exe,executable_hash});
-            owned_inputs.push_back({metadata,sha256_file(metadata)});
-        }
+        } else if (fs::exists(scoop_metadata)) {
+            entry.format = "scoop";
+            entry.metadata = scoop_metadata;
+            entry.metadata_hash = sha256_file(scoop_metadata);
+            const auto metadata = read_shim_metadata(scoop_metadata);
+            if (!same_identity(fs::path(wide(metadata.target)),plan.local.directory/command.target) ||
+                (!command.arguments.empty() && metadata.arguments != command.arguments))
+                throw std::runtime_error("Scoop command entry points to a different package or arguments");
+            // Scoop may legitimately replace its shim executable (for example after scoop reset).
+            // Accept the launcher only when it is Scoop's known shim, Coop's own launcher, or the
+            // exact executable recorded by Coop; a foreign replacement is refused.
+            bool known_executable = known_scoop_launcher(entry.executable_hash) || entry.executable_hash == module_hash;
+            if (managed.contains("legacy_shims") && managed.at("legacy_shims").is_object() &&
+                managed.at("legacy_shims").contains(command.name))
+                known_executable = known_executable || entry.executable_hash ==
+                    managed.at("legacy_shims").at(command.name).value("executable_sha256",std::string{});
+            if (!known_executable) throw std::runtime_error("Shared Scoop command launcher changed");
+        } else throw std::runtime_error("Managed command entry metadata is missing");
+        owned_inputs.push_back({entry.executable,entry.executable_hash});
+        owned_inputs.push_back({entry.metadata,entry.metadata_hash});
+        installed_entries.push_back(std::move(entry));
     }
     std::vector<std::string> absent_shortcuts;
     for (const auto& shortcut : installed.shortcuts) {
@@ -426,7 +555,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
             continue;
         }
-        if (!verify_shortcut_ownership(managed,shortcut,link,legacy_record)) {
+        if (!verify_shortcut_ownership(managed,shortcut,link,plan.local.directory)) {
             absent_shortcuts.push_back(shortcut.name);
             continue;
         }
@@ -439,7 +568,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
         for (const auto& command : package.commands) {
             if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return equal_name(old.name,command.name); })) continue;
-            if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")))
+            if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")) ||
+                fs::exists(shims/(wide(command.name)+L".shim")))
                 throw std::runtime_error("New command entry conflicts with an existing file");
         }
         for (const auto& shortcut : package.shortcuts) {
@@ -488,9 +618,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     };
     Json script_runs = Json::array();
     const auto run_scripts = [&](const Package& hooks, ScriptPhase phase, const fs::path& directory,
-                                 const fs::path& original_directory, const char* command, bool previous) {
+                                 const fs::path& original_directory, const char* command, bool previous,
+                                 std::size_t only_index = static_cast<std::size_t>(-1)) {
         for (std::size_t index = 0; index < hooks.scripts.size(); ++index) {
             if (hooks.scripts[index].phase != phase) continue;
+            if (only_index != static_cast<std::size_t>(-1) && index != only_index) continue;
             journal["scripts"].push_back({{"phase",script_phase_name(phase)},{"index",index},{"package",hooks.name},
                 {"previous_package",previous},{"directory",path_text(directory)},{"command",command},{"status","running"},
                 {"external_side_effects","unknown; effects outside the managed package and persist roots are not rolled back, and a failed hook is not re-run automatically"}});
@@ -525,175 +657,307 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     };
     save();
     try {
-        if (plan.action == Action::install || updating) {
-            const auto stage = transaction/L"payload";
-            const auto downloads = transaction/L"downloads";
-            fs::create_directories(stage);
-            fs::create_directories(downloads);
-            journal["stage"] = "downloading"; save();
-            std::vector<fs::path> downloaded_files;
-            for (std::size_t i = 0; i < package.artifacts.size(); ++i) {
-                const auto& artifact = package.artifacts[i];
-                const auto downloaded = downloads/(std::to_wstring(i)+L"-"+wide(artifact.filename));
-                download_file(artifact.url,downloaded);
-                if (sha256_file(downloaded) != artifact.sha256) throw std::runtime_error("Artifact SHA256 mismatch: "+artifact.filename);
-                downloaded_files.push_back(downloaded);
-            }
+        const auto stage = transaction/L"payload";
+        const auto downloads = transaction/L"downloads";
+        std::vector<fs::path> downloaded_files(package.artifacts.size());
+        bool stage_ready = false;
+        bool version_published = false;
+        bool preparation_checked = false;
+        Json command_targets = Json::array();
+        Json command_records = Json::array();
+        Json legacy_shims = Json::object();
+        Json shortcut_records = Json::array();
+        Json environment = Json::array();
+        Json path_entries = Json::array();
+        const auto ensure_preparation = [&]() {
+            if (preparation_checked) return;
+            journal["preparation_steps"] = journal.value("observed_steps",Json::array());
+            Json inputs = Json::array();
+            for (const auto& input : owned_inputs)
+                inputs.push_back({{"path",path_text(input.path)},{"expected",input.sha256},{"actual",sha256_file(input.path)}});
+            Json plan_inputs = Json::array();
+            for (const auto& input : plan.preconditions)
+                plan_inputs.push_back({{"path",path_text(input.path)},{"expected",input.sha256},{"actual",sha256_file(input.path)}});
+            journal["preparation_inputs"] = std::move(inputs);
+            journal["plan_preconditions"] = std::move(plan_inputs); save();
             recheck_plan(plan);
             for (const auto& input : owned_inputs)
-                if (sha256_file(input.path) != input.sha256) throw std::runtime_error("Managed input changed during preparation; regenerate the plan");
-            journal["stage"] = "extracting"; save();
-            for (std::size_t i = 0; i < package.artifacts.size(); ++i) {
-                const auto& artifact = package.artifacts[i];
-                if (artifact.archive == ArchiveKind::none) {
-                    const auto target = stage/wide(artifact.filename);
-                    if (!fs::copy_file(downloaded_files[i],target,fs::copy_options::none))
-                        throw std::runtime_error("Artifact path collides with another package file");
-                } else {
-                    const auto raw = transaction/(L"extract-"+std::to_wstring(i));
-                    extract_archive(downloaded_files[i],raw);
-                    const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
-                    // Fixed Scoop 0.6.0 only applies extract_dir to non-tar archives.
-                    const auto extract_directory = artifact.archive == ArchiveKind::tar ? fs::path{} : artifact.extract_directory;
-                    merge_archive_tree(raw,extract_directory,destination);
-                    erase_tree(raw);
-                }
-            }
-            journal["stage"] = "publishing"; save();
+                if (sha256_file(input.path) != input.sha256)
+                    throw std::runtime_error("Managed input changed during preparation; regenerate the plan");
+            preparation_checked = true;
+        };
+        const auto ensure_stage = [&]() {
+            if (stage_ready) return;
+            fs::create_directories(stage);
+            fs::create_directories(downloads);
             fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json",fs::copy_options::overwrite_existing);
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
-            Json command_targets = Json::array();
-            for (const auto& command : package.commands) {
-                const auto target = stage/command.target;
-                ordinary_parents(stage,target);
-                if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
-                command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
-            }
+            stage_ready = true;
+        };
+        const auto ensure_version = [&]() {
+            if (version_published) return;
+            ensure_stage();
             fs::create_directories(app);
-            if (updating) {
-                // Fixed Scoop update order: the old version's uninstall hooks run before its current
-                // link and entries are removed, and $cmd stays "update" so hooks that only act on a
-                // real uninstall can distinguish an update.
-                journal["stage"] = "running-pre-uninstall-hooks"; save();
-                run_scripts(installed,ScriptPhase::before_uninstall,plan.local.directory,plan.local.directory,"update",true);
-                run_scripts(installed,ScriptPhase::uninstaller,plan.local.directory,plan.local.directory,"update",true);
-                move(app/L"current",transaction/L"old-current");
-                for (const auto& command : installed.commands) {
-                    move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".old.exe"));
-                    const auto suffix = legacy_record ? L".shim" : L".coop-shim.json";
-                    move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
+            create(version,[&]() { publish_new(stage,version); });
+            version_published = true;
+        };
+        std::size_t text_sequence = 0;
+        const auto publish_text = [&](const fs::path& destination, const std::string& text) {
+            const auto temporary = transaction/(L"text-"+std::to_wstring(text_sequence++));
+            std::ofstream output(temporary,std::ios::binary);
+            if (!output) throw std::runtime_error("Cannot create command metadata");
+            output.write(text.data(),static_cast<std::streamsize>(text.size()));
+            output.close();
+            if (!output) throw std::runtime_error("Cannot write command metadata");
+            create(destination,[&]() { publish_new(temporary,destination); });
+        };
+        // Every package action is driven by the IR sequence the plan carries. The switch below is
+        // the execution backend for each operation, never a second source of package ordering.
+        for (const auto& step : plan.ir_steps) {
+            journal["stage"] = ir::operation_name(step.operation);
+            if (!journal.contains("observed_steps")) journal["observed_steps"] = Json::array();
+            journal["observed_steps"].push_back(ir::operation_name(step.operation));
+            save();
+            switch (step.operation) {
+            case ir::Operation::download: {
+                ensure_stage();
+                if (step.index >= package.artifacts.size()) throw std::runtime_error("Plan download index is out of range");
+                const auto& artifact = package.artifacts[step.index];
+                const auto downloaded = downloads/(std::to_wstring(step.index)+L"-"+wide(artifact.filename));
+                download_file(artifact.url,downloaded);
+                downloaded_files[step.index] = downloaded;
+                break;
+            }
+            case ir::Operation::verify: {
+                if (step.index >= package.artifacts.size() || downloaded_files[step.index].empty())
+                    throw std::runtime_error("Plan verification has no downloaded artifact");
+                const auto& artifact = package.artifacts[step.index];
+                if (sha256_file(downloaded_files[step.index]) != artifact.sha256)
+                    throw std::runtime_error("Artifact SHA256 mismatch: "+artifact.filename);
+                if (artifact.archive == ArchiveKind::none) {
+                    ensure_stage();
+                    const auto target = stage/wide(artifact.filename);
+                    if (!fs::copy_file(downloaded_files[step.index],target,fs::copy_options::none))
+                        throw std::runtime_error("Artifact path collides with another package file");
                 }
+                break;
+            }
+            case ir::Operation::extract: {
+                if (step.index >= package.artifacts.size() || downloaded_files[step.index].empty())
+                    throw std::runtime_error("Plan extraction has no downloaded artifact");
+                ensure_stage();
+                const auto& artifact = package.artifacts[step.index];
+                const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
+                extract_archive(downloaded_files[step.index],raw);
+                const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
+                // Fixed Scoop 0.6.0 only applies extract_dir to non-tar archives.
+                const auto extract_directory = artifact.archive == ArchiveKind::tar ? fs::path{} : artifact.extract_directory;
+                merge_archive_tree(raw,extract_directory,destination);
+                erase_tree(raw);
+                break;
+            }
+            case ir::Operation::hook: {
+                const auto& hooks = step.previous ? installed : package;
+                if (!hooks.definition || step.index >= hooks.definition->hooks.size())
+                    throw std::runtime_error("Plan hook index is out of range");
+                const auto stage_kind = hooks.definition->hooks[step.index].stage;
+                ScriptPhase phase = ScriptPhase::before_install;
+                switch (stage_kind) {
+                case ir::HookStage::pre_install: phase = ScriptPhase::before_install; break;
+                case ir::HookStage::installer: phase = ScriptPhase::installer; break;
+                case ir::HookStage::post_install: phase = ScriptPhase::after_install; break;
+                case ir::HookStage::pre_uninstall: phase = ScriptPhase::before_uninstall; break;
+                case ir::HookStage::uninstaller: phase = ScriptPhase::uninstaller; break;
+                case ir::HookStage::post_uninstall: phase = ScriptPhase::after_uninstall; break;
+                }
+                if (step.previous || plan.action == Action::uninstall) {
+                    ensure_preparation();
+                    run_scripts(installed,phase,plan.local.directory,plan.local.directory,
+                        step.previous && updating ? "update" : "uninstall",step.previous,step.index);
+                } else {
+                    ensure_preparation();
+                    ensure_version();
+                    const bool after = stage_kind == ir::HookStage::post_install;
+                    const auto directory = after ? app/L"current" : version;
+                    const auto original = after ? version : version;
+                    run_scripts(package,phase,directory,original,updating ? "update" : "install",false,step.index);
+                }
+                break;
+            }
+            case ir::Operation::installer:
+                if (step.previous ? installed.uninstaller.has_value() : package.installer.has_value())
+                    throw std::runtime_error("Installer programs are not enabled by this execution path");
+                break;
+            case ir::Operation::unlink_current:
+                ensure_preparation();
+                move(app/L"current",transaction/(step.previous ? L"old-current" : L"current"));
+                break;
+            case ir::Operation::remove_entries: {
+                ensure_preparation();
+                for (const auto& entry : installed_entries) {
+                    move(entry.executable,transaction/(wide(entry.name)+(step.previous ? L".old.exe" : L".exe")));
+                    move(entry.metadata,transaction/(wide(entry.name)+(step.previous ? L".old-metadata" : L".metadata")));
+                }
+                break;
+            }
+            case ir::Operation::remove_shortcuts: {
+                ensure_preparation();
                 for (std::size_t index = 0; index < installed.shortcuts.size(); ++index)
                     if (!shortcut_was_absent(installed.shortcuts[index].name))
                         move(shortcut_link_path(context,installed.shortcuts[index].name),
-                            transaction/(L"old-shortcut-"+std::to_wstring(index)+L".lnk"));
-                journal["stage"] = "running-post-uninstall-hooks"; save();
-                run_scripts(installed,ScriptPhase::after_uninstall,plan.local.directory,plan.local.directory,"update",true);
-                move(record_path,transaction/L"old-managed-record.json");
+                            transaction/((step.previous ? L"old-shortcut-" : L"shortcut-")+std::to_wstring(index)+L".lnk"));
+                break;
             }
-            journal["stage"] = "publishing-version"; save();
-            create(version,[&]() { publish_new(stage,version); });
-            // pre_install runs inside the real version directory, not the transaction staging area,
-            // because hooks may embed $dir into files that outlive the installation step.
-            journal["stage"] = "running-pre-install-hooks"; save();
-            run_scripts(package,ScriptPhase::before_install,version,version,updating ? "update" : "install",false);
-            // Fixed Scoop order: pre_install, then an installer program (not enabled), then the
-            // installer.script hook, all before current, entries and persistence are published.
-            journal["stage"] = "running-installer-hooks"; save();
-            run_scripts(package,ScriptPhase::installer,version,version,updating ? "update" : "install",false);
-            persistence = prepare_persistence(context,package,version);
-            make_junction(transaction/L"new-current",version);
-            create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
-            persistence = verify_persistence(context,package,version);
-            fs::create_directories(shims);
-            std::array<wchar_t,32768> module{};
-            const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
-            if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
-            const auto environment = expanded_environment(context,package,app/L"current");
-            const auto path_entries = expanded_path_entries(context,package,app/L"current");
-            Json command_records = Json::array();
-            for (const auto& command : package.commands) {
-                const auto kind = launcher_kind(command.target);
-                if (!kind) throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target));
-                const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
-                const auto exe = shims/(wide(command.name)+L".exe");
-                const bool gui = *kind == LauncherKind::direct && is_gui_executable(version/command.target);
-                publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
-                    {"launcher",launcher_text(*kind)},{"arguments",command.arguments},{"gui",gui},
-                    {"environment",environment},{"path_entries",path_entries}});
-                const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
-                fs::copy_file(fs::path(module.data()),prepared);
-                if (gui) mark_launcher_gui(prepared);
-                const auto launcher_hash = sha256_file(prepared);
-                create(exe,[&]() { publish_new(prepared,exe); });
-                command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
-                    {"arguments",command.arguments},{"launcher",launcher_text(*kind)},{"gui",gui},
-                    {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
+            case ir::Operation::remove_environment:
+                journal["environment_reverted"] = "Declared user environment values are recorded but are not mutated by this execution path";
+                save();
+                break;
+            case ir::Operation::unlink_persistence:
+                // Persistence links live inside the version directory. Moving that directory at
+                // remove-version removes the links without deleting the stored data.
+                journal["persistence_unlinked"] = "Persistence links travel with the version directory; stored data is retained";
+                save();
+                break;
+            case ir::Operation::remove_version:
+                ensure_preparation();
+                move(version,transaction/L"removed-version");
+                break;
+            case ir::Operation::publish_current: {
+                ensure_preparation();
+                ensure_version();
+                ordinary_parents(context.root,app);
+                fs::create_directories(app);
+                make_junction(transaction/L"new-current",version);
+                create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
+                break;
             }
-            Json shortcut_records = Json::array();
-            for (const auto& shortcut : package.shortcuts) {
-                const auto link = shortcut_link_path(context,shortcut.name);
-                const auto target = app/L"current"/shortcut.target;
-                if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
-                const auto icon = shortcut.icon.empty() ? fs::path{} : app/L"current"/shortcut.icon;
-                if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
-                std::error_code error;
-                fs::create_directories(link.parent_path(),error);
-                if (error) throw std::runtime_error("Cannot create the shortcut directory: "+path_text(link.parent_path()));
-                const auto temporary = link.parent_path()/(link.filename().wstring()+L".coop-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(shortcut_records.size()));
-                write_shortcut(temporary,target,shortcut.arguments,icon);
-                try { create(link,[&]() { publish_new(temporary,link); }); }
-                catch (...) { DeleteFileW(temporary.c_str()); throw; }
-                shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
-                    {"target",path_text(target)},{"arguments",shortcut.arguments},{"sha256",sha256_file(link)}});
+            case ir::Operation::entries: {
+                ensure_version();
+                // The plan places entries before the environment operation, but launcher metadata
+                // already records the expanded values so command processes see the same effect.
+                if (environment.empty() && path_entries.empty()) {
+                    environment = expanded_environment(context,package,app/L"current");
+                    path_entries = expanded_path_entries(context,package,app/L"current");
+                }
+                fs::create_directories(shims);
+                std::array<wchar_t,32768> module{};
+                const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
+                if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
+                const auto scoop_shims = prefer_scoop_shim(package);
+                for (const auto& command : package.commands) {
+                    const auto kind = launcher_kind(command.target);
+                    if (!kind) throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target));
+                    const auto target = version/command.target;
+                    ordinary_parents(version,target);
+                    if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
+                    command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
+                    const auto exe = shims/(wide(command.name)+L".exe");
+                    const bool gui = *kind == LauncherKind::direct && is_gui_executable(target);
+                    const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
+                    fs::copy_file(fs::path(module.data()),prepared);
+                    if (gui) mark_launcher_gui(prepared);
+                    const auto launcher_hash = sha256_file(prepared);
+                    if (*kind == LauncherKind::direct && scoop_shims) {
+                        const auto metadata = shims/(wide(command.name)+L".shim");
+                        std::string text = "path = \""+path_text(app/L"current"/command.target)+"\"\r\n";
+                        if (!command.arguments.empty()) text += "args = "+command.arguments+"\r\n";
+                        publish_text(metadata,text);
+                        create(exe,[&]() { publish_new(prepared,exe); });
+                        legacy_shims[command.name] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
+                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                            {"arguments",command.arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
+                            {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
+                    } else {
+                        const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
+                        publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
+                            {"launcher",launcher_text(*kind)},{"arguments",command.arguments},{"gui",gui},
+                            {"environment",environment},{"path_entries",path_entries}});
+                        create(exe,[&]() { publish_new(prepared,exe); });
+                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                            {"arguments",command.arguments},{"launcher",launcher_text(*kind)},{"gui",gui},{"format","coop"},
+                            {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
+                    }
+                }
+                break;
             }
-            run_scripts(package,ScriptPhase::after_install,app/L"current",version,updating ? "update" : "install",false);
-            ordinary_parents(context.root,record_path.parent_path());
-            fs::create_directories(record_path.parent_path());
-            version_history.erase(std::remove_if(version_history.begin(),version_history.end(),[&](const Json& entry) {
-                return entry.is_object() && equal_name(entry.value("version",std::string{}),package.version);
-            }),version_history.end());
-            const auto installed_record_path = installed_record(version,L"install");
-            version_history.push_back({{"version",package.version},{"directory",path_text(fs::canonical(version))},
-                {"manifest_sha256",package.manifest_sha256},
-                {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
-                {"tree_stamp",version_tree_stamp(version)},
-                {"provenance",updating ? "coop-update" : "coop-install"}});
-            publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
-                {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
-                {"status","ready"},{"command_targets",command_targets},{"commands",command_records},{"shortcuts",shortcut_records},
-                {"environment",environment},{"path_entries",path_entries},
-                {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
-                {"origin",updating ? managed.value("origin",std::string("coop")) : std::string("coop")},
-                {"adoption_backup",updating ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
-        } else {
-            journal["stage"] = "running-pre-uninstall-hooks"; save();
-            run_scripts(package,ScriptPhase::before_uninstall,plan.local.directory,plan.local.directory,"uninstall",false);
-            run_scripts(package,ScriptPhase::uninstaller,plan.local.directory,plan.local.directory,"uninstall",false);
-            move(app/L"current",transaction/L"current");
-            for (const auto& command : package.commands) {
-                move(shims/(wide(command.name)+L".exe"),transaction/(wide(command.name)+L".exe"));
-                const auto suffix = legacy_record ? L".shim" : L".coop-shim.json";
-                move(shims/(wide(command.name)+suffix),transaction/(wide(command.name)+L".old-metadata"));
+            case ir::Operation::shortcuts: {
+                for (const auto& shortcut : package.shortcuts) {
+                    const auto link = shortcut_link_path(context,shortcut.name);
+                    const auto target = app/L"current"/shortcut.target;
+                    if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
+                    const auto icon = shortcut.icon.empty() ? fs::path{} : app/L"current"/shortcut.icon;
+                    if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
+                    std::error_code error;
+                    fs::create_directories(link.parent_path(),error);
+                    if (error) throw std::runtime_error("Cannot create the shortcut directory: "+path_text(link.parent_path()));
+                    const auto temporary = link.parent_path()/(link.filename().wstring()+L".coop-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(shortcut_records.size()));
+                    write_shortcut(temporary,target,shortcut.arguments,icon);
+                    try { create(link,[&]() { publish_new(temporary,link); }); }
+                    catch (...) { DeleteFileW(temporary.c_str()); throw; }
+                    shortcut_records.push_back({{"name",shortcut.name},{"path",path_text(link)},
+                        {"target",path_text(target)},{"arguments",shortcut.arguments},{"sha256",sha256_file(link)}});
+                }
+                break;
             }
-            for (std::size_t index = 0; index < package.shortcuts.size(); ++index)
-                if (!shortcut_was_absent(package.shortcuts[index].name))
-                    move(shortcut_link_path(context,package.shortcuts[index].name),
-                        transaction/(L"shortcut-"+std::to_wstring(index)+L".lnk"));
-            move(version,transaction/L"removed-version");
-            journal["stage"] = "running-post-uninstall-hooks"; save();
-            run_scripts(package,ScriptPhase::after_uninstall,plan.local.directory,plan.local.directory,"uninstall",false);
-            Json kept_versions = Json::array();
-            for (const auto& entry : recorded_version_evidence(context,package.name))
-                if (!equal_name(entry.value("version",std::string{}),package.version)) kept_versions.push_back(entry);
-            if (!kept_versions.empty()) {
-                const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
-                ordinary_parents(context.root,retained_path);
-                fs::create_directories(retained_path.parent_path());
-                publish_json(retained_path,{{"package",package.name},
-                    {"scope","Old versions kept after uninstall; persistent data is separate"},{"versions",kept_versions}});
+            case ir::Operation::environment:
+                environment = expanded_environment(context,package,app/L"current");
+                path_entries = expanded_path_entries(context,package,app/L"current");
+                journal["environment_applied"] = "Recorded for command processes; persistent user environment mutation remains an explicit follow-up";
+                save();
+                break;
+            case ir::Operation::persistence:
+                ensure_version();
+                persistence = prepare_persistence(context,package,version);
+                persistence = verify_persistence(context,package,version);
+                break;
+            case ir::Operation::commit_state: {
+                Json kept_versions = Json::array();
+                if (plan.action == Action::uninstall) {
+                    for (const auto& entry : recorded_version_evidence(context,package.name))
+                        if (!equal_name(entry.value("version",std::string{}),package.version)) kept_versions.push_back(entry);
+                }
+                if (has_managed_record && fs::exists(record_path))
+                    move(record_path,transaction/(updating ? L"old-managed-record.json" : L"managed-record.json"));
+                if (plan.action == Action::uninstall) {
+                    if (!kept_versions.empty()) {
+                        const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
+                        ordinary_parents(context.root,retained_path);
+                        fs::create_directories(retained_path.parent_path());
+                        if (fs::exists(retained_path)) move(retained_path,transaction/L"retained-previous.json");
+                        publish_json(retained_path,{{"package",package.name},
+                            {"scope","Old versions kept after uninstall; persistent data is separate"},{"versions",kept_versions}});
+                    }
+                    // Scoop lists apps by the presence of apps/<name>; an empty directory would be
+                    // reported as a failed installation even though nothing is published.
+                    std::error_code error;
+                    if (fs::is_directory(app,error) && fs::is_empty(app,error) && !error)
+                        fs::remove(app,error);
+                } else {
+                    ordinary_parents(context.root,record_path.parent_path());
+                    fs::create_directories(record_path.parent_path());
+                    version_history.erase(std::remove_if(version_history.begin(),version_history.end(),[&](const Json& entry) {
+                        return entry.is_object() && equal_name(entry.value("version",std::string{}),package.version);
+                    }),version_history.end());
+                    const auto installed_record_path = installed_record(version,L"install");
+                    version_history.push_back({{"version",package.version},{"directory",path_text(fs::canonical(version))},
+                        {"manifest_sha256",package.manifest_sha256},
+                        {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
+                        {"tree_stamp",version_tree_stamp(version)},
+                        {"provenance",updating ? "coop-update" : "coop-install"}});
+                    publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
+                        {"bucket",package.bucket},{"directory",path_text(fs::canonical(version))},{"manifest_sha256",package.manifest_sha256},
+                        {"status","ready"},{"shim_format",legacy_shims.empty() ? "coop" : "scoop"},
+                        {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
+                        {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
+                        {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
+                        {"origin",has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")},
+                        {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
+                }
+                break;
             }
-            move(record_path,transaction/L"managed-record.json");
+            case ir::Operation::adopt_state:
+                throw std::runtime_error("Adoption is handled by the dedicated adopt path");
+            }
         }
         journal["state"] = "committed"; save();
         if (updating || plan.action == Action::uninstall) {

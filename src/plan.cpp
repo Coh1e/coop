@@ -387,8 +387,6 @@ void append_ir_plan(Plan& plan, ir::Action action, bool retain_previous_version)
     for (const auto& step : package_plan.steps)
         plan.steps.push_back({legacy_step(step.operation),step.index,step.previous});
     plan.ir_steps = package_plan.steps;
-    for (const auto& diagnostic : package_plan.diagnostics)
-        plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
 }
 Json external_tools_json(const Package& package) {
     Json result = Json::array();

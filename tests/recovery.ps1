@@ -198,7 +198,7 @@ try {
     New-Item -ItemType Directory -Path $tx -Force | Out-Null
     $current = "$rootC/apps/fixture/current"; $oldCurrent = "$tx/old-current"
     $shim = "$rootC/shims/fixture.exe"; $oldShim = "$tx/fixture.old.exe"
-    $metadata = "$rootC/shims/fixture.coop-shim.json"; $oldMetadata = "$tx/fixture.old-metadata"
+    $metadata = "$rootC/shims/fixture.shim"; $oldMetadata = "$tx/fixture.old-metadata"
     $record = "$rootC/.coop/packages/fixture.json"; $oldRecord = "$tx/old-managed-record.json"
     [IO.Directory]::Move($current,$oldCurrent)
     [IO.File]::Move($shim,$oldShim)

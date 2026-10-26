@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <array>
 #include <stdexcept>
+#include <fstream>
+#include <set>
 
 namespace coop {
 namespace {
@@ -86,18 +88,79 @@ void apply_environment(const Json& record) {
         }
     }
 }
+std::string trim_text(std::string value) {
+    const auto first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return {};
+    return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
+}
+struct ScoopShim { std::string target; std::string arguments; };
+ScoopShim read_scoop_shim(const fs::path& path) {
+    std::ifstream input(path,std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read Scoop command metadata");
+    ScoopShim result;
+    std::string line;
+    std::set<std::string> keys;
+    while (std::getline(input,line)) {
+        if (line.starts_with("\xef\xbb\xbf")) line.erase(0,3);
+        line = trim_text(line);
+        if (line.empty() || line.starts_with('#') || line.starts_with(';') || line.starts_with("//")) continue;
+        const auto equal = line.find('=');
+        if (equal == std::string::npos) throw std::runtime_error("Invalid Scoop shim metadata line");
+        const auto key = trim_text(line.substr(0,equal));
+        const auto value = trim_text(line.substr(equal+1));
+        if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
+        if (key == "path") result.target = value;
+        else if (key == "args") result.arguments = value;
+        else throw std::runtime_error("Unvalidated Scoop shim option: "+key);
+    }
+    if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
+        result.target = result.target.substr(1,result.target.size()-2);
+    if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
+    return result;
+}
+// A shared shim lives at <root>/shims/<name>.shim. Its target names the package under
+// <root>/apps/<package>/, so the optional Coop record (environment/path entries) can be found
+// without adding non-Scoop keys to the shim file.
+fs::path record_for_target(const fs::path& target) {
+    std::vector<fs::path> parts;
+    for (const auto& part : target) parts.push_back(part);
+    for (std::size_t index = 0; index + 1 < parts.size(); ++index) {
+        const auto name = parts[index].wstring();
+        if (CompareStringOrdinal(name.c_str(),-1,L"apps",-1,TRUE) != CSTR_EQUAL) continue;
+        fs::path root;
+        for (std::size_t prefix = 0; prefix <= index; ++prefix) root /= parts[prefix];
+        return root.parent_path()/L".coop"/L"packages"/(parts[index+1].wstring()+L".json");
+    }
+    return {};
+}
 }
 bool run_shim(int argc, wchar_t** argv, int& result) {
     std::array<wchar_t,32768> module{};
     const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
     if (!length || length >= module.size()) throw std::runtime_error("Cannot locate command executable");
     const auto launcher = fs::path(module.data());
-    const auto metadata = launcher.parent_path()/(launcher.stem().wstring()+L".coop-shim.json");
-    if (!fs::exists(metadata)) return false;
-    const auto record = read_json(metadata);
-    const auto target = wide(record.at("target").get<std::string>());
-    const auto kind = record.value("launcher",std::string("direct"));
-    const auto defaults = wide(record.value("arguments",std::string{}));
+    const auto coop_metadata = launcher.parent_path()/(launcher.stem().wstring()+L".coop-shim.json");
+    const auto scoop_metadata = launcher.parent_path()/(launcher.stem().wstring()+L".shim");
+    fs::path target;
+    std::string kind;
+    std::wstring defaults;
+    Json record;
+    if (fs::exists(coop_metadata)) {
+        record = read_json(coop_metadata);
+        target = wide(record.at("target").get<std::string>());
+        kind = record.value("launcher",std::string("direct"));
+        defaults = wide(record.value("arguments",std::string{}));
+    } else if (fs::exists(scoop_metadata)) {
+        const auto shim = read_scoop_shim(scoop_metadata);
+        target = fs::path(wide(shim.target));
+        kind = "direct";
+        defaults = wide(shim.arguments);
+        const auto record_path = record_for_target(target);
+        if (!record_path.empty() && fs::is_regular_file(record_path)) {
+            try { record = read_json(record_path); }
+            catch (const std::exception&) { /* The command still runs without optional environment evidence. */ }
+        }
+    } else return false;
     std::wstring forwarded;
     if (!defaults.empty()) forwarded = L" "+defaults;
     for (int index = 1; index < argc; ++index) {
@@ -123,7 +186,7 @@ bool run_shim(int argc, wchar_t** argv, int& result) {
     } else {
         throw std::runtime_error("Command entry launcher type is not supported: "+kind);
     }
-    apply_environment(record);
+    if (!record.is_null()) apply_environment(record);
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};

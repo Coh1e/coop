@@ -85,13 +85,8 @@ void validate(Package& package) {
             post_uninstall ? "post_uninstall declarations are outside the supported lifecycle phases" :
             "Declared lifecycle hooks in the supported order with the real PowerShell host");
     }
-    bool unknown_entry = false;
-    for (const auto& entry : package.entries) {
-        if (entry.host == "unknown") unknown_entry = true;
-    }
     if (!package.entries.empty()) {
-        capability(package,"command-entry",!unknown_entry,
-            unknown_entry ? "A declared command target type has no known host; it is not silently wrapped" :
+        capability(package,"command-entry",true,
             "Entry host and argument forwarding follow the target file type");
     }
     if (!package.environment.empty()) {

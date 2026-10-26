@@ -42,7 +42,7 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
     // Installation facts come from the shared Scoop layout through the IR adapter. Coop's private
     // records are optional management metadata read separately below, so they can never decide
     // whether an installed package is visible or block a query when they are missing or stale.
-    for (const auto& fact : ir::read_installations(root, scope)) {
+    for (const auto& fact : ir::read_installations(root)) {
         Json item = {{"name",fact.name}, {"version",fact.present ? Json(fact.version) : Json(nullptr)},
             {"scope",scope}, {"management","unadopted"}, {"diagnostics",Json::array()}};
         Json details = Json::array();
@@ -194,12 +194,20 @@ static std::string lowercase(std::string value) {
 }
 // `info` reports the normalized IR and its layered diagnostics: a package that cannot currently be
 // executed still appears with the reason. The adapter and validator only read the manifest bytes.
-static Json validation_json(const Json& item) {
-    Json validation = {{"architecture","64bit"},{"manifest_digest",nullptr},
+static Json validation_json(const Context& context, const Json& item) {
+    std::string architecture = "64bit";
+    for (const auto& installed : installed_packages(context)) {
+        if (installed.value("scope",std::string{}) == "global" ||
+            !equal_name(installed.value("name",std::string{}),item.at("name").get<std::string>())) continue;
+        const auto value = installed.value("architecture",std::string{});
+        if (!value.empty()) architecture = value;
+        break;
+    }
+    Json validation = {{"architecture",architecture},{"manifest_digest",nullptr},
         {"diagnostics",Json::array()},{"capabilities",Json::array()}};
     try {
         auto validated = ir::adapt_manifest(fs::path(wide(item.at("path").get<std::string>())),
-            item.at("name").get<std::string>(),item.at("bucket").get<std::string>(),"64bit");
+            item.at("name").get<std::string>(),item.at("bucket").get<std::string>(),architecture);
         ir::validate(validated);
         validation["manifest_digest"] = validated.manifest_digest;
         validation["version"] = validated.version;
@@ -231,7 +239,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
         if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
         if (command == L"info" && result.size() > 1)
             throw std::runtime_error("Ambiguous package; qualify it with its bucket");
-        if (command == L"info") for (auto& item : result) item["validation"] = validation_json(item);
+        if (command == L"info") for (auto& item : result) item["validation"] = validation_json(context,item);
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
     else {
