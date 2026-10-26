@@ -8,6 +8,10 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **共用管理（Shared Management）**：Coop 与 Scoop 基于同一套软件安装、数据和记录先后执行管理操作，双方能继续识别对方产生的结果。共用管理不包含同时写入的承诺。
 
+**兼容布局（Compatible Layout）**：双方共用的安装根目录结构，包括 `apps`、`buckets`、`cache`、`persist`、`shims` 及其中的标准安装记录、入口和数据；Coop 不为自身另建一套需要先接管或迁移的根结构。
+
+**独立初始化（Independent Initialization）**：在没有 Scoop 的机器或全新安装根上，由 Coop 直接建立兼容布局并完成安装与管理，不要求预装 Scoop、Git 或 7-Zip，也不依赖 Scoop 先创建状态；之后安装的 Scoop 能在同一根识别并继续管理这些软件。
+
 **安装事实（Installation Facts）**：软件当前版本、文件、入口、数据及安装记录所共同描述的实际状态，不因使用哪个兼容客户端而改变其管理资格。
 
 **持久化数据（Persistent Data）**：Manifest 的 `persist` 声明、存放在版本目录之外的配置或内容。普通卸载保留这些数据；链接归属必须可验证，链接本身不是数据本体。

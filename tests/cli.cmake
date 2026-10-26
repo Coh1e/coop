@@ -17,7 +17,7 @@ execute_process(COMMAND "${COOP_EXE}" --help WORKING_DIRECTORY "${TEST_ROOT}"
 if(NOT result EQUAL 0 OR NOT output MATCHES "Usage: coop" OR NOT error STREQUAL "")
   message(FATAL_ERROR "help failed: ${result}, ${output}, ${error}")
 endif()
-foreach(command IN ITEMS list search info bucket install update uninstall adopt cleanup recover)
+foreach(command IN ITEMS init list search info bucket install update uninstall adopt cleanup recover)
   if(NOT output MATCHES "${command}")
     message(FATAL_ERROR "help omitted ${command}: ${output}")
   endif()
