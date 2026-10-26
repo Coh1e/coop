@@ -1,5 +1,6 @@
 #include "catalog_index.hpp"
 #include "data.hpp"
+#include "ir.hpp"
 #include "persist.hpp"
 #include "recovery.hpp"
 #include "versions.hpp"
@@ -37,64 +38,48 @@ static Json previous_record(const Context& context, const std::string& name, con
     } catch (const std::exception&) { /* The current published record remains the fallback. */ }
     return Json();
 }
-static std::vector<Persistence> listed_persistence(const Json& manifest) {
-    std::vector<Persistence> result;
-    if (!manifest.contains("persist") || manifest.at("persist").is_null()) return result;
-    const auto add_single = [&](const Json& value) {
-        const auto path = fs::path(wide(value.get<std::string>()));
-        result.push_back({path,path});
-    };
-    const auto add_pair = [&](const Json& value) {
-        const auto source = fs::path(wide(value.at(0).get<std::string>()));
-        const auto target = value.size() == 2 ? fs::path(wide(value.at(1).get<std::string>())) : source;
-        result.push_back({source,target});
-    };
-    const auto& persist = manifest.at("persist");
-    if (persist.is_string()) add_single(persist);
-    else if (persist.is_array()) for (const auto& entry : persist) {
-        if (entry.is_string()) add_single(entry);
-        else if (entry.is_array() && !entry.empty() && entry.size() <= 2 &&
-                 std::all_of(entry.begin(),entry.end(),[](const Json& item) { return item.is_string(); })) add_pair(entry);
-    }
-    return result;
-}
 static void list_scope(Json& result, const Context& context, const fs::path& root, const std::string& scope) {
-    const auto apps = root / L"apps";
-    if (!fs::exists(apps)) return;
-    for (const auto& app : fs::directory_iterator(apps)) {
-        if (!app.is_directory() || app.path().filename() == L"scoop") continue;
-        Json item = {{"name",path_text(app.path().filename())}, {"version",nullptr},
+    // Installation facts come from the shared Scoop layout through the IR adapter. Coop's private
+    // records are optional management metadata read separately below, so they can never decide
+    // whether an installed package is visible or block a query when they are missing or stale.
+    for (const auto& fact : ir::read_installations(root, scope)) {
+        Json item = {{"name",fact.name}, {"version",fact.present ? Json(fact.version) : Json(nullptr)},
             {"scope",scope}, {"management","unadopted"}, {"diagnostics",Json::array()}};
-        try {
-            const auto current = app.path() / L"current";
-            if (!fs::is_directory(current)) throw std::runtime_error("No usable current directory");
-            const auto manifest = read_json(installed_record(current, L"manifest"));
-            const auto install = read_json(installed_record(current, L"install"));
-            if (!manifest.is_object() || !install.is_object()) throw std::runtime_error("Installation records must be objects");
-            item["version"] = manifest.at("version").get<std::string>();
-            item["bucket"] = install.value("bucket", std::string{});
-            item["source"] = install.value("url", install.value("bucket",std::string("unknown")));
+        Json details = Json::array();
+        for (const auto& diagnostic : fact.diagnostics) {
+            item["diagnostics"].push_back(diagnostic.message);
+            details.push_back({{"layer",ir::layer_name(diagnostic.layer)},{"code",diagnostic.code},{"message",diagnostic.message}});
+        }
+        if (fact.present) {
+            item["bucket"] = fact.bucket;
+            item["source"] = fact.source;
             item["synced_at"] = nullptr;
-            item["architecture"] = install.value("architecture", std::string{});
-            item["directory"] = path_text(fs::canonical(current));
+            item["architecture"] = fact.architecture;
+            item["directory"] = path_text(fact.directory);
             item["status"] = "installed";
             if (scope == "user") {
                 Package listed;
-                listed.name = item.at("name").get<std::string>();
-                listed.persistence = listed_persistence(manifest);
-                item["persistence"] = persistence_plan_json(context,listed,fs::canonical(current));
+                listed.name = fact.name;
+                for (const auto& mapping : fact.persistence)
+                    listed.persistence.push_back({fs::path(wide(mapping.source)),fs::path(wide(mapping.target))});
+                item["persistence"] = persistence_plan_json(context,listed,fact.directory);
             }
-            const auto managed = root/L".coop"/L"packages"/(app.path().filename().wstring()+L".json");
-            if (scope == "user" && fs::exists(managed)) {
+        }
+        if (scope == "user") {
+            const auto managed = root/L".coop"/L"packages"/(wide(fact.name)+L".json");
+            if (fs::exists(managed)) try {
                 const auto record = read_json(managed);
                 item["management"] = "managed";
                 item["status"] = record.value("status",std::string("unknown"));
                 item["origin"] = record.value("origin",std::string("coop"));
                 item["adoption_backup"] = record.value("adoption_backup",Json(nullptr));
+            } catch (const std::exception& error) {
+                const auto message = std::string("Coop management record is unreadable; shared installation facts are still reported: ")+error.what();
+                item["diagnostics"].push_back(message);
+                details.push_back({{"layer","adapter"},{"code","coop-record-unreadable"},{"message",message}});
             }
-        } catch (const std::exception& error) {
-            item["diagnostics"].push_back(error.what());
         }
+        item["diagnostic_details"] = std::move(details);
         if (scope == "user") {
             const auto current_version = item.at("version").is_string() ? item.at("version").get<std::string>() : std::string{};
             item["older_versions"] = retained_versions(context,item.at("name").get<std::string>(),current_version);
@@ -207,6 +192,27 @@ static std::string lowercase(std::string value) {
     for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     return value;
 }
+// `info` reports the normalized IR and its layered diagnostics: a package that cannot currently be
+// executed still appears with the reason. The adapter and validator only read the manifest bytes.
+static Json validation_json(const Json& item) {
+    Json validation = {{"architecture","64bit"},{"manifest_digest",nullptr},
+        {"diagnostics",Json::array()},{"capabilities",Json::array()}};
+    try {
+        auto validated = ir::adapt_manifest(fs::path(wide(item.at("path").get<std::string>())),
+            item.at("name").get<std::string>(),item.at("bucket").get<std::string>(),"64bit");
+        ir::validate(validated);
+        validation["manifest_digest"] = validated.manifest_digest;
+        validation["version"] = validated.version;
+        validation["downloads"] = validated.downloads.size();
+        for (const auto& diagnostic : validated.diagnostics)
+            validation["diagnostics"].push_back({{"layer",ir::layer_name(diagnostic.layer)},{"code",diagnostic.code},{"message",diagnostic.message}});
+        for (const auto& capability : validated.capabilities)
+            validation["capabilities"].push_back({{"id",capability.id},{"supported",capability.supported},{"detail",capability.detail}});
+    } catch (const std::exception& error) {
+        validation["diagnostics"].push_back({{"layer","adapter"},{"code","manifest-unreadable"},{"message",error.what()}});
+    }
+    return validation;
+}
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
     Json result = Json::array();
     if (command == L"list") {
@@ -225,6 +231,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
         if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
         if (command == L"info" && result.size() > 1)
             throw std::runtime_error("Ambiguous package; qualify it with its bucket");
+        if (command == L"info") for (auto& item : result) item["validation"] = validation_json(item);
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
     else {

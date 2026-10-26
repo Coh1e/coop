@@ -1,5 +1,7 @@
 #pragma once
 #include "data.hpp"
+#include "ir.hpp"
+#include <memory>
 #include <optional>
 
 namespace coop {
@@ -39,6 +41,9 @@ struct Package {
     std::optional<InstallerProcess> installer;
     std::optional<InstallerProcess> uninstaller;
     std::vector<Diagnostic> diagnostics;
+    // Normalized IR this record was projected from. Planning consumes it directly so the legacy
+    // execution record cannot become a second source of package semantics.
+    std::shared_ptr<const ir::Package> definition;
 };
 enum class Action { adopt, install, update, uninstall };
 enum class StepKind {
@@ -82,7 +87,11 @@ struct Plan {
     std::vector<DependencyItem> dependency_order;
     std::vector<std::string> planned_dependencies;
     bool purge = false;
+    // IR operations this plan was built from. Preview reports them verbatim and the execution
+    // backend is migrated onto the same sequence instead of re-deriving package order.
+    std::vector<ir::Step> ir_steps;
 };
+DiagnosticKind diagnostic_kind(ir::Layer layer);
 std::string sha256_file(const fs::path& path);
 std::string sha256_text(const std::string& value);
 // Windows identity boundaries: names and paths are ordinal case-insensitive; existing paths are also

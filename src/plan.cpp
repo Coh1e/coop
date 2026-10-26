@@ -355,41 +355,40 @@ private:
     std::vector<DependencyItem> order_;
     std::vector<Diagnostic> diagnostics_;
 };
-void add_scripts(Plan& plan, const Package& package, ScriptPhase phase, bool previous = false) {
-    for (std::size_t i = 0; i < package.scripts.size(); ++i)
-        if (package.scripts[i].phase == phase) plan.steps.push_back({StepKind::script,i,previous});
-}
-void add_remove(Plan& plan, const Package& package, bool previous, bool retain_version) {
-    add_scripts(plan,package,ScriptPhase::before_uninstall,previous);
-    if (package.uninstaller) plan.steps.push_back({StepKind::uninstaller,0,previous});
-    add_scripts(plan,package,ScriptPhase::uninstaller,previous);
-    plan.steps.push_back({StepKind::unlink_current,0,previous});
-    if (!package.commands.empty()) plan.steps.push_back({StepKind::remove_commands,0,previous});
-    if (!package.shortcuts.empty()) plan.steps.push_back({StepKind::remove_shortcuts,0,previous});
-    if (!package.environment.empty() || !package.path_entries.empty()) plan.steps.push_back({StepKind::remove_environment,0,previous});
-    if (!retain_version) {
-        if (!package.persistence.empty()) plan.steps.push_back({StepKind::unlink_persistence,0,previous});
-        plan.steps.push_back({StepKind::remove_version,0,previous});
+StepKind legacy_step(ir::Operation operation) {
+    switch (operation) {
+    case ir::Operation::download: return StepKind::download;
+    case ir::Operation::verify: return StepKind::verify;
+    case ir::Operation::extract: return StepKind::extract;
+    case ir::Operation::hook: return StepKind::script;
+    case ir::Operation::installer: return StepKind::installer;
+    case ir::Operation::publish_current: return StepKind::publish_current;
+    case ir::Operation::entries: return StepKind::commands;
+    case ir::Operation::shortcuts: return StepKind::shortcuts;
+    case ir::Operation::environment: return StepKind::environment;
+    case ir::Operation::persistence: return StepKind::persistence;
+    case ir::Operation::commit_state: return StepKind::commit_state;
+    case ir::Operation::remove_entries: return StepKind::remove_commands;
+    case ir::Operation::remove_shortcuts: return StepKind::remove_shortcuts;
+    case ir::Operation::remove_environment: return StepKind::remove_environment;
+    case ir::Operation::unlink_persistence: return StepKind::unlink_persistence;
+    case ir::Operation::unlink_current: return StepKind::unlink_current;
+    case ir::Operation::remove_version: return StepKind::remove_version;
+    case ir::Operation::adopt_state: return StepKind::adopt_state;
     }
-    add_scripts(plan,package,ScriptPhase::after_uninstall,previous);
+    return StepKind::commit_state;
 }
-void add_install(Plan& plan) {
-    for (std::size_t i = 0; i < plan.package.artifacts.size(); ++i) {
-        plan.steps.push_back({StepKind::download,i});
-        plan.steps.push_back({StepKind::verify,i});
-        if (plan.package.artifacts[i].archive != ArchiveKind::none) plan.steps.push_back({StepKind::extract,i});
-    }
-    if (plan.previous) add_remove(plan,*plan.previous,true,true);
-    add_scripts(plan,plan.package,ScriptPhase::before_install);
-    if (plan.package.installer) plan.steps.push_back({StepKind::installer});
-    add_scripts(plan,plan.package,ScriptPhase::installer);
-    plan.steps.push_back({StepKind::publish_current});
-    if (!plan.package.commands.empty()) plan.steps.push_back({StepKind::commands});
-    if (!plan.package.shortcuts.empty()) plan.steps.push_back({StepKind::shortcuts});
-    if (!plan.package.environment.empty() || !plan.package.path_entries.empty()) plan.steps.push_back({StepKind::environment});
-    if (!plan.package.persistence.empty()) plan.steps.push_back({StepKind::persistence});
-    add_scripts(plan,plan.package,ScriptPhase::after_install);
-    plan.steps.push_back({StepKind::commit_state});
+// Package actions take their operation sequence from the IR planner only. Preview reports the very
+// same steps, so it cannot describe a different order from the one the plan carries.
+void append_ir_plan(Plan& plan, ir::Action action, bool retain_previous_version) {
+    if (!plan.package.definition) return;
+    const auto package_plan = ir::plan(action,*plan.package.definition,
+        plan.previous && plan.previous->definition ? plan.previous->definition.get() : nullptr,retain_previous_version);
+    for (const auto& step : package_plan.steps)
+        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous});
+    plan.ir_steps = package_plan.steps;
+    for (const auto& diagnostic : package_plan.diagnostics)
+        plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
 }
 Json external_tools_json(const Package& package) {
     Json result = Json::array();
@@ -513,13 +512,11 @@ Plan make_plan(const Context& context, Action action, const std::string& request
         if (action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
             plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
                 "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
-        add_install(plan);
     } else {
         plan.package = read_installed();
         if (!version.empty() && version != plan.package.version)
             plan.diagnostics.push_back({DiagnosticKind::environment,"installed-version-mismatch","Requested version is not the current local installation"});
         if (action == Action::adopt) {
-            plan.steps.push_back({StepKind::adopt_state});
             for (const auto& candidate : catalog(context)) {
                 if (!equal_name(candidate.at("name"),name) || !equal_name(candidate.at("bucket"),plan.package.bucket)) continue;
                 plan.update_candidate = parse_package(fs::path(wide(candidate.at("path"))),name,plan.package.bucket,plan.package.architecture);
@@ -529,9 +526,11 @@ Plan make_plan(const Context& context, Action action, const std::string& request
                 break;
             }
         }
-        else add_remove(plan,plan.package,false,false);
-        plan.steps.push_back({StepKind::commit_state});
     }
+    if (action == Action::install) append_ir_plan(plan,ir::Action::install,true);
+    else if (action == Action::update) append_ir_plan(plan,ir::Action::update,true);
+    else if (action == Action::uninstall) append_ir_plan(plan,ir::Action::uninstall,false);
+    else if (action == Action::adopt) append_ir_plan(plan,ir::Action::adopt,false);
     plan.preconditions.push_back({plan.package.manifest_path,plan.package.manifest_sha256});
     const auto registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) plan.preconditions.push_back({registry,sha256_file(registry)});
@@ -668,6 +667,16 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     }
     for (const auto& item : plan.package.artifacts) result["artifacts"].push_back({{"archive",archive_name(item.archive)},{"url",item.url},{"filename",item.filename},{"sha256",item.sha256},{"extract_dir",path_text(item.extract_directory)},{"extract_to",path_text(item.extract_destination)}});
     for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package}});
+    // The same IR operations the plan carries, with the effect each one has. Kept beside the legacy
+    // operation list while both paths coexist; a transition can be checked by comparing the two.
+    result["ir_operations"] = Json::array();
+    for (const auto& step : plan.ir_steps)
+        result["ir_operations"].push_back({{"operation",ir::operation_name(step.operation)},{"index",step.index},
+            {"previous_package",step.previous},{"effect",step.effect}});
+    Json capabilities = Json::array();
+    if (plan.package.definition) for (const auto& item : plan.package.definition->capabilities)
+        capabilities.push_back({{"id",item.id},{"supported",item.supported},{"detail",item.detail}});
+    result["capabilities"] = std::move(capabilities);
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
     static const char* categories[] = {"syntax","adapter","ir","environment","capability","verification"};
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});

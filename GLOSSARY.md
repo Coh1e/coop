@@ -1,29 +1,27 @@
 # Coop
 
-Coop 管理 Windows 软件包，并接管已有 Scoop 安装。以下术语用于区分安装事实与管理权限。
+Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端。以下术语用于描述共同的安装事实与行为兼容。
 
 ## Language
 
-**接管（Adoption）**：将已有软件安装纳入 Coop 管理的过程；接管完成不需要重新下载或安装该版本。
+**行为兼容（Behavior Compatibility）**：在约定的软件范围内，同一软件由 Coop 与 Scoop 管理时，安装、更新、卸载以及入口、环境和持久化数据的用户可观察行为保持一致。具体例外须明确约定。
 
-**渐进接管（Progressive Adoption）**：允许同一安装集合中，已完成检查的包进入管理，其余包保持可查看、可运行但尚未接管的状态。
+**共用管理（Shared Management）**：Coop 与 Scoop 基于同一套软件安装、数据和记录先后执行管理操作，双方能继续识别对方产生的结果。共用管理不包含同时写入的承诺。
 
-**已接管包（Adopted Package）**：Coop 已确认能够管理其生命周期的软件包安装。
-
-**未接管包（Unadopted Package）**：Coop 已识别但尚未取得生命周期管理资格的软件包安装；不能通过 Coop 更新或卸载。
+**安装事实（Installation Facts）**：软件当前版本、文件、入口、数据及安装记录所共同描述的实际状态，不因使用哪个兼容客户端而改变其管理资格。
 
 **持久化数据（Persistent Data）**：Manifest 的 `persist` 声明、存放在版本目录之外的配置或内容。普通卸载保留这些数据；链接归属必须可验证，链接本身不是数据本体。
 
 **依赖（Dependency）**：Manifest `depends` 明确声明的另一个软件包，可限定 bucket。安装时先解析并安装依赖，已安装依赖跳过；不从脚本、用户项目或 Coop 自身工具需求推断依赖。
 
-**反向依赖（Reverse Dependency）**：已安装包的保存 Manifest 声明依赖目标包的关系。已知反向依赖方（包括未接管安装）会阻止普通卸载，卸载保护不使用猜测或自动连带删除。
+**反向依赖（Reverse Dependency）**：已安装包的保存 Manifest 声明依赖目标包的关系。包括由 Scoop 安装的软件在内，已知反向依赖方会阻止普通卸载，卸载保护不使用猜测或自动连带删除。
 
-**命令入口（Command Entry）**：Manifest `bin` 声明、由 Coop 生成并记录归属的启动器。按目标类型选择宿主转发参数与退出码，不统一包装成 `.cmd`。
+**命令入口（Command Entry）**：软件包声明、供用户和其他程序启动该软件的命令及其参数约定，可由兼容客户端维护。
 
-**快捷方式归属（Shortcut Ownership）**：Coop 创建或接管时核对过目标、参数与摘要的开始菜单快捷方式记录。更新或卸载只处理归属仍一致的快捷方式，外部修改会阻止操作。
+**快捷方式归属（Shortcut Ownership）**：软件包与其快捷方式的可验证对应关系，用于确定管理操作的范围并保护用户自行修改的入口。
 
-**环境暴露（Environment Exposure）**：Manifest `env_set`/`env_add_path` 声明的值，在启动包的命令入口时应用到该进程及其子进程。首版不写用户或系统环境变量，也不认领外部环境值。
+**环境暴露（Environment Exposure）**：软件包声明的 PATH、环境变量与使用入口在用户环境中的可用性；约定范围内与 Scoop 的用户级效果一致。环境变更归属用于区分包管理器负责的值与用户后来修改的值。
 
-**生命周期 Hook（Lifecycle Hook）**：Manifest 的 `pre_install`、`post_install`、`pre_uninstall`、`post_uninstall`、`installer.script`、`uninstaller.script` 脚本。Coop 按固定 Scoop 顺序执行其中样本证明的阶段，并为脚本提供受限的 Scoop 上下文与辅助函数。
+**生命周期 Hook（Lifecycle Hook）**：Manifest 在安装、更新和卸载阶段声明的脚本，包括 `pre_install`、`post_install`、`pre_uninstall`、`post_uninstall`、`installer.script`、`uninstaller.script`。其阶段含义、上下文和先后关系以约定的 Scoop 兼容基准为准。
 
-**证明脚本子集（Proven Script Subset）**：由固定样本实际出现并验证的 PowerShell 语句、命令、参数、上下文变量和辅助函数组成的兼容边界。子集之外的内容在接管或执行前成为能力诊断，不靠“可能可用”继续执行。
+**已验证行为（Verified Behavior）**：已有可复现证据证明符合约定兼容语义的软件管理行为。它描述当前验证状态，不定义产品的目标兼容上限。

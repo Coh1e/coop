@@ -91,7 +91,7 @@ set(ENABLE_UNZIP OFF CACHE BOOL "" FORCE)
 set(ENABLE_TEST OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7" "${PROJECT_BINARY_DIR}/archive" EXCLUDE_FROM_ALL)
-add_executable(coop src/main.cpp src/data.cpp src/query.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/scoop_adapter.cpp src/plan.cpp src/native.cpp src/archive.cpp src/persist.cpp src/execute.cpp src/adoption.cpp src/exposure.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp)
+add_executable(coop src/main.cpp src/data.cpp src/query.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/scoop_adapter.cpp src/plan.cpp src/native.cpp src/archive.cpp src/persist.cpp src/execute.cpp src/adoption.cpp src/exposure.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp)
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/include")
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/sources/libgit2-1.9.7/include")
 target_include_directories(coop SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7/libarchive")
@@ -168,6 +168,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/acceptance 中文 space")
   add_test(NAME plan COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/plan.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/plan 中文")
+  add_test(NAME ir_pipeline COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/ir-pipeline.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/ir-pipeline 中文 space")
   add_test(NAME lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/lifecycle.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/lifecycle 中文")
   add_test(NAME archive_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/archive-lifecycle.ps1"

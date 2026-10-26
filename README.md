@@ -4,8 +4,14 @@ Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Sc
 
 首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/环境暴露、持久化、依赖保护与中断恢复路径；当前只用于项目隔离测试，尚不能用于真实用户 Scoop 迁移或正式发布。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 仅作场景参考，其用户级安装脚本不是本项目的环境准备入口。
 
+当前产品方向已由 [正式规格 #21](https://github.com/Coh1e/coop/issues/21) 更新为与 Scoop 共用安装与状态：查询和只读预览已改由独立的包管理 IR、校验与计划路径驱动，直接读取本机真实 Scoop 安装事实，无需先执行接管；实际写入仍沿用原型执行路径，待后续任务迁移。模块边界与证据见 [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)，本轮真实安装与只读核对见 [真实 Scoop 安装基线](docs/real-scoop-baseline.md)。
+
 - [已确认的产品范围](docs/design-scope.md)
-- [首版正式规格](https://github.com/Coh1e/coop/issues/2)
+- [当前正式规格（#21）](https://github.com/Coh1e/coop/issues/21)
+- [与 Scoop 共用状态的决定](docs/adr/0002-share-scoop-state.md)
+- [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)
+- [真实 Scoop 安装基线](docs/real-scoop-baseline.md)
+- [原型正式规格（历史，#2）](https://github.com/Coh1e/coop/issues/2)
 - [设计背景、验收路径与下一步](docs/architecture.md)
 - [Git 库选择方向](docs/adr/0001-use-embedded-git-library.md)
 - [Scoop Git 调用审计](docs/research/scoop-git-command-audit.md)
@@ -63,4 +69,4 @@ Git更新先导出并校验不可变快照，再提交来源记录；原有Scoop
 
 ## 测试范围
 
-默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 原地接管到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、Git 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书。
+默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 原地接管到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、MSI 预览与隔离限制拒绝、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和环境暴露（`COOP_PROGRAMS_DIR` 隔离目录内生成真实快捷方式），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell、顺序、失败与能力诊断），包管理 IR 的安装事实、分层诊断、操作序列与无副作用查询/预览（`tests/ir-pipeline.ps1`），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、Git 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书；`tests/real-scoop-readonly.ps1` 对人工选定的本机真实 Scoop 根执行只读盘点、查询与预览，并核对根内文件未被改动。
