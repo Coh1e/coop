@@ -9,7 +9,8 @@ $package = 'coop-r08-'+$tag.ToLowerInvariant()
 $absentName = 'COOP_R08_ABSENT_'+$tag
 $restoreName = 'COOP_R08_RESTORE_'+$tag
 $modifiedName = 'COOP_R08_MODIFIED_'+$tag
-$observedNames = @('Path',$absentName,$restoreName,$modifiedName)
+$rollbackName = 'COOP_R08_ROLLBACK_'+$tag
+$observedNames = @('Path',$absentName,$restoreName,$modifiedName,$rollbackName)
 function Assert-True([bool]$condition,[string]$message) { if (-not $condition) { throw $message } }
 function Get-UserRaw([string]$name) {
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
@@ -87,6 +88,9 @@ $probe = Join-Path $session 'new-terminal-probe.cmd'
 $probeOutput = Join-Path $session 'new-terminal.txt'
 $coopPath = Join-Path $root "apps/$package/current/bin"
 $userPath = 'C:\coop-r08-user-'+$tag
+$sharedUserPath = 'C:\coop-r08-shared-'+$tag
+$toolCommand = 'r08tool'+$tag.ToLowerInvariant()
+$toolOutput = Join-Path $session 'tool-new-terminal.txt'
 try {
     New-Item -ItemType Directory -Path "$root/buckets/test/bucket" -Force | Out-Null
     Set-UserRaw $restoreName 'restore-original' 'String'
@@ -94,15 +98,17 @@ try {
     Remove-UserValue $absentName
     function Write-Manifest([string]$version) {
         $archive = Join-Path $session "app-$version.zip"
-        New-ZipPackage $archive ([ordered]@{
-            'bin/tool.cmd' = "@echo off`r`necho package=$version %*`r`nexit /b 0`r`n"
-            'bin/marker.txt' = "version $version"
-        })
+        $toolFile = 'bin/'+$toolCommand+'.cmd'
+        $entries = [ordered]@{}
+        $entries[$toolFile] = "@echo off`r`necho package=$version %*`r`nexit /b 0`r`n"
+        $entries['bin/marker.txt'] = "version $version"
+        New-ZipPackage $archive $entries
         $manifest = [ordered]@{
             version=$version
             url=(File-Uri $archive)
             hash=(Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLower()
             env_add_path=@('bin')
+            bin=@(,@($toolFile,$toolCommand))
             env_set=[ordered]@{
                 $absentName="package-v$version"
                 $restoreName="package-v$version"
@@ -125,7 +131,9 @@ try {
             ('echo restore=%'+$restoreName+'%'),
             ('echo modified=%'+$modifiedName+'%'),
             'echo path=%PATH%',
+            ('call '+$toolCommand+' >tool-new-terminal.txt 2>&1'),
             ')',
+            'echo tool_exit=%ERRORLEVEL% >>new-terminal.txt',
             'exit /b 0'
         ))
         [IO.File]::WriteAllText($probe,$script,[Text.ASCIIEncoding]::new())
@@ -164,6 +172,8 @@ try {
     Assert-True ($terminalInstall -match [regex]::Escape("restore=package-v1")) "a new terminal did not read env_set: $terminalInstall"
     Assert-True ($terminalInstall -match [regex]::Escape("modified=package-v1")) "a new terminal did not read env_set: $terminalInstall"
     Assert-True ($terminalInstall -match [regex]::Escape("\apps\$package\current\bin")) "a new terminal did not read the declared PATH entry: $terminalInstall"
+    Assert-True ($terminalInstall -match 'tool_exit=0') "a new terminal could not execute the installed command: $terminalInstall"
+    Assert-True ((Get-Content -LiteralPath $toolOutput -Raw) -match 'package=1') 'a new terminal did not run the installed command from PATH'
 
     # A user change after installation must survive the next update and the uninstall.
     Set-UserRaw $modifiedName 'modified-by-user' 'String'
@@ -183,6 +193,8 @@ try {
     $terminalUpdate = New-TerminalObservation 'update'
     Assert-True ($terminalUpdate -match [regex]::Escape('absent=package-v2')) "a new terminal did not read the updated PATH/environment: $terminalUpdate"
     Assert-True ($terminalUpdate -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminalUpdate"
+    Assert-True ($terminalUpdate -match 'tool_exit=0') "a new terminal could not execute the updated command: $terminalUpdate"
+    Assert-True ((Get-Content -LiteralPath $toolOutput -Raw) -match 'package=2') 'a new terminal did not run the updated command from PATH'
 
     $uninstall = CoopJson 'uninstall' @('--root',$root,'uninstall',$package,'--json')
     Assert-True ($uninstall.status -eq 'success') "uninstall did not report success: $uninstall"
@@ -201,10 +213,78 @@ try {
     Assert-True ($terminalUninstall -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminalUninstall"
     Assert-True ($terminalUninstall -match [regex]::Escape($userPath)) "a new terminal did not see the user-added PATH entry: $terminalUninstall"
 
-    @{package=$package;root=$root;coop_path=$coopPath;user_path=$userPath;snapshots=$snapshots;
-      install=$install;update=$update;uninstall=$uninstall;
+    # The shared seam: a Scoop-created or record-loss installation has no Coop ownership
+    # record. The installed Manifest's declared values are the fallback attribution: a matching
+    # value can be replaced/removed, a user-changed value must survive update and uninstall, and
+    # only declared PATH entries may be removed.
+    Write-Manifest '3'
+    $sharedInstall = CoopJson 'shared-install-v3' @('--root',$root,'install',"test/$package",'--json')
+    Assert-True ($sharedInstall.status -eq 'success') "shared install did not report success: $sharedInstall"
+    Remove-Item -LiteralPath "$root/.coop/packages/$package.json" -Force
+    Set-UserRaw $modifiedName 'shared-user' 'String'
+    Set-UserRaw 'Path' (((Get-UserRaw 'Path').value).TrimEnd(';')+';'+$sharedUserPath) ((Get-UserRaw 'Path').kind)
+    Write-Manifest '4'
+    $sharedUpdate = CoopJson 'shared-update-v4' @('--root',$root,'update',$package,'--json')
+    Assert-True ($sharedUpdate.status -eq 'success') "shared update did not report success: $sharedUpdate"
+    $sharedUpdateJournal = Get-Content -LiteralPath $sharedUpdate.journal -Raw | ConvertFrom-Json
+    Assert-True (@($sharedUpdateJournal.environment_applied.preserved | Where-Object name -eq $modifiedName).Count -eq 1) 'shared update did not record the preserved user value'
+    Assert-True ($sharedUpdateJournal.environment_ownership_source -eq 'installed-declaration') 'shared update did not disclose declaration-derived attribution'
+    Assert-True ((Get-UserRaw $modifiedName).value -eq 'shared-user') 'shared update overwrote a user-modified environment value'
+    Assert-True ((Get-UserRaw $absentName).value -eq 'package-v4') 'shared update did not replace a declared environment value'
+    Assert-PathHas (Get-UserRaw 'Path').value $userPath 'shared update removed the user PATH entry'
+    Assert-PathHas (Get-UserRaw 'Path').value $sharedUserPath 'shared update removed the other user PATH entry'
+    $sharedTerminalUpdate = New-TerminalObservation 'shared-update'
+    Assert-True ($sharedTerminalUpdate -match [regex]::Escape('modified=shared-user')) "a new terminal did not see the shared preserved value: $sharedTerminalUpdate"
+    Assert-True ((Get-Content -LiteralPath $toolOutput -Raw) -match 'package=4') 'shared update did not run the updated command from PATH'
+
+    Remove-Item -LiteralPath "$root/.coop/packages/$package.json" -Force
+    $sharedUninstall = CoopJson 'shared-uninstall' @('--root',$root,'uninstall',$package,'--json')
+    Assert-True ($sharedUninstall.status -eq 'success') "shared uninstall did not report success: $sharedUninstall"
+    $sharedUninstallJournal = Get-Content -LiteralPath $sharedUninstall.journal -Raw | ConvertFrom-Json
+    Assert-True ($sharedUninstallJournal.environment_ownership_source -eq 'installed-declaration') 'shared uninstall did not disclose declaration-derived attribution'
+    Assert-True ((Get-UserRaw $absentName).present -eq $false) 'shared uninstall left the declared environment value behind'
+    Assert-True ((Get-UserRaw $modifiedName).value -eq 'shared-user') 'shared uninstall removed a user-modified environment value'
+    $path = (Get-UserRaw 'Path').value
+    Assert-PathMissing $path $coopPath 'shared uninstall left the declared PATH entry behind'
+    Assert-PathHas $path $userPath 'shared uninstall removed the user PATH entry'
+    Assert-PathHas $path $sharedUserPath 'shared uninstall removed the other user PATH entry'
+    $sharedTerminalUninstall = New-TerminalObservation 'shared-uninstall'
+    Assert-True ($sharedTerminalUninstall -match '(?m)^absent=\r?$') "a new terminal still saw the shared removed variable: $sharedTerminalUninstall"
+    Assert-True ($sharedTerminalUninstall -match [regex]::Escape('modified=shared-user')) "a new terminal did not see the shared preserved value: $sharedTerminalUninstall"
+
+    # A later lifecycle step can fail after the environment operation. The transaction must undo
+    # the user environment write and journal that rollback, not leave a half-installed package's
+    # variable or PATH entry behind.
+    $failPackage = 'coop-r08-fail-'+$tag.ToLowerInvariant()
+    $failArchive = Join-Path $session 'fail-1.zip'
+    New-ZipPackage $failArchive ([ordered]@{'bin/marker.txt'='rollback fixture'})
+    $failManifest = [ordered]@{
+        version='1'
+        url=(File-Uri $failArchive)
+        hash=(Get-FileHash -LiteralPath $failArchive -Algorithm SHA256).Hash.ToLower()
+        env_add_path=@('bin')
+        env_set=[ordered]@{ $rollbackName='rollback-value' }
+        post_install=@('Copy-Item "$dir\absent.txt" "$dir\copied.txt"')
+    }
+    [IO.File]::WriteAllText("$root/buckets/test/bucket/$failPackage.json",($failManifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    $failRun = & $CoopExe --root $root install "test/$failPackage" --json 2>&1 | Out-String
+    $failExit = $LASTEXITCODE
+    Assert-True ($failExit -ne 0) 'the failing post_install transaction unexpectedly succeeded'
+    Assert-True ((Get-UserRaw $rollbackName).present -eq $false) 'failed transaction left its environment variable behind'
+    Assert-PathMissing (Get-UserRaw 'Path').value (Join-Path $root "apps/$failPackage/current/bin") 'failed transaction left its PATH entry behind'
+    Assert-True (-not (Test-Path "$root/apps/$failPackage/current")) 'failed transaction left the package current link behind'
+    Assert-True (-not (Test-Path "$root/.coop/packages/$failPackage.json")) 'failed transaction published a package record'
+    $failJournal = Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json } |
+        Where-Object { $_.package -eq $failPackage -and $_.action -eq 'install' } | Sort-Object { $_.stage } | Select-Object -Last 1
+    Assert-True ($null -ne $failJournal -and $failJournal.state -eq 'rolled-back') 'failed transaction did not report a rolled-back journal'
+    Assert-True (@($failJournal.environment_rollback | Where-Object { $_.status -eq 'restored' }).Count -ge 1) 'failed transaction did not record a successful environment rollback'
+
+    @{package=$package;root=$root;coop_path=$coopPath;user_path=$userPath;shared_user_path=$sharedUserPath;tool_command=$toolCommand;snapshots=$snapshots;
+      install=$install;update=$update;uninstall=$uninstall;shared_install=$sharedInstall;shared_update=$sharedUpdate;shared_uninstall=$sharedUninstall;
+      fail_package=$failPackage;fail_exit=$failExit;fail_output=$failRun;
       terminal_after_install=$terminalInstall;terminal_after_update=$terminalUpdate;
-      terminal_after_uninstall=$terminalUninstall} |
+      terminal_after_uninstall=$terminalUninstall;terminal_after_shared_update=$sharedTerminalUpdate;
+      terminal_after_shared_uninstall=$sharedTerminalUninstall} |
         ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $TestRoot 'user-environment-evidence.json') -Encoding utf8
     Write-Output "PASS current-user environment persistence, notification, protection and restoration: $root"
     exit 0

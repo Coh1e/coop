@@ -689,6 +689,24 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     fs::create_directories(transaction);
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : plan.action == Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"shortcuts_already_absent",absent_shortcuts}};
+    // A shared Scoop installation has no Coop ownership record. The installed Manifest still
+    // declares the values this package previously wrote, so use those declarations as attribution
+    // evidence before deciding whether a current value is package-owned or a later user edit.
+    Json user_environment_prior = managed.value("user_environment",Json(nullptr));
+    std::string user_environment_source = user_environment_prior.is_null() ? "none" : "coop-record";
+    if (user_environment_prior.is_null() && (updating || plan.action == Action::uninstall) &&
+        (!installed.environment.empty() || !installed.path_entries.empty())) {
+        // Coop publishes environment and PATH declarations against the stable current path, so
+        // previous declarations must be expanded the same way rather than against the concrete
+        // apps/<package>/<version> target of the junction.
+        auto previous_environment = expanded_environment(context,installed,app/L"current");
+        auto previous_path_entries = expanded_path_entries(context,installed,app/L"current");
+        journal["environment_previous_declarations"] = {{"environment",previous_environment},
+            {"path_entries",previous_path_entries}};
+        user_environment_prior = ownership_from_declarations(previous_environment,previous_path_entries);
+        user_environment_source = "installed-declaration";
+    }
+    journal["environment_ownership_source"] = user_environment_source;
     const auto shortcut_was_absent = [&](const std::string& name) {
         return std::any_of(absent_shortcuts.begin(),absent_shortcuts.end(),[&](const std::string& item) { return equal_name(item,name); });
     };
@@ -964,7 +982,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (updating && !(package.environment.empty() && package.path_entries.empty())) {
                     journal["environment_reversion"] = "deferred; the update's environment operation reconciles old and new declarations";
                 } else {
-                    auto reverted = revert_user_environment(managed.value("user_environment",Json(nullptr)));
+                    auto reverted = revert_user_environment(user_environment_prior);
                     environment_undo.push_back(reverted.value("undo",Json::object()));
                     journal["environment_reverted"] = std::move(reverted);
                 }
@@ -1062,8 +1080,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             case ir::Operation::environment: {
                 environment = expanded_environment(context,package,app/L"current");
                 path_entries = expanded_path_entries(context,package,app/L"current");
-                auto applied = apply_user_environment(environment,path_entries,
-                    managed.value("user_environment",Json(nullptr)));
+                auto applied = apply_user_environment(environment,path_entries,user_environment_prior);
                 environment_undo.push_back(applied.value("undo",Json::object()));
                 user_environment = applied.value("ownership",Json(nullptr));
                 journal["environment_applied"] = std::move(applied);

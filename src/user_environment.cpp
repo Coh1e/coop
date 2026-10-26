@@ -272,6 +272,33 @@ std::vector<std::string> desired_paths(const Json& path_entries) {
     return unique_path(result);
 }
 }
+Json ownership_from_declarations(const Json& environment, const Json& path_entries) {
+    if (!environment.is_array()) throw std::runtime_error("Expanded installed environment declarations are not an array");
+    Json ownership = {{"scope","HKCU\\Environment"},{"source","installed-declaration"},
+        {"variables",Json::array()},{"path",Json(nullptr)}};
+    for (const auto& setting : environment) {
+        if (!setting.is_object() || !setting.contains("name") || !setting.at("name").is_string() ||
+            !setting.contains("value") || !setting.at("value").is_string())
+            throw std::runtime_error("Expanded installed environment declaration is invalid");
+        const auto name = setting.at("name").get<std::string>();
+        const auto current = read_value(name);
+        const auto declared = desired_value(current,setting.at("value").get<std::string>());
+        // The pre-install value is unknown without a Coop record, so there is nothing to restore;
+        // a later removal deletes the value only while it still equals this declaration.
+        ownership["variables"].push_back({{"name",name},{"previous",raw_json(RawValue{})},
+            {"applied",raw_json(declared)}});
+    }
+    const auto desired = desired_paths(path_entries);
+    if (!desired.empty()) {
+        const auto current = read_value("Path");
+        auto previous = current;
+        auto entries = split_path(current.value);
+        for (const auto& entry : desired) erase_path(entries,entry);
+        previous.value = join_path(entries);
+        ownership["path"] = {{"previous",raw_json(previous)},{"applied",raw_json(current)},{"added",desired}};
+    }
+    return ownership;
+}
 Json apply_user_environment(const Json& environment, const Json& path_entries, const Json& previous_ownership) {
     if (!environment.is_array()) throw std::runtime_error("Expanded user environment declarations are not an array");
     if (!previous_ownership.is_null() && !previous_ownership.is_object())

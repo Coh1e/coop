@@ -17,6 +17,12 @@ namespace coop {
 // the already expanded env_add_path list. Declarations the installed package owned but the new
 // manifest no longer declares are reverted during the same reconcile.
 Json apply_user_environment(const Json& environment, const Json& path_entries, const Json& previous_ownership);
+// Shared installs normally have no Coop ownership record. The installed Manifest still states
+// which values/PATH entries the package declared, so an update/uninstall can use the previous
+// declaration as attribution evidence. A matching value is considered package-owned; a different
+// current value is treated as a user change and preserved. No pre-install original value exists
+// in this case, so a declaration-owned variable is removed rather than restored on uninstall.
+Json ownership_from_declarations(const Json& environment, const Json& path_entries);
 // Revert every value the installed package still owns. A value changed by the user is preserved
 // and reported. Used by uninstall and by an update that no longer declares any environment.
 Json revert_user_environment(const Json& previous_ownership);

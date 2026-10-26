@@ -35,7 +35,8 @@
 - 安装/更新时，声明的环境值写入当前用户注册表 `HKCU\Environment`，并向所有顶层窗口广播 `WM_SETTINGCHANGE`，参数为 `Environment`。因此新终端、普通进程启动和其他不经过 Coop 启动器的入口读取同一组值，不再只依赖启动器子进程注入；Coop 启动器仍按既有方式把同一组值应用到自身进程，保持快速路径一致。
 - `env_add_path` 解析为 `apps/<包>/current` 下的绝对路径并前置于用户 PATH；原有 PATH 项及其顺序保留。注册表值的字符串类型（`REG_SZ`/`REG_EXPAND_SZ`）也按 Scoop 规则保留，含 `%` 的值使用可展开字符串。
 - 每个包的 `.coop/packages/<包>.json` 保存 `user_environment` 证据：作用域、每个变量的写入前原始值和类型、Coop 写入值、PATH 的 `previous`/`applied` 及本次新增项、写入/广播结果。更新时只有当前值仍等于 Coop 上次写入值才替换；用户后来修改的值被保留并在 `preserved` 中报告。新 Manifest 不再声明的变量和 PATH 项在同一次更新中撤销。
-- 卸载时若当前值仍等于 Coop 写入值，恢复安装前的原始值（原本不存在则删除）；若用户已修改，则保留新值。PATH 只删除 Coop 实际新增且仍存在的项，用户新增项和其余顺序不动。事务失败时使用同一记录做进程内回滚，`journal.json` 保存写入、广播、保留和回滚证据。
+- Scoop 创建或 `.coop/packages/<包>.json` 丢失的共用安装没有 Coop 原始值记录。更新/卸载会从已安装 Manifest 声明的 `env_set`/`env_add_path` 推导归属（`environment_ownership_source=installed-declaration`）：当前值仍等于旧声明时视为包所有并可替换或删除，不等时保留并报告为用户修改；PATH 只删除与旧声明 `apps/<包>/current` 项匹配的条目。由于没有安装前原值，声明推导的卸载删除匹配值而不是恢复未知原值。
+- 卸载时若 Coop 记录中的当前值仍等于 Coop 写入值，恢复安装前的原始值（原本不存在则删除）；若用户已修改，则保留新值。PATH 只删除 Coop 实际新增且仍存在的项，用户新增项和其余顺序不动。事务失败时使用同一记录做进程内回滚，`journal.json` 保存 `environment_applied`、`environment_reverted`、`environment_rollback`、广播结果、`preserved`、归属来源及共用安装使用的 `environment_previous_declarations`。
 - 预览中的 `exposure.environment`、`exposure.path_entries` 与 `exposure.environment_scope` 明确列出将应用的值和作用范围；`exposure.shortcut_directory` 与来源说明快捷方式位置。系统级环境变量和 `HKLM` 不开放，仍只报告必要时需人工处理。
 
 ## 真机验证（R07 / #28）
@@ -67,9 +68,12 @@
 | 用户修改 | 手工把其中一个变量改为 `modified-by-user` 并追加用户自己的 PATH 项 |
 | 更新 v2 | 未修改的两个变量替换为 v2，用户修改值保持 `modified-by-user`；用户 PATH 项保留，Coop PATH 项仍存在；journal 的 `preserved` 列出保留原因 |
 | 卸载 | Coop 创建的变量被删除，安装前已有变量恢复原值，用户修改值保留；Coop PATH 项消失，用户 PATH 项及原有项保留；journal 的 `environment_reverted.writes` 记录恢复动作 |
+| 共用/记录丢失 | 安装后删除 `.coop/packages/<包>.json`，更新仍保留用户修改值（`preserved` 记录），卸载只删除仍匹配旧声明的变量/PATH 项并保留两个用户 PATH 项；`environment_ownership_source=installed-declaration` |
+| 后序失败回滚 | `post_install` 在环境步骤之后失败时安装退出非零；journal 为 `rolled-back`，`environment_rollback` 记录 `status=restored`，声明的变量和 PATH 项未残留 |
+| 正常启动方式 | 同一个新 `cmd.exe` 直接执行 PATH 中的已安装命令，安装读到 v1、更新读到 v2/v4，退出码 0，而非只检查 PATH 字符串 |
 | 清理 | 新终端再次观察到上述结果；测试结束后 `Path` 和测试变量回到运行前快照，无 Coop 测试 PATH 项或变量残留 |
 
-本轮运行的完整命令、退出码、终端输出和 journal 摘录保存在 `.local/pi/tasks/29/evidence/`（最终 head 运行）。该验证覆盖真实用户环境与新终端；未安装 Main/Extras 中同时声明环境与快捷方式的真实包。
+本轮运行的完整命令、退出码、终端输出和 journal 摘录保存在 `.local/pi/tasks/29/evidence/`（最终 head 运行）。`ctest` 的 `acceptance`、`exposure`、`user_environment` 共享 `coop_user_environment` RESOURCE_LOCK，避免 `ctest -j` 并发改写同一真实用户环境。该验证覆盖真实用户环境、新终端执行、共用安装归属推导和失败回滚；未在真实 Scoop 根安装 Main/Extras 中同时声明环境与快捷方式的真实包。
 
 ## 隔离验证
 
@@ -98,8 +102,9 @@
 
 未运行或未承诺：
 
-- 系统级（`HKLM`）环境变量、需要管理员的系统级安装和广播后的 Shell/Explorer 刷新时序没有在本轮实际观察；用户级广播调用结果已记录，新 `cmd.exe` 进程读取真实用户环境块已验证。
+- 系统级（`HKLM`）环境变量、需要管理员的系统级安装和广播后的 Shell/Explorer 刷新时序没有在本轮实际观察；用户级广播调用结果已记录，新 `cmd.exe` 进程读取真实用户环境块并执行已安装命令已验证。
 - 用户环境与快捷方式组合的真实包安装（例如 Main/Extras 中同时声明 `env_set`、`env_add_path` 和多层快捷方式的包）仍属于后续真实样本覆盖；本轮真实验证使用边界明确的测试包和真实用户环境。
+- Scoop 历史写入可能使用具体版本路径（而不是 `apps/<包>/current`）且没有 Coop 记录时，Coop 只能按声明的 `current` 形式匹配；未匹配的旧值保留为外部证据，不会猜测删除。
 - Coop 在真实根创建**子目录**快捷方式与带参数快捷方式：本轮真机包只提供平铺/无参数声明，子目录与参数创建由 `tests/exposure.ps1` 在隔离根用真实 `.lnk` 验证；真实根只核对 Scoop 已有子目录/参数快捷方式不被误认领。
 - 快捷方式图标的像素级效果、开始菜单索引刷新和 Windows Shell 缓存行为。
 - `.com` 真实程序入口：本轮只有隔离 PE `.com` 证据；真实根覆盖 EXE、BAT、PS1、JAR 与 GUI。
