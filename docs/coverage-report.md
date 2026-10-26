@@ -194,7 +194,7 @@ pwsh -NoProfile -File tests/real-scoop-coverage.ps1 -CoopExe .local/build/coop.e
 | 逐 Manifest 记录（4149 条：特征、读取/规划状态、诊断、验证状态） | `manifests.json` |
 | 每条真实命令与退出码 | `commands.log` |
 | Main 与共用工作树逐份 Manifest 的比对结果 | `shared-main-manifest-verification.json` |
-| 共用根前后快照（递归路径/长度/修改时间） | `shared-root-before.txt`、`shared-root-after.txt`、`shared-root-changes.txt` |
+| 共用根前后快照（递归路径/长度/修改时间，两次快照相同，运行日志报告变化数 0） | `shared-root-before.txt`、`shared-root-after.txt` |
 | 所有阻塞包与 15 个验证包的完整 `info`/`plan` 原文（68 个包） | `samples/` |
 
 已提交的 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 是同一脚本生成的紧凑投影：固定修订、分母、总数、逐机制状态、缺口包名、产物/摘要算法计数与 15 个验证包；完整逐包记录仍只保存在项目内被忽略的证据目录。`baseline.json` 内的 `project_head` 是生成时的代码提交，本页提交只增加文档和该投影，不改变测量逻辑。
