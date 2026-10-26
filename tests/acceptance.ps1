@@ -139,7 +139,12 @@ $expectedClasses = @{
     # MSI artifacts are extracted from a read-only installer database view; the plan is executable
     # without msiexec, elevation or a reboot (see docs/installer-support.md).
     'Main/7zip'='executable';
-    'Main/wget'='rejected'; 'Extras/adventuregamestudio'='rejected'
+    'Main/wget'='rejected';
+    # `innosetup` has been supported since #34, but this mechanism uses the separately installed
+    # innounp helper. This corpus root has no helper, so the sample stays readable and plannable
+    # while the plan is explicitly blocked before any write; the missing-tool diagnostic is the
+    # expected classification here, not a rejected Manifest.
+    'Extras/adventuregamestudio'='unsupported'
 }
 if ($index.samples.Count -ne 20 -or $expectedClasses.Count -ne 20) { throw 'The fixed corpus no longer contains exactly 20 audited samples' }
 $corpusResults = @()

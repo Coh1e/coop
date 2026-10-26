@@ -1,6 +1,6 @@
 # 首版真实样本兼容与整体验收
 
-> 历史报告：本页记录 T18/#20 当时的原型状态（含脚本子集分类）。#31/R10 已把生命周期脚本改为真实 PowerShell + 固定 Scoop 兼容库执行，脚本文本不再作为可执行性判据；#33/R12 已启用 MSI 只读镜像提取，不再以机器缓存限制阻塞。当前脚本语义见[生命周期 Hook 与真实 PowerShell](script-support.md)，当前 MSI 语义见[Installer/Uninstaller 与特殊安装机制](installer-support.md)，当前固定样本分类由 `tests/acceptance.ps1` 输出。下方分类只作追溯。
+> 历史报告：本页记录 T18/#20 当时的原型状态（含脚本子集分类）。#31/R10 已把生命周期脚本改为真实 PowerShell + 固定 Scoop 兼容库执行，脚本文本不再作为可执行性判据；#33/R12 已启用 MSI 只读镜像提取，不再以机器缓存限制阻塞；#34/R13 已启用 Inno Setup 的 `innosetup` 提取（通过 root 内声明的 innounp helper）。当前脚本语义见[生命周期 Hook 与真实 PowerShell](script-support.md)，当前 MSI 与 Inno Setup 语义见[Installer/Uninstaller 与特殊安装机制](installer-support.md)，当前固定样本分类由 `tests/acceptance.ps1` 输出。下方分类只作追溯。
 
 日期：2026-10-25。任务：[T18 / #20](https://github.com/Coh1e/coop/issues/20)，父规格 [#2](https://github.com/Coh1e/coop/issues/2)。代码基线为 `7426d346cfc83c1c484e924e71d3b944d2605ff9` 之后的 T18 提交；本轮工具为 Windows 11 x64、Coop 0.1.0、PowerShell 7.6.5、CMake 4.4.4、Ninja 1.13.2。所有安装、更新、卸载和数据测试都在被忽略的 `.local/tests` 项目内根目录执行，不读取或修改真实用户 Scoop 根。
 
@@ -56,7 +56,7 @@
 | Extras/everything | 1.4.1.1032 | 通过 | 已知不支持 | 未运行 | `pre_install`/`post_install`/`pre_uninstall` 不支持 |
 | Extras/firefox | 158.0.1 | 通过 | 拒绝 | 未运行 | 使用 SHA512，当前 IR 只接受 SHA256；`post_install` 也不在子集 |
 | Main/air | 1.67.4 | 通过 | 可执行（tar.gz） | 已运行（archive_lifecycle）：安装 1.67.3、更新 1.67.4、旧版本保留、卸载 | 另测 32bit 归档；arm64 未执行 |
-| Extras/adventuregamestudio | 3.6.2.22 | 通过 | 拒绝 | 未运行 | `innosetup` 声明尚不支持 |
+| Extras/adventuregamestudio | 3.6.2.22 | 通过 | 拒绝（历史） | 未运行 | 当时 `innosetup` 尚不支持；R13/#34 已启用通过声明的 innounp helper 提取，本样本仍未运行 |
 | Extras/aider-desk | 0.88.0 | 通过 | 拒绝 | 未运行 | SHA512；`pre_install`/`post_uninstall` 也不支持 |
 | Main/oh-my-posh | 31.9.1 | 通过 | 可执行（ZIP+EXE、extract_to、env_set） | 未运行 | 可执行不等于已验证 |
 
@@ -83,7 +83,7 @@
 ## 未运行与剩余问题
 
 - 未运行 neovim、cmake、oh-my-posh 的真实下载/安装；其计划可执行，但生命周期未验证。
-- 未运行 9 份“已知不支持”样本的执行路径（这是有意拒绝），也未运行 4 份被拒绝样本的实际安装。它们的脚本、MSI、InnoSetup 或 SHA512 兼容工作属于后续范围。
+- 未运行 9 份“已知不支持”样本的执行路径（这是有意拒绝），也未运行 4 份被拒绝样本的实际安装。它们的脚本、MSI、InnoSetup 或 SHA512 兼容工作属于后续范围；MSI（#33）与 Inno Setup（#34）机制随后已启用，SHA512 也已支持，但这些样本仍未运行，本报告的分类只代表该轮。
 - 未执行 arm64 真实程序、真实用户 Scoop 迁移/回滚、正式发布、私有或 SSH Git 来源、跨工具交替写入。本轮 `git-live` 只验证公开 GitHub/GitLab HTTPS；未做 Main/Extras 全量规模的网络性能测量。
-- MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、系统级注册表/环境写入仍未实现；`installer.file/args` 安装器/卸载器程序已由 R11（#32）接入真实 PowerShell 与固定 Scoop `Invoke-Installer`，但程序自身的项目外副作用不承诺回滚。用户级 `env_set`/`env_add_path` 已由 R08 写入并撤销，但完整生态兼容不能由 20 个样本推断。
+- 该轮 MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、系统级注册表/环境写入尚未实现；随后 MSI（#33）与 Inno Setup（#34，通过声明的外部 innounp helper）已交付，`installer.file/args` 安装器/卸载器程序已由 R11（#32）接入真实 PowerShell 与固定 Scoop `Invoke-Installer`，但程序自身的项目外副作用不承诺回滚；NSIS 等其余厂商安装器与系统级注册表/环境写入仍未实现。用户级 `env_set`/`env_add_path` 已由 R08 写入并撤销，但完整生态兼容不能由 20 个样本推断。
 - 本轮完整命令、退出码和测试根证据保存在 `.local/pi/tasks/20/evidence`（被忽略的本地任务证据），其中 `acceptance-evidence.json` 记录逐样本计划分类、首条路径状态、进程观测与工具版本。可重跑入口是 `ctest --test-dir .local/build --output-on-failure -R '^acceptance$'`。

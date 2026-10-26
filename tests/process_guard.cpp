@@ -2,6 +2,16 @@
 #include <iostream>
 #include <string>
 
+// Test tool: report observed process paths as UTF-8 so a test root with non-ASCII characters is
+// evidence, not a console-code-page replacement.
+static void write_utf8(const std::wstring& text) {
+    if (text.empty()) return;
+    const int size = WideCharToMultiByte(CP_UTF8,0,text.data(),static_cast<int>(text.size()),nullptr,0,nullptr,nullptr);
+    std::string bytes(static_cast<std::size_t>(size),'\0');
+    WideCharToMultiByte(CP_UTF8,0,text.data(),static_cast<int>(text.size()),bytes.data(),size,nullptr,nullptr);
+    std::cerr << bytes << '\n';
+}
+
 // Observe the process tree, distinguishing Windows' console infrastructure.
 int wmain(int argc, wchar_t** argv) {
     if (argc < 3) return 2;
@@ -71,7 +81,7 @@ int wmain(int argc, wchar_t** argv) {
                     ++console_hosts;
                 } else {
                     ++started;
-                    std::wcerr << L"Workload process: " << image << L'\n';
+                    write_utf8(L"Workload process: "+std::wstring(image));
                 }
             }
             if (event.u.CreateProcessInfo.hFile) CloseHandle(event.u.CreateProcessInfo.hFile);

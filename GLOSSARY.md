@@ -28,6 +28,8 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **MSI 镜像提取（MSI Image Extraction）**：对 Manifest 中 `.msi` 产物执行 Scoop `Expand-MsiArchive` 对应的管理镜像提取：从只读的 Windows Installer 数据库表推导目录、文件与 cabinet 布局，再用 Windows cabinet 解压 API 展开内嵌 cabinet。它不等同于运行厂商安装器，不启动 `msiexec`、不注册产品、不改写 `%WINDIR%\Installer` 机器缓存，也不需要管理员权限或重启；外部 cabinet、多段 cabinet 与厂商安装器载荷不在此能力内。
 
+**Inno Setup 提取（Inno Setup Extraction）**：对声明 `innosetup` 的 `.exe` 产物，使用安装在选中 root 内的外部 innounp helper，按 Scoop `Expand-InnoArchive` 相同的参数与 `-c` 选择解包声明的 Inno 目录。helper 是包机制所需的外部软件依赖，不是 Coop 核心依赖：Coop 检测它、复用它，但从不下载、安装或内嵌它；缺失时在写入前明确阻塞。厂商安装器本身不会运行，因此 `[Run]`、注册表、服务、快捷方式和卸载登记等安装器副作用不在此能力内。
+
 **Scoop 兼容库（Scoop Compatibility Library）**：随 Coop 分发、与固定 Scoop 修订逐字节一致的 PowerShell 库副本，为生命周期 Hook 提供 Scoop 的上下文变量与辅助函数语义，而不是另建一套缩水实现。
 
 **已验证行为（Verified Behavior）**：已有可复现证据证明符合约定兼容语义的软件管理行为。它描述当前验证状态，不定义产品的目标兼容上限。

@@ -1,16 +1,13 @@
 #include "script.hpp"
+#include "native.hpp"
 #include <windows.h>
-#include <array>
-#include <cstdio>
 #include <fstream>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace coop {
 namespace {
-constexpr std::size_t max_tail_bytes = 8192;
 // Pinned upstream version of assets/scoop-lib. Recorded in the host, the journal and the preview
 // so hook evidence names the exact compatibility baseline instead of "current Scoop".
 constexpr const char* scoop_compat_version = "Scoop v0.6.0 (e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f)";
@@ -73,21 +70,6 @@ std::optional<fs::path> powershell_interpreter() {
         if (fs::is_regular_file(candidate)) return candidate;
     }
     return std::nullopt;
-}
-std::wstring quote_argument(const std::wstring& value) {
-    if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos) return value;
-    std::wstring result = L"\"";
-    unsigned backslashes = 0;
-    for (const auto character : value) {
-        if (character == L'\\') { ++backslashes; continue; }
-        if (character == L'"') result.append(backslashes*2+1,L'\\');
-        else result.append(backslashes,L'\\');
-        result += character;
-        backslashes = 0;
-    }
-    result.append(backslashes*2,L'\\');
-    result += L'"';
-    return result;
 }
 std::string ps_literal(const std::string& value) {
     std::string result = "'";
@@ -194,49 +176,6 @@ std::string installer_host_script(const Context& context, const Package& package
     text += " } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }\n";
     return text;
 }
-struct FileHandle {
-    HANDLE value = INVALID_HANDLE_VALUE;
-    FileHandle() = default;
-    explicit FileHandle(HANDLE handle) : value(handle) {}
-    ~FileHandle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
-    FileHandle(const FileHandle&) = delete;
-    FileHandle& operator=(const FileHandle&) = delete;
-    HANDLE release() { const auto result = value; value = INVALID_HANDLE_VALUE; return result; }
-    void reset() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); value = INVALID_HANDLE_VALUE; }
-};
-void drain(HANDLE pipe, std::size_t& total, std::string& tail, FILE* log, bool echo, FILE* target) {
-    std::array<char,65536> buffer{};
-    for (;;) {
-        DWORD count = 0;
-        if (!ReadFile(pipe,buffer.data(),static_cast<DWORD>(buffer.size()),&count,nullptr) || count == 0) break;
-        total += count;
-        if (log) std::fwrite(buffer.data(),1,count,log);
-        if (tail.size()+count > max_tail_bytes) {
-            if (count >= max_tail_bytes) tail.assign(buffer.data()+count-max_tail_bytes,max_tail_bytes);
-            else {
-                tail.erase(0,tail.size()+count-max_tail_bytes);
-                tail.append(buffer.data(),count);
-            }
-        } else tail.append(buffer.data(),count);
-        if (echo && target) {
-            std::fwrite(buffer.data(),1,count,target);
-            std::fflush(target);
-        }
-    }
-    if (log) std::fflush(log);
-}
-struct LogFile {
-    FILE* value = nullptr;
-    LogFile() = default;
-    ~LogFile() { close(); }
-    LogFile(const LogFile&) = delete;
-    LogFile& operator=(const LogFile&) = delete;
-    void open(const fs::path& path) {
-        if (_wfopen_s(&value,path.c_str(),L"wb") != 0 || !value)
-            throw std::runtime_error("Cannot write the hook script log");
-    }
-    void close() { if (value) { std::fclose(value); value = nullptr; } }
-};
 void write_script_file(const fs::path& path, const std::string& text) {
     std::ofstream output(path,std::ios::binary|std::ios::trunc);
     if (!output) throw std::runtime_error("Cannot write hook script");
@@ -248,10 +187,8 @@ void write_script_file(const fs::path& path, const std::string& text) {
     if (!output) throw std::runtime_error("Cannot finish hook script");
 }
 
-// Shared child-process capture for every PowerShell host Coop starts (hook scripts and
-// installer/uninstaller programs). stdout and stderr are drained concurrently into per-run log files
-// so a noisy program cannot deadlock on a full pipe, and every byte is kept on disk while a bounded
-// tail is retained for JSON records.
+// Every PowerShell host Coop starts (hook scripts and installer/uninstaller programs) shares the
+// native child-process capture in native.cpp; the host only composes its argument list.
 struct ProcessCapture {
     int exit_code = 1;
     std::size_t stdout_bytes = 0;
@@ -262,53 +199,12 @@ struct ProcessCapture {
 ProcessCapture capture_process(const Context& context, const fs::path& interpreter,
                                const fs::path& host_path, const fs::path& stdout_path,
                                const fs::path& stderr_path) {
-    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};
-    FileHandle out_read, out_write, err_read, err_write;
-    if (!CreatePipe(&out_read.value,&out_write.value,&attributes,0)) throw std::runtime_error("Cannot create the hook stdout pipe");
-    if (!CreatePipe(&err_read.value,&err_write.value,&attributes,0)) throw std::runtime_error("Cannot create the hook stderr pipe");
-    if (!SetHandleInformation(out_read.value,HANDLE_FLAG_INHERIT,0) || !SetHandleInformation(err_read.value,HANDLE_FLAG_INHERIT,0))
-        throw std::runtime_error("Cannot isolate the hook output pipes");
-    FileHandle input(CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&attributes,OPEN_EXISTING,0,nullptr));
-    if (input.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open the hook stdin device");
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    startup.hStdInput = input.value;
-    startup.hStdOutput = out_write.value;
-    startup.hStdError = err_write.value;
-    auto command_line = quote_argument(interpreter.wstring())+L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "+
-        quote_argument(host_path.wstring());
     // Scoop runs hooks and installer programs in-process, so they inherit the caller's current
     // directory. The child is therefore not moved to $dir; a hook that wants the package directory
-    // must use $dir, exactly as with Scoop. A null lpCurrentDirectory makes the child inherit the
-    // Coop process directory.
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(nullptr,command_line.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,
-                        nullptr,&startup,&process))
-        throw std::runtime_error("Cannot start the PowerShell hook host (Windows error "+std::to_string(GetLastError())+")");
-    FileHandle process_handle(process.hProcess);
-    CloseHandle(process.hThread);
-    out_write.reset();
-    err_write.reset();
-    const bool echo = !context.json_output;
-    ProcessCapture result;
-    LogFile stdout_log, stderr_log;
-    stdout_log.open(stdout_path);
-    stderr_log.open(stderr_path);
-    std::thread stdout_thread(drain,out_read.release(),std::ref(result.stdout_bytes),std::ref(result.stdout_tail),stdout_log.value,echo,stdout);
-    std::thread stderr_thread(drain,err_read.release(),std::ref(result.stderr_bytes),std::ref(result.stderr_tail),stderr_log.value,echo,stderr);
-    WaitForSingleObject(process_handle.value,INFINITE);
-    DWORD exit_code = 1;
-    GetExitCodeProcess(process_handle.value,&exit_code);
-    stdout_thread.join();
-    stderr_thread.join();
-    const bool log_failed = std::ferror(stdout_log.value) != 0 || std::ferror(stderr_log.value) != 0;
-    stdout_log.close();
-    stderr_log.close();
-    result.exit_code = static_cast<int>(exit_code);
-    if (log_failed) throw std::runtime_error("Cannot finish the hook script output log");
-    return result;
+    // must use $dir, exactly as with Scoop. An empty working directory keeps the inheritance.
+    const auto captured = run_tool(interpreter,{"-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
+        "-File",path_text(host_path)},fs::path{},stdout_path,stderr_path,!context.json_output);
+    return {captured.exit_code,captured.stdout_bytes,captured.stderr_bytes,captured.stdout_tail,captured.stderr_tail};
 }
 }
 ScriptHostInfo script_host() {

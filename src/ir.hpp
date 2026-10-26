@@ -26,7 +26,7 @@ struct Digest {
     bool declared = false;
 };
 
-enum class ArchiveFormat { file, zip, seven_zip, tar, msi };
+enum class ArchiveFormat { file, zip, seven_zip, tar, msi, inno_setup };
 const char* archive_format_name(ArchiveFormat format);
 
 struct Download {

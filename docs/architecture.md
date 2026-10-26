@@ -106,7 +106,7 @@ Git 已确定使用可由 C++ 调用的库，首选候选 libgit2，见 [ADR-000
 
 增量 fetch 后，索引针对确定 commit 的内容更新；失败时保留可查询的旧发布状态。遇到本地修改、来源不明或不支持的 Git 布局，停止覆盖并给出诊断，不自动 reset/clean。首版不从远端历史查找本机从未安装的旧版本；已有旧目录管理也不意味着其脚本能力自动通过验证。
 
-普通归档已选用固定版本 libarchive 加 zlib/liblzma/zstd/bzip2，静态链接进 `coop.exe`；ZIP、7z、tar 系列及嵌套布局的实际覆盖与边界见[归档生命周期覆盖](archive-support.md)。MSI 产物管理的管理镜像提取使用只读数据库访问（`msi.dll`）与 Windows cabinet 解压 API（`cabinet.dll`），不另引第三方 MSI 读取库；它不等同于执行厂商安装器。安装器格式仍按覆盖表区分原生支持、需明确外部工具、已知不支持与未测试；不能因普通归档库支持 7z 就推断可完整替代 7-Zip 对 NSIS/Inno/MSI 等安装器的处理。路径穿越、reparse point、Unicode 和中断处理必须成为测试输入。
+普通归档已选用固定版本 libarchive 加 zlib/liblzma/zstd/bzip2，静态链接进 `coop.exe`；ZIP、7z、tar 系列及嵌套布局的实际覆盖与边界见[归档生命周期覆盖](archive-support.md)。MSI 产物管理的管理镜像提取使用只读数据库访问（`msi.dll`）与 Windows cabinet 解压 API（`cabinet.dll`），不另引第三方 MSI 读取库；它不等同于执行厂商安装器。Inno Setup 的 `innosetup` 载荷由 root 内单独安装的 innounp helper 解包，Coop 不内嵌也不下载该工具，并在预览和执行前把它作为外部工具需求声明；这也不同于原生理解厂商安装器格式。安装器格式仍按覆盖表区分原生支持、需明确外部工具、已知不支持与未测试；不能因普通归档库支持 7z 就推断可完整替代 7-Zip 对 NSIS/Inno/MSI 等安装器的处理。路径穿越、reparse point、Unicode 和中断处理必须成为测试输入。
 
 HTTP、哈希与进程使用 WinHTTP、Windows CNG、CreateProcessW；JSON、测试框架、普通归档压缩库与构建依赖已固定版本并静态构建。最终优先单个 coop.exe；静态链接体积、许可随附及脚本运行时需求继续核对。
 

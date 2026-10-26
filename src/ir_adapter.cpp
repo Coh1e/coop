@@ -45,8 +45,11 @@ fs::path relative_path(const std::string& value, bool root_allowed = false) {
     if (!root_allowed && (path.empty() || path == L".")) throw std::runtime_error("Manifest file path is empty");
     return path;
 }
-ArchiveFormat archive_format(const std::string& filename) {
+ArchiveFormat archive_format(const std::string& filename, bool innosetup) {
     const auto name = lower(filename);
+    // Scoop applies Expand-InnoArchive only to an .exe artifact of an `innosetup` Manifest; every
+    // other artifact keeps its ordinary archive handling.
+    if (innosetup && name.ends_with(".exe")) return ArchiveFormat::inno_setup;
     if (name.ends_with(".zip")) return ArchiveFormat::zip;
     if (name.ends_with(".7z")) return ArchiveFormat::seven_zip;
     if (name.ends_with(".msi")) return ArchiveFormat::msi;
@@ -146,6 +149,7 @@ const char* archive_format_name(ArchiveFormat format) {
     case ArchiveFormat::seven_zip: return "7z";
     case ArchiveFormat::tar: return "tar";
     case ArchiveFormat::msi: return "msi";
+    case ArchiveFormat::inno_setup: return "inno-setup";
     }
     return "unknown";
 }
@@ -198,6 +202,7 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
         const auto hashes = strings(pick("hash"),"hash");
         const auto extract_directories = strings(pick("extract_dir"),"extract_dir");
         const auto extract_destinations = strings(pick("extract_to"),"extract_to");
+        const auto innosetup = effective(pick("innosetup"));
         package.declared_hash_count = hashes.size();
         std::size_t archive_index = 0;
         for (std::size_t index = 0; index < urls.size(); ++index) {
@@ -210,7 +215,7 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
             local_name = local_name.substr(0,local_name.find('?'));
             validate_component(local_name);
             download.filename = local_name;
-            download.format = archive_format(local_name);
+            download.format = archive_format(local_name,innosetup);
             if (index < hashes.size()) download.digest = parse_digest(hashes[index]);
             if (download.format != ArchiveFormat::file) {
                 if (archive_index < extract_directories.size())
@@ -334,7 +339,9 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
                 if (item.key() != "file" && item.key() != "args" && item.key() != "keep" && item.key() != "script")
                     package.diagnostics.push_back({Layer::adapter,"installer-field","Unsupported installer option: "+item.key()});
         }
-        for (const auto* field : {"innosetup","psmodule","cookie","referer"})
+        // psmodule, cookie and referer remain unsupported source declarations; `innosetup` is
+        // translated into the IR archive mechanism above instead of being rejected as text.
+        for (const auto* field : {"psmodule","cookie","referer"})
             if (effective(pick(field)))
                 package.diagnostics.push_back({Layer::adapter,"unsupported-capability",std::string("Not yet supported: ")+field});
     } catch (const Json::parse_error& error) {

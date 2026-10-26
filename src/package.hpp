@@ -7,7 +7,7 @@
 namespace coop {
 enum class DiagnosticKind { syntax, adapter, validation, environment, capability, verification };
 struct Diagnostic { DiagnosticKind kind; std::string code; std::string message; };
-enum class ArchiveKind { none, zip, seven_zip, tar, msi };
+enum class ArchiveKind { none, zip, seven_zip, tar, msi, inno_setup };
 struct Artifact {
     std::string url;
     std::string filename;
@@ -112,7 +112,7 @@ void recheck_plan(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);
 Json execute_plan_result(const Context& context, const Plan& plan);
 std::string execution_blocker(const Context& context, const Plan& plan);
-std::string package_execution_blocker(const Package& package);
+std::string package_execution_blocker(const Context& context, const Package& package);
 AdoptionAssessment assess_adoption(const Context& context, const Plan& plan);
 Json commit_adoption_result(const Context& context, const Plan& plan);
 bool recover_adoption(const Context& context, const Plan& plan, const fs::path& journal_path);

@@ -74,7 +74,7 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (std::any_of(plan.package.artifacts.begin(),plan.package.artifacts.end(),[](const Artifact& artifact) { return artifact.archive != ArchiveKind::none; })) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"archive-adoption-unverified","Adoption of archived package layouts is not verified; only direct single-file installations are eligible"); return result;
         }
-        const auto current_blocker = package_execution_blocker(plan.package);
+        const auto current_blocker = package_execution_blocker(context,plan.package);
         if (!current_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"adoption-lifecycle-unsupported",current_blocker); return result;
         }
@@ -85,7 +85,7 @@ AdoptionAssessment assess_adoption(const Context& context, const Plan& plan) {
         if (!plan.update_candidate) {
             reject(AdoptionEligibility::untested,DiagnosticKind::verification,"missing-update-manifest","No same-source local Manifest to assess future updates"); return result;
         }
-        const auto future_blocker = package_execution_blocker(*plan.update_candidate);
+        const auto future_blocker = package_execution_blocker(context,*plan.update_candidate);
         if (!future_blocker.empty()) {
             reject(AdoptionEligibility::unsupported,DiagnosticKind::capability,"future-update-unsupported",future_blocker); return result;
         }

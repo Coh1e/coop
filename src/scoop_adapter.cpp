@@ -27,6 +27,7 @@ ArchiveKind legacy_archive(ir::ArchiveFormat format) {
     case ir::ArchiveFormat::seven_zip: return ArchiveKind::seven_zip;
     case ir::ArchiveFormat::tar: return ArchiveKind::tar;
     case ir::ArchiveFormat::msi: return ArchiveKind::msi;
+    case ir::ArchiveFormat::inno_setup: return ArchiveKind::inno_setup;
     }
     return ArchiveKind::none;
 }

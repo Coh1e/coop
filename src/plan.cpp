@@ -6,6 +6,7 @@
 #include "script.hpp"
 #include "shim.hpp"
 #include "archive.hpp"
+#include "inno.hpp"
 #include "msi.hpp"
 #include <algorithm>
 #include <iostream>
@@ -57,6 +58,7 @@ const char* archive_name(ArchiveKind kind) {
     case ArchiveKind::seven_zip: return "7z";
     case ArchiveKind::tar: return "tar";
     case ArchiveKind::msi: return "msi";
+    case ArchiveKind::inno_setup: return "inno-setup";
     }
     return "unknown";
 }
@@ -177,8 +179,8 @@ ir::DependencyResolution resolve_package_dependencies(const Context& context, co
             }
         throw std::runtime_error("Package not found in local buckets");
     };
-    const ir::DependencyBlocker blocker = [](const ir::Package& definition) {
-        return package_execution_blocker(project_package(definition));
+    const ir::DependencyBlocker blocker = [&context](const ir::Package& definition) {
+        return package_execution_blocker(context,project_package(definition));
     };
     return ir::resolve_dependencies(*package.definition,ir::read_installations(context.root),require_installed,
         source,blocker);
@@ -216,9 +218,9 @@ void append_ir_plan(Plan& plan, ir::Action action, bool retain_previous_version)
         plan.steps.push_back({legacy_step(step.operation),step.index,step.previous,step.effect});
     plan.ir_steps = package_plan.steps;
 }
-Json external_tools_json(const Package& package) {
+Json external_tools_json(const Context& context, const Package& package) {
     Json result = Json::array();
-    for (const auto& tool : package_external_tools(package))
+    for (const auto& tool : package_external_tools(context,package))
         result.push_back({{"name",tool.name},{"purpose",tool.purpose},{"policy",tool.policy},
             {"available",tool.available},{"enabled",tool.enabled},{"limitation",tool.limitation},
             {"path",path_text(tool.path)}});
@@ -227,6 +229,11 @@ Json external_tools_json(const Package& package) {
 bool has_msi_artifact(const Package& package) {
     return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
         return artifact.archive == ArchiveKind::msi;
+    });
+}
+bool has_inno_artifact(const Package& package) {
+    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
+        return artifact.archive == ArchiveKind::inno_setup;
     });
 }
 // The permission and reboot facts are stated where the user reviews the plan, and they describe the
@@ -246,7 +253,27 @@ Json msi_extraction_json() {
         {"external_cabinets","unsupported: an MSI whose Media table names an external cabinet, or a multi-part cabinet, fails before any file is published"},
         {"differences","the administrative-install copy of the MSI file itself and empty directories that only carry shortcuts are not written"}};
 }
-Json package_json(const Package& package) {
+// Inno Setup extraction is the one mechanism whose unpacker is a separately installed software
+// dependency, so the plan states both the route and the helper's actual availability before any
+// download or write happens.
+Json inno_setup_json(const Context& context) {
+    const auto helper = inno_helper(context);
+    return {{"mechanism","the declared external innounp helper, started with Scoop's Expand-InnoArchive arguments"},
+        {"helper",path_text(helper.path)},
+        {"helper_available",!helper.path.empty()},
+        {"helper_problem",helper.problem},
+        {"helper_lookup","apps/innounp-unicode/current/innounp.exe then apps/innounp/current/innounp.exe under the selected root and the optional global root"},
+        {"helper_policy","a separate software dependency of this package mechanism, not a Coop core dependency; Coop detects it and never downloads, installs or bundles it"},
+        {"arguments","-x -d<destination> <setup.exe> -y -c<selection>, exactly as Scoop 0.6.0's Expand-InnoArchive"},
+        {"selection","-c{app} when no extract_dir is declared, -c{app}\\<extract_dir> for a relative extract_dir, and the declared {path} when extract_dir starts with '{'"},
+        {"installer_executed",false},
+        {"elevation","not requested: innounp unpacks files into the selected root and the vendor installer never runs"},
+        {"reboot","not required: no vendor installer process is started, so its reboot scheduling cannot run"},
+        {"installer_effects","not executed: the vendor installer's [Run], [Registry], services, Start Menu entries and uninstall registration are outside this extraction"},
+        {"layout","the files below the selected Inno directory, then the declared extract_dir/extract_to; file contents and timestamps are what innounp writes"},
+        {"limitations","encrypted installers need a password Coop does not supply, and an Inno Setup version the installed innounp cannot read fails with a named non-zero error before a version is published"}};
+}
+Json package_json(const Context& context, const Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
         {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
         {"commands",Json::array()},{"shortcuts",Json::array()},{"persistence",Json::array()},
@@ -273,8 +300,9 @@ Json package_json(const Package& package) {
         {"library_path",host.library ? path_text(*host.library) : std::string{}},
         {"interpreter",host.interpreter ? path_text(*host.interpreter) : std::string{}},
         {"problem",host.problem}};
-    result["external_tools"] = external_tools_json(package);
+    result["external_tools"] = external_tools_json(context,package);
     if (has_msi_artifact(package)) result["msi_extraction"] = msi_extraction_json();
+    if (has_inno_artifact(package)) result["inno_setup"] = inno_setup_json(context);
     result["dependencies"] = package.dependencies;
     // Installer/uninstaller programs run through the same real PowerShell host and pinned Scoop
     // library as hook scripts, calling upstream Invoke-Installer. The preview therefore names the
@@ -460,11 +488,11 @@ void recheck_plan(const Plan& plan) {
 static Json describe_plan(const Context& context, const Plan& plan) {
     const auto action = plan.action;
     const fs::path argument_base = context.root/L"apps"/wide(plan.package.name)/L"current";
-    auto package_description = package_json(plan.package);
+    auto package_description = package_json(context,plan.package);
     expand_package_arguments(context,plan.package.name,package_description,argument_base);
     Json result = {{"action",action_name(action)},{"package",std::move(package_description)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
-        {"external_tools",external_tools_json(plan.package)},
+        {"external_tools",external_tools_json(context,plan.package)},
         {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
     result["scoop_entry_wrappers"] = Json::array();
@@ -553,7 +581,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
     if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
     if (plan.update_candidate) {
-        result["update_candidate"] = package_json(*plan.update_candidate);
+        result["update_candidate"] = package_json(context,*plan.update_candidate);
         expand_package_arguments(context,plan.update_candidate->name,result["update_candidate"],
             context.root/L"apps"/wide(plan.update_candidate->name)/L"current");
         if (!plan.update_candidate->diagnostics.empty()) result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
@@ -575,6 +603,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (has_msi_artifact(plan.package) || (plan.previous && has_msi_artifact(*plan.previous)))
         result["lifecycle_checks"]["msi_extraction"] = "read-only Windows Installer database plus the Windows cabinet decompression API; no elevation, reboot, msiexec process or machine-cache write";
+    if (has_inno_artifact(plan.package) || (plan.previous && has_inno_artifact(*plan.previous))) {
+        const auto helper = inno_helper(context);
+        result["lifecycle_checks"]["inno_setup"] = helper.path.empty() ? helper.problem :
+            "declared external innounp helper "+path_text(helper.path)+
+            " with Scoop's Expand-InnoArchive arguments; the vendor installer is never run and no elevation or reboot is requested";
+    }
     if (plan.update_candidate && !plan.update_candidate->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
@@ -584,7 +618,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
     if (plan.previous) {
-        result["previous_package"] = package_json(*plan.previous);
+        result["previous_package"] = package_json(context,*plan.previous);
         expand_package_arguments(context,plan.previous->name,result["previous_package"],
             context.root/L"apps"/wide(plan.previous->name)/L"current");
     }
@@ -607,6 +641,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             artifact["extraction"] = "read-only-msi-image";
             artifact["requires_elevation"] = false;
             artifact["reboot_required"] = false;
+        } else if (item.archive == ArchiveKind::inno_setup) {
+            artifact["extraction"] = "external-innounp";
+            artifact["requires_elevation"] = false;
+            artifact["reboot_required"] = false;
+            artifact["vendor_installer_executed"] = false;
+            artifact["inno_selection"] = "-c"+inno_selection(path_text(item.extract_directory));
         }
         // Keep the historical key only for genuine SHA256 artifacts. A SHA512 value must never be
         // labelled sha256.
@@ -629,7 +669,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z and MSI archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z, MSI and Inno Setup archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); Inno Setup .exe artifacts are unpacked by the separately installed innounp helper with Scoop's Expand-InnoArchive arguments and layout (the vendor installer is never executed, the helper is detected and never downloaded, and its own [Run]/[Registry]/service/shortcut effects are outside the extraction); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
     return result;
 }
 struct PackageOutcome {

@@ -66,6 +66,9 @@ void validate(Package& package) {
         if (download.format == ArchiveFormat::msi)
             capability(package,"windows-installer",true,
                 "MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API: the Directory/Component/File/Media tables give the administrative image layout, no msiexec.exe process runs, no product is registered, no elevation or reboot is requested and no %WINDIR%\\Installer machine cache is written; external, multi-part and vendor installer payloads are reported as unsupported instead of being executed");
+        else if (download.format == ArchiveFormat::inno_setup)
+            capability(package,"inno-setup",true,
+                "Inno Setup .exe artifacts are unpacked by the separately declared external innounp helper that Scoop's Expand-InnoArchive also uses, found under apps/innounp-unicode/current or apps/innounp/current in the selected root: Coop starts it with Scoop's -x/-d/-y/-c arguments and publishes the selected Inno directory, never runs the vendor installer, and never downloads or installs the helper; the helper is a software dependency of the package mechanism, not a Coop core dependency, and the vendor installer's [Run], [Registry], service, shortcut and uninstall-registration effects are not executed");
         else if (download.format != ArchiveFormat::file)
             capability(package,"archive-"+std::string(archive_format_name(download.format)),true,
                 "Native libarchive extraction of "+std::string(archive_format_name(download.format))+" with declared extract_dir/extract_to layout");

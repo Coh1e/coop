@@ -19,7 +19,8 @@ fs::path prepare_package_target(const fs::path& root, const fs::path& relative);
 
 // External tools are detected, never downloaded or installed by Coop. The MSI image backend uses
 // the Windows Installer database API (a Windows system component) read-only, so it is reported as
-// a detected requirement with its exact boundary instead of being hidden.
+// a detected requirement with its exact boundary instead of being hidden. Inno Setup extraction
+// uses the separately installed innounp helper that Scoop also requires, reported the same way.
 struct ExternalTool {
     std::string name;
     std::string purpose;
@@ -29,5 +30,5 @@ struct ExternalTool {
     std::string limitation;
     fs::path path;
 };
-std::vector<ExternalTool> package_external_tools(const Package& package);
+std::vector<ExternalTool> package_external_tools(const Context& context, const Package& package);
 }

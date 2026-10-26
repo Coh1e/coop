@@ -8,6 +8,7 @@
 #include "user_environment.hpp"
 #include "script.hpp"
 #include "shim.hpp"
+#include "inno.hpp"
 #include "msi.hpp"
 #include <windows.h>
 #include <array>
@@ -33,7 +34,7 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
             throw std::runtime_error("Managed destination contains a reparse point");
     }
 }
-void require_capabilities(const Package& package) {
+void require_capabilities(const Context& context, const Package& package) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
     // Hook scripts and installer/uninstaller programs share one host requirement: a real PowerShell
@@ -66,6 +67,11 @@ void require_capabilities(const Package& package) {
             if (!msi_database_api() || !cabinet_api())
                 throw std::runtime_error("MSI extraction requires the Windows Installer database API (msi.dll) and the Windows cabinet decompression API (cabinet.dll), Windows system components that were not found; Coop never downloads or installs external tools, and it never falls back to msiexec.exe");
             break;
+        case ArchiveKind::inno_setup: {
+            const auto helper = inno_helper(context);
+            if (helper.path.empty()) throw std::runtime_error(helper.problem);
+            break;
+        }
         }
     }
     for (const auto& command : package.commands)
@@ -370,8 +376,8 @@ std::string command_entry_blocker(const Context& context, const Package& install
     return {};
 }
 }
-std::string package_execution_blocker(const Package& package) {
-    try { require_capabilities(package); } catch (const std::exception& error) { return error.what(); }
+std::string package_execution_blocker(const Context& context, const Package& package) {
+    try { require_capabilities(context,package); } catch (const std::exception& error) { return error.what(); }
     return {};
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
@@ -392,8 +398,8 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     }
     try {
-        require_capabilities(plan.package);
-        if (plan.previous) require_capabilities(*plan.previous);
+        require_capabilities(context,plan.package);
+        if (plan.previous) require_capabilities(context,*plan.previous);
     } catch (const std::exception& error) { return error.what(); }
     if (plan.action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
         return "Persistence mapping changes are not verified; refusing to update declared data";
@@ -978,6 +984,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_stage();
                 const auto& artifact = package.artifacts[step.index];
                 const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
+                // Inno Setup extraction selects the declared Inno directory with innounp's own -c
+                // switch, so the merge below starts at the extracted root instead of applying
+                // extract_dir a second time.
+                fs::path merge_directory = artifact.extract_directory;
                 if (artifact.archive == ArchiveKind::msi) {
                     // MSI artifacts are extracted from a read-only view of the installer database and
                     // its embedded cabinets. The journal records that no msiexec process, machine
@@ -990,6 +1000,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     entry["filename"] = artifact.filename;
                     journal["msi_extractions"].push_back(std::move(entry));
                     save();
+                } else if (artifact.archive == ArchiveKind::inno_setup) {
+                    const auto helper = inno_helper(context);
+                    if (helper.path.empty()) throw std::runtime_error(helper.problem);
+                    auto entry = extract_inno_archive(context,helper.path,downloaded_files[step.index],raw,
+                        path_text(artifact.extract_directory),transaction,step.index);
+                    entry["index"] = step.index;
+                    entry["filename"] = artifact.filename;
+                    if (!journal.contains("inno_extractions")) journal["inno_extractions"] = Json::array();
+                    journal["inno_extractions"].push_back(std::move(entry));
+                    save();
+                    merge_directory.clear();
                 } else {
                     extract_archive(downloaded_files[step.index],raw);
                 }
@@ -998,7 +1019,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // extracting the inner tar; plain tar applies it directly. Merge the tree below the
                 // selected directory for every archive kind, so nested layouts behave the same for
                 // ZIP, 7z, tar, tar.gz, tar.xz, tar.bz2 and tar.zst.
-                merge_archive_tree(raw,artifact.extract_directory,destination);
+                merge_archive_tree(raw,merge_directory,destination);
                 erase_tree(raw);
                 break;
             }

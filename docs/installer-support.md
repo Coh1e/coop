@@ -1,6 +1,6 @@
 # Installer/Uninstaller 与特殊安装机制
 
-日期：2026-10-26。任务：[R12 / #33](https://github.com/Coh1e/coop/issues/33)（MSI 软件完整生命周期）、[R11 / #32](https://github.com/Coh1e/coop/issues/32)（安装器/卸载器程序与多阶段脚本组合执行）与 [T14 / #16](https://github.com/Coh1e/coop/issues/16)（首版安装器机制调查），父规格 [#21](https://github.com/Coh1e/coop/issues/21) 取代 [#2](https://github.com/Coh1e/coop/issues/2) 的冲突描述。本文记录本轮实际启用的安装机制、真实样本、必要系统组件、隔离边界和未验证项；不是对任意 MSI、NSIS、Inno Setup 或安装器脚本的兼容承诺。
+日期：2026-10-26。任务：[R13 / #34](https://github.com/Coh1e/coop/issues/34)（Inno Setup 软件完整生命周期）、[R12 / #33](https://github.com/Coh1e/coop/issues/33)（MSI 软件完整生命周期）、[R11 / #32](https://github.com/Coh1e/coop/issues/32)（安装器/卸载器程序与多阶段脚本组合执行）与 [T14 / #16](https://github.com/Coh1e/coop/issues/16)（首版安装器机制调查），父规格 [#21](https://github.com/Coh1e/coop/issues/21) 取代 [#2](https://github.com/Coh1e/coop/issues/2) 的冲突描述。本文记录本轮实际启用的安装机制、真实样本、必要系统组件、隔离边界和未验证项；不是对任意 MSI、NSIS、Inno Setup 或安装器脚本的兼容承诺。
 
 行为依据固定 Scoop 提交 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f` 的 [`Invoke-Extraction` / `Expand-7zipArchive` / `Expand-MsiArchive`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/decompress.ps1)、[`install_app` / `Invoke-Installer`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1) 和固定样本 Manifest。实现只覆盖下面明确列出的机制。
 
@@ -17,11 +17,12 @@
 | `uninstaller.file` / `uninstaller.args` 卸载器程序 | 固定样本与当前 Main/Extras 固定修订没有此类声明 | 已启用（#32）：与安装器程序共用同一 `Invoke-Installer` 路径并在卸载/更新旧版本时以 `$dir` 指向被移除版本目录 | `tests/installer-programs.ps1` 以真实 `.cmd` 卸载器程序验证顺序、`$dir` 参数和失败保护 |
 | `uninstaller.script` | Main/rclone（实际样本） | 按 `uninstaller` 阶段在真实 PowerShell 中执行原文，`$dir`/`$persist_dir` 与 Scoop 一致 | `tests/installers.ps1` 使用 rclone 原文在卸载时把 `rclone.conf` 保存到 persist；`tests/hooks.ps1` 另用真实模板生成 `.reg` 文件（不 import） |
 | `reg import` 卸载脚本 | Main/7zip、Main/git、Extras/vscode、Extras/notepadplusplus | 脚本文本不再被静态拒绝，`reg import` 会作为真实外部进程执行；注册表属于项目外的用户/系统状态，Coop 不声称可回滚 | Main/git 的 `post_install` 只把 bucket `.reg` 模板渲染进包目录，`tests/hooks.ps1` 执行该原文并核对编码与替换 |
-| Inno Setup / NSIS / 其他 EXE 安装器 | Extras/aider-desk、Main/python 的 setup.exe 等 | 不解析厂商安装器结构；`innosetup` 等特殊机制声明仍拒绝，`installer.file/args` 作为普通程序声明已启用（#32） | 计划诊断 |
+| Inno Setup（`innosetup`） | 真实 Main/units 2.27/2.26 产物（项目内 Manifest 声明 `persist`）；真实 Main/rizin 0.9.1 产物（项目内变体声明 `extract_dir: bin`）；真实共用根 Main/units 2.27 | 已启用（#34）：定位 root 内已安装的 innounp helper（`innounp-unicode` 优先，其次 `innounp`；本地 root 后 global），以 Scoop `Expand-InnoArchive` 相同的参数与 `-c` 选择解包声明的 Inno 目录；不执行厂商安装器、不提权、不重启、不下载/安装/内嵌 helper。helper 缺失时预览 `execution_available=false` 并给出具名诊断 | `tests/inno-lifecycle.ps1`（真实 Units 2.27 → 2.26 更新、项目内变体的相对 `extract_dir` rizin `{app}\bin`、截断失败、缺失 helper、普通卸载）、`tests/real-scoop-inno.ps1`（真实共用根 Main/units 双向交替与逐文件镜像一致） |
+| NSIS / 其他厂商 EXE 安装器 | Extras/aider-desk、Main/python 的 setup.exe 等 | 安装器结构仍未解析；`installer.file/args` 作为普通程序声明已启用（#32），二者都不等于理解厂商安装器格式 | 计划诊断 |
 | `installer.file` / `installer.args` 进程声明 | Main/groovyserv、Main/vcpkg（真实声明） | 已启用（#32）：程序在版本目录运行，位于 `pre_install` 之后、`current`/入口发布之前；失败使包操作失败并回滚已创建的包状态，项目外副作用不承诺回滚且不自动重试 | `tests/installer-programs.ps1`、`tests/real-scoop-installers.ps1` |
 | `post_uninstall` | Extras/aider-desk、Main/azure-cli | 已启用（#31）：在版本目录移除后由真实 PowerShell 执行，`$dir` 仍指向已移除的版本路径；样本自身删除用户数据的行为是受信脚本副作用，测试只用项目内合成脚本验证阶段语义 | `tests/hooks.ps1` |
 
-普通压缩库能力只用于普通 7z 归档和 7z 自解压载荷；MSI 的内嵌 cabinet 由 Windows cabinet 解压 API 处理。两者都不被描述成 NSIS 或 Inno Setup 的完整安装器提取能力。
+普通压缩库能力只用于普通 7z 归档和 7z 自解压载荷；MSI 的内嵌 cabinet 由 Windows cabinet 解压 API 处理；Inno Setup 的厂商载荷由 root 内声明的 innounp helper 解包。三者都不被描述成 NSIS 或其他厂商安装器的完整安装器提取能力。
 
 ## MSI 管理镜像提取（#33）
 
@@ -36,6 +37,16 @@ Scoop 的 `Expand-MsiArchive` 用 `msiexec /a` 生成管理镜像；#16 的证�
 - **与 `msiexec /a` 镜像的已记录差异**：不写管理镜像自带的 MSI 文件副本，也不创建仅承载快捷方式组件的空目录（其中没有包文件）。
 - **运行记录**：安装事务日志的 `msi_extractions[i]` 记录只读访问、cabinet 名与 cabinet 文件数、未压缩流数、文件数与字节数，以及 `msiexec_started=false`、权限/重启/机器缓存说明。
 
+## Inno Setup 提取（#34）
+
+Scoop 的 `Expand-InnoArchive` 本身不解析 Inno Setup 格式，而是调用单独安装的 [innounp](https://www.rathlev-home.de/tools/prog-e.html#unpack)。R13 沿用同一条路线，不把 innounp 嵌入 `coop.exe`，也不把外部软件依赖混同为核心依赖。
+
+- **辅助工具明确声明**：预览的 `package.inno_setup` 给出 `helper`、`helper_available`、`helper_problem`、查找位置、参数与 `-c` 选择规则、权限/重启/安装器效果边界；`external_tools` 以 `innounp (Inno Setup unpacker)` 单独列出 `available`/`enabled`/`path`/`policy`/`limitation`。helper 的查找顺序与 Scoop `Get-AppFilePath` 一致：本地 root 的 `apps/innounp-unicode/current/innounp.exe`、本地 `apps/innounp/current/innounp.exe`，再到可选 global root。缺失时预览 `execution_available=false`、诊断 `execution-blocked`，执行在创建事务前以具名非零失败；Coop 不会下载、安装或替换 helper。
+- **参数与选择**：按固定 Scoop 0.6.0 的 `Expand-InnoArchive` 顺序传入 `-x -d<目标目录> <setup.exe> -y -c<选择>`。`extract_dir` 为空时选择 `{app}`；相对路径选择 `{app}\<extract_dir>`；以 `{` 开头时原样传递（例如 `{app}\bin`）。预览的 `artifacts[].inno_selection` 展示具体 `-c` 值，而不是只给出规则。
+- **布局**：helper 只解包选中的 Inno 目录，文件内容与时间戳来自 innounp；已选目录直接作为包根，再由统一的 `extract_to` 逻辑发布，不再重复应用 `extract_dir`。真实共用根上 Coop 与 Scoop 安装同一 Main/units 2.27 后的版本目录 15 个文件逐文件 SHA256 相同；项目内变体为真实 rizin 0.9.1 安装器声明 `extract_dir: bin`，只发布声明的 37 个 `{app}\bin` 文件。
+- **不执行厂商安装器**：不启动 `setup.exe`，不请求提权，不安排重启；厂商安装器的 `[Run]`、`[Registry]`、服务、开始菜单项与卸载登记都不会被创建，因此该机制不是任意 Inno 安装器的完整安装替代。加密安装器需要密码，当前不提供；innounp 无法识别的 Inno 版本或损坏产物在发布版本前以具名非零失败并回滚。
+- **运行记录**：事务日志 `inno_extractions[i]` 记录 helper 路径与 SHA256、完整参数、`selection`、退出码、stdout/stderr 日志与尾部、文件数与字节数，以及 `installer_executed=false`、权限/重启/安装器效果说明；非零 helper 退出不会留下 `inno_extractions` 成功记录。
+
 ## Installer/Uninstaller 脚本生命周期
 
 脚本相位的顺序与固定 Scoop 一致：
@@ -48,7 +59,7 @@ Scoop 的 `Expand-MsiArchive` 用 `msiexec /a` 生成管理镜像；#16 的证�
 
 脚本上下文、辅助函数和阶段语义见 [生命周期 Hook 与真实 PowerShell](script-support.md)。`installer.script` 和 `uninstaller.script` 与普通 Hook 共用同一真实 PowerShell 宿主、固定 Scoop 兼容库、stdout/stderr 日志、退出码传播和失败回滚；脚本不自动重试，脚本造成的项目外副作用不声称可回滚。
 
-`installer.script` 不再按文本子集拒绝：Main/python 的原文会交给真实 PowerShell；其中的 `Expand-DarkArchive` 等厂商安装器机制仍属于后续任务（Inno/NSIS/Dark），缺少 helper 时以非零退出码失败，这不等于 python 样本已兼容。`installer` 阶段的可执行路径用测试脚本验证顺序、上下文、退出码和失败传播。Main/rclone 的 `uninstaller.script` 原文已在隔离测试与真实共用根的生命周期中实际运行。
+`installer.script` 不再按文本子集拒绝：Main/python 的原文会交给真实 PowerShell；其中的 `Expand-DarkArchive` 等厂商安装器机制仍属于后续任务（NSIS/Dark），缺少 helper 时以非零退出码失败，这不等于 python 样本已兼容。`installer` 阶段的可执行路径用测试脚本验证顺序、上下文、退出码和失败传播。Main/rclone 的 `uninstaller.script` 原文已在隔离测试与真实共用根的生命周期中实际运行。
 
 ### 安装器/卸载器程序（#32）
 
@@ -66,14 +77,21 @@ Scoop 的 `Expand-MsiArchive` 用 `msiexec /a` 生成管理镜像；#16 的证�
 ## 隔离与阻塞
 
 - 所有实际执行的安装目标、7z 解压临时目录、MSI cabinet 临时文件、脚本日志和事务恢复记录都位于当前项目根目录内；测试根还包含空格和中文路径。
+- Inno Setup 提取不启动厂商 `setup.exe`；Coop 只启动 root 内已安装的 innounp helper。隔离测试从固定 innounp 包归档提供 helper 并断言其文件逐个 SHA256 不变，证明既未下载也未替换；未在隔离测试中执行需要管理员权限的厂商安装器。
 - MSI 管理镜像提取不调用 `msiexec`，不需要提权或重启，也不写 `%WINDIR%\Installer`。测试在真实机器缓存前后快照上断言 Coop 的安装/更新/卸载不改变它；同一次真实交替运行中 Scoop 自己的 MSI 安装会改变该缓存，按客户端分别记录，不把另一客户端的行为算作 Coop 已隔离。
 - 注册表导入、服务控制、用户/系统环境变量、任意外部进程和用户目录写入：脚本文本不再被静态拒绝（#31），真实 PowerShell 会执行它们；这些是受信包内容的外部副作用，Coop 不声称可回滚，也不在测试中执行会修改真实注册表/用户数据的样本。安装器程序声明（#32）同样会真实执行其声明的程序，因此外部副作用保护与脚本相同。
 - 需要管理员的真实系统安装不进入自动路径；没有绕过 UAC 或写入 HKLM/HKCU 的测试。
 - `installer.file`/`installer.args` 已启用，但仍是“受信外部程序”语义：Coop 不承诺回滚其项目外副作用，也不为失败程序重试。需要管理员权限、会改注册表/服务/系统目录的程序仍不会在自动测试中执行。
 - 真实 Main/Extras 中没有 `uninstaller.file/args` 样本；卸载器程序路径由真实 `.cmd` 程序在隔离根验证，未在真实共用根执行。
-- `innosetup`、NSIS 与厂商 MSI 引导程序的**安装器结构**仍不解析；MSI 支持的是管理镜像提取，`installer.file` 只是启动声明的那一个文件，两者都不等同于理解厂商安装器格式。
+- `innosetup` 已按 #34 通过 root 内声明的 innounp helper 提取声明的 Inno 目录；NSIS、WiX 与厂商 MSI 引导程序的**安装器结构**仍不解析，MSI 支持的是管理镜像提取，`installer.file` 只是启动声明的那一个文件，它们都不等同于理解厂商安装器格式。
 
 ## 本轮运行状态
+
+### #34（Inno Setup 软件完整生命周期）
+
+- 已运行：`tests/inno-lifecycle.ps1`（CTest `inno_lifecycle`，130 项检查）在项目内隔离根（路径含空格与中文）用真实 CLI、真实 GNU Units 2.27/2.26 Inno Setup 产物、真实 rizin 0.9.1 安装器和固定 innounp 2.71.2 helper 覆盖：预览只列 helper/参数/选择/边界且不启动任何子进程；安装 2.27（守卫进程只有 `coop.exe` 与 `innounp.exe`，无 `setup.exe`/`msiexec`；15 个文件、持久化 junction、Scoop 记录、真实 `units.exe --version` 与单位换算）；更新 2.26（旧版本保留、`current` 重指、真实程序版本切换、持久化数据复用）；rizin 的 `extract_dir: bin` 只得到 37 个 `{app}\bin` 文件且真实 `rizin -v` 可运行；截断产物在 helper 阶段非零并回滚，原版本继续运行；helper 缺失时预览 `execution_available=false`、执行前阻塞，Coop 未下载/重建 helper；普通卸载保留声明的持久化数据。证据：`.local/pi/tasks/34/evidence/inno-lifecycle-de37b4f567e7/evidence.json`。
+- 已运行（真实共用根）：`tests/real-scoop-inno.ps1` 在本机 `C:\Users\Neo\scoop`（Scoop v0.6.0，`main` 修订 `a97619fe`）只读预览真实 `Main/units` 2.27，然后执行双向交替：Coop 安装（守卫进程只有 `coop.exe` 与真实 `apps/innounp/2.71.2/innounp.exe`；事务 `inno_extractions` 记录 `-c{app}`、15 个文件、`installer_executed=false`）→ Scoop `uninstall` → Scoop `install` → Coop `uninstall`。Coop 与 Scoop 生成的版本目录 15 个文件逐文件 SHA256 相同；`units --version`、`scoop list` 与 `coop list` 在每一步互相识别；结束后的 apps/persist/shims/Coop 记录集合与运行前一致、无 pending 事务、helper 包逐文件不变。
+- 未运行：加密 Inno Setup 安装器、innounp 不支持的 Inno 版本和需要提权的真实厂商安装器（边界由代码拒绝路径与具名失败描述，未构造伪造样本）；真实共用根上的 Inno 更新（固定 bucket 只有单一 units 版本，更新由真实 2.27→2.26 产物的隔离测试覆盖）；Extras 中其余 Inno 包（本地只有 main bucket）的逐个实跑。
 
 ### #33（MSI 软件完整生命周期）
 
@@ -96,4 +114,4 @@ Scoop 的 `Expand-MsiArchive` 用 `msiexec /a` 生成管理镜像；#16 的证�
 - 静态/历史结果：真实 7z 产物的 SHA256 与固定样本一致；Scoop 源码顺序和脚本原文来自固定提交；验证者在 `6203f08` 观察到 `msiexec /a` 的机器缓存写入，这是 #16 当时的阻塞依据。
 - 未运行（历史）：MSI 管理安装生命周期、git/vscode/firefox/aider-desk 的真实 `#/dl.7z` 载荷、其他厂商 MSI、lessmsi、NSIS/Inno/WiX 提取、任意 MSI 的完整安装、真实用户目录安装、需要管理员的系统级安装、python installer.script 的实际执行、`Main/vcpkg` 的实际生命周期。
 
-具体命令、退出码和证据位置见 Issue #16 / #31 / #32 / #33 报告与 `.local/pi/tasks/16|31|32|33/evidence`；#33 的真实共用根证据：`.local/pi/tasks/33/evidence/real-scoop-msi-4c75be4f5758/`（`coop.exe` SHA256 `4c75be4f…`，含 `00-versions.txt` 与 `99-summary.json`）；#32 的真实共用根证据：`.local/pi/tasks/32/evidence/real-groovyserv-707adad45c48/`（`coop.exe` SHA256 `707adad4…`，源码头 `3a148a9`，含 `99-head-binding.txt`）；另一份同源构建的记录在 `real-groovyserv-9c1f95b7ce1e/` 与 `real-groovyserv-9c1f95b7ce1e-head-da62478/`，更早的 `real-groovyserv-3aa377072ef3/` 是中间构建。MSVC 同一源码重建会得到不同 PE 摘要，因此按运行目录区分，以源码头与测试日志为准。
+具体命令、退出码和证据位置见 Issue #16 / #31 / #32 / #33 / #34 报告与 `.local/pi/tasks/16|31|32|33|34/evidence`；#34 的真实共用根证据：`.local/pi/tasks/34/evidence/real-scoop-inno-de37b4f567e7/`（`coop.exe` SHA256 `de37b4f5…`，含 `00-versions.txt`、`03-units-coop-image.txt`、`05-units-scoop-image.txt`、`99-summary.json`）；#33 的真实共用根证据：`.local/pi/tasks/33/evidence/real-scoop-msi-4c75be4f5758/`（`coop.exe` SHA256 `4c75be4f…`，含 `00-versions.txt` 与 `99-summary.json`）；#32 的真实共用根证据：`.local/pi/tasks/32/evidence/real-groovyserv-707adad45c48/`（`coop.exe` SHA256 `707adad4…`，源码头 `3a148a9`，含 `99-head-binding.txt`）；另一份同源构建的记录在 `real-groovyserv-9c1f95b7ce1e/` 与 `real-groovyserv-9c1f95b7ce1e-head-da62478/`，更早的 `real-groovyserv-3aa377072ef3/` 是中间构建。MSVC 同一源码重建会得到不同 PE 摘要，因此按运行目录区分，以源码头与测试日志为准。

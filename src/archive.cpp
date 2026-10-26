@@ -1,5 +1,6 @@
 #include "archive.hpp"
 #include "data.hpp"
+#include "inno.hpp"
 #include "msi.hpp"
 #include <windows.h>
 #include <archive.h>
@@ -188,11 +189,24 @@ fs::path prepare_package_target(const fs::path& root, const fs::path& relative) 
     ensure_parents(root,target);
     return target;
 }
-std::vector<ExternalTool> package_external_tools(const Package& package) {
+std::vector<ExternalTool> package_external_tools(const Context& context, const Package& package) {
     std::vector<ExternalTool> tools;
     const auto database_api = msi_database_api();
     const auto fdi_api = cabinet_api();
+    InnoHelper inno;
+    bool inno_looked_up = false;
     for (const auto& artifact : package.artifacts) {
+        if (artifact.archive == ArchiveKind::inno_setup) {
+            if (!inno_looked_up) { inno = inno_helper(context); inno_looked_up = true; }
+            tools.push_back({"innounp (Inno Setup unpacker)",
+                "unpack the Inno Setup payload of "+artifact.filename+" with the same arguments as Scoop's Expand-InnoArchive",
+                "separately declared software dependency installed in the selected root; Coop detects it, never downloads or installs it, and never substitutes a bundled unpacker",
+                !inno.path.empty(),!inno.path.empty(),
+                inno.path.empty() ? inno.problem :
+                    "extracts the vendor installer's files only: [Run], [Registry], service, shortcut and uninstall-registration effects are not executed, encrypted installers need a password Coop does not supply, and a non-zero helper exit fails before a version is published",
+                inno.path});
+            continue;
+        }
         if (artifact.archive != ArchiveKind::msi) continue;
         tools.push_back({"Windows Installer APIs","read-only MSI database access (msi.dll) and embedded cabinet decompression (cabinet.dll) for "+artifact.filename,
             "Windows system components; Coop never downloads or installs them and never runs msiexec.exe",

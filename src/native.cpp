@@ -7,8 +7,10 @@
 #include <fstream>
 #include <array>
 #include <cctype>
-#include <stdexcept>
+#include <cstdio>
 #include <cstring>
+#include <stdexcept>
+#include <thread>
 
 namespace coop {
 namespace {
@@ -117,6 +119,114 @@ void make_junction(const fs::path& link, const fs::path& target) {
         throw std::runtime_error("Cannot create native junction (Windows error "+std::to_string(error)+")");
     }
 }
-
+std::wstring quote_argument(const std::wstring& value) {
+    if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos) return value;
+    std::wstring result = L"\"";
+    unsigned backslashes = 0;
+    for (const auto character : value) {
+        if (character == L'\\') { ++backslashes; continue; }
+        if (character == L'"') result.append(backslashes*2+1,L'\\');
+        else result.append(backslashes,L'\\');
+        result += character;
+        backslashes = 0;
+    }
+    result.append(backslashes*2,L'\\');
+    result += L'"';
+    return result;
+}
+namespace {
+constexpr std::size_t max_tail_bytes = 16384;
+struct FileHandle {
+    HANDLE value = INVALID_HANDLE_VALUE;
+    FileHandle() = default;
+    explicit FileHandle(HANDLE handle) : value(handle) {}
+    ~FileHandle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+    FileHandle(const FileHandle&) = delete;
+    FileHandle& operator=(const FileHandle&) = delete;
+    void reset() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); value = INVALID_HANDLE_VALUE; }
+};
+void drain(HANDLE pipe, std::size_t& total, std::string& tail, FILE* log, bool echo, FILE* target) {
+    std::array<char,65536> buffer{};
+    for (;;) {
+        DWORD count = 0;
+        if (!ReadFile(pipe,buffer.data(),static_cast<DWORD>(buffer.size()),&count,nullptr) || count == 0) break;
+        total += count;
+        if (log) std::fwrite(buffer.data(),1,count,log);
+        if (tail.size()+count > max_tail_bytes) {
+            if (count >= max_tail_bytes) tail.assign(buffer.data()+count-max_tail_bytes,max_tail_bytes);
+            else {
+                tail.erase(0,tail.size()+count-max_tail_bytes);
+                tail.append(buffer.data(),count);
+            }
+        } else tail.append(buffer.data(),count);
+        if (echo && target) {
+            std::fwrite(buffer.data(),1,count,target);
+            std::fflush(target);
+        }
+    }
+    if (log) std::fflush(log);
+}
+struct LogFile {
+    FILE* value = nullptr;
+    LogFile() = default;
+    ~LogFile() { close(); }
+    LogFile(const LogFile&) = delete;
+    LogFile& operator=(const LogFile&) = delete;
+    void open(const fs::path& path) {
+        if (_wfopen_s(&value,path.c_str(),L"wb") != 0 || !value)
+            throw std::runtime_error("Cannot write the external tool output log");
+    }
+    void close() { if (value) { std::fclose(value); value = nullptr; } }
+};
+}
+ToolRun run_tool(const fs::path& executable, const std::vector<std::string>& arguments,
+                 const fs::path& working_directory, const fs::path& stdout_log,
+                 const fs::path& stderr_log, bool echo) {
+    std::wstring command_line = quote_argument(executable.wstring());
+    for (const auto& argument : arguments) command_line += L" "+quote_argument(wide(argument));
+    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES),nullptr,TRUE};
+    FileHandle out_read, out_write, err_read, err_write;
+    if (!CreatePipe(&out_read.value,&out_write.value,&attributes,0)) throw std::runtime_error("Cannot create the external tool stdout pipe");
+    if (!CreatePipe(&err_read.value,&err_write.value,&attributes,0)) throw std::runtime_error("Cannot create the external tool stderr pipe");
+    if (!SetHandleInformation(out_read.value,HANDLE_FLAG_INHERIT,0) || !SetHandleInformation(err_read.value,HANDLE_FLAG_INHERIT,0))
+        throw std::runtime_error("Cannot isolate the external tool output pipes");
+    FileHandle input(CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&attributes,OPEN_EXISTING,0,nullptr));
+    if (input.value == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot open the external tool stdin device");
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdInput = input.value;
+    startup.hStdOutput = out_write.value;
+    startup.hStdError = err_write.value;
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(nullptr,command_line.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,
+                        working_directory.empty() ? nullptr : working_directory.c_str(),&startup,&process))
+        throw std::runtime_error("Cannot start the external tool "+path_text(executable)+" (Windows error "+
+            std::to_string(GetLastError())+")");
+    FileHandle process_handle(process.hProcess);
+    CloseHandle(process.hThread);
+    out_write.reset();
+    err_write.reset();
+    ToolRun result;
+    LogFile stdout_file, stderr_file;
+    stdout_file.open(stdout_log);
+    stderr_file.open(stderr_log);
+    std::thread stdout_thread(drain,out_read.value,std::ref(result.stdout_bytes),std::ref(result.stdout_tail),
+        stdout_file.value,echo,stdout);
+    std::thread stderr_thread(drain,err_read.value,std::ref(result.stderr_bytes),std::ref(result.stderr_tail),
+        stderr_file.value,echo,stderr);
+    WaitForSingleObject(process_handle.value,INFINITE);
+    DWORD exit_code = 1;
+    GetExitCodeProcess(process_handle.value,&exit_code);
+    stdout_thread.join();
+    stderr_thread.join();
+    const bool log_failed = std::ferror(stdout_file.value) != 0 || std::ferror(stderr_file.value) != 0;
+    stdout_file.close();
+    stderr_file.close();
+    result.exit_code = static_cast<int>(exit_code);
+    if (log_failed) throw std::runtime_error("Cannot finish the external tool output log");
+    return result;
+}
 }
 
