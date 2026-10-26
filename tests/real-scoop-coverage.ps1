@@ -475,12 +475,16 @@ foreach ($record in $allRecords) {
         $fact = $verified[$record.id]
         $currentVersion = $record.version
         $lifecycleMatch = $null
+        $matchingVerifications = @()
         foreach ($verification in @($fact.lifecycle_verifications)) {
             if ($verification.run_exit -ne 0) { continue }
             if (($verification.coop_version -eq $currentVersion) -or ($verification.scoop_version -eq $currentVersion)) {
-                $lifecycleMatch = $verification
-                break
+                $matchingVerifications += $verification
             }
+        }
+        if ($matchingVerifications.Count) {
+            $lifecycleMatch = $matchingVerifications | Where-Object { $_.step -match 'real-update' } | Select-Object -First 1
+            if (-not $lifecycleMatch) { $lifecycleMatch = $matchingVerifications[0] }
         }
         $factsMatch = $fact.facts_run_exit -eq 0 -and $fact.facts_version -and $fact.facts_version -eq $currentVersion
         if ($fact.installed_manifest_sha256 -eq $record.manifest_sha256 -and ($lifecycleMatch -or $factsMatch)) {
