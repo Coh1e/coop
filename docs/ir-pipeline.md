@@ -35,11 +35,11 @@
 
 ## 能力与缺口表达
 
-IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例如原生下载、ZIP/7z/tar 解压、Windows Installer、安装器进程、生命周期 Hook、命令入口宿主、开始菜单快捷方式、用户级环境持久化。缺失能力只作为明确的缺口报告（例如 MSI 的 `msiexec` 机器缓存、系统级环境变量、尚未覆盖的 InnoSetup/NSIS 机制），不作为“包不存在”或“整个包无效”的理由。用户级 PATH/环境持久化已由 R08 接入执行后端，并记录原值、写入和广播证据。摘要算法由 IR Validator 按声明校验：SHA256、SHA512、SHA1 和 MD5 都有原生实现，其他算法仍是缺口。多下载项、改名、架构覆盖和失败保护的真机证据见[多产物、架构与摘要算法支持](multi-artifact-support.md)。
+IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例如原生下载、ZIP/7z/tar 解压、MSI 只读镜像提取（`windows-installer`）、安装器进程、生命周期 Hook、命令入口宿主、开始菜单快捷方式、用户级环境持久化。缺失能力只作为明确的缺口报告（例如系统级环境变量、尚未覆盖的 InnoSetup/NSIS 机制、外部/多段 MSI cabinet），不作为“包不存在”或“整个包无效”的理由。`windows-installer` 自 R12/#33 起为 supported：Windows Installer 数据库只读打开 + Windows cabinet 解压 API，不启动 `msiexec`、不提权、不重启、不写机器缓存。用户级 PATH/环境持久化已由 R08 接入执行后端，并记录原值、写入和广播证据。摘要算法由 IR Validator 按声明校验：SHA256、SHA512、SHA1 和 MD5 都有原生实现，其他算法仍是缺口。多下载项、改名、架构覆盖和失败保护的真机证据见[多产物、架构与摘要算法支持](multi-artifact-support.md)。
 
 ## 验证与证据
 
-- `tests/ir-pipeline.ps1`（CTest 名称 `ir_pipeline`）：无私有记录的安装事实、过期/损坏私有记录、IR 操作与效果、摘要算法支持与缺口、MSI 能力缺口、查询/预览无副作用与无子进程。
+- `tests/ir-pipeline.ps1`（CTest 名称 `ir_pipeline`）：无私有记录的安装事实、过期/损坏私有记录、IR 操作与效果、摘要算法支持与缺口、`windows-installer` 能力与只读边界、查询/预览无副作用与无子进程。
 - `tests/scoop-interop.ps1`（CTest 名称 `scoop_interop`）：无私有记录的单文件与多产物直接文件安装更新/卸载、Scoop reset、GUI/外来启动器判断。
 - `tests/multi-artifact.ps1`（CTest 名称 `multi_artifact`）：多下载项、改名、架构选择、SHA512/SHA1/MD5、预览/日志对应与下载/校验失败保护。
 - `tests/real-scoop-readonly.ps1`：对本机真实 Scoop 根执行 `list`、`info`、`update --dry-run`、`uninstall --dry-run`，核对安装清单与预览结论，并证明根内文件未改变、未创建 `.coop`。
@@ -47,8 +47,9 @@ IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例�
 - `tests/real-scoop-dependencies.ps1`：真实 git-tfs 复用已安装 git、反向依赖阻止卸载、不自动连带清理以及真实缺失依赖诊断。详见[依赖安装与反向依赖保护](dependency-support.md)。
 - `tests/installer-programs.ps1`（CTest 名称 `installer_programs`）：安装器/卸载器程序与多阶段脚本组合的 IR 操作顺序、参数替换、`keep`、失败记录与回滚。
 - `tests/real-scoop-installers.ps1`：真实 Main/vcpkg 的安装器程序 + 多阶段脚本组合只读预览，以及真实 Main/groovyserv 的 `installer.file` 生命周期。详见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
+- `tests/msi-lifecycle.ps1`（CTest 名称 `msi_lifecycle`）：真实 MSI 产物的只读预览事实、安装、更新、卸载、持久化保留与损坏失败；`tests/real-scoop-msi.ps1` 在真实共用根验证 kalker/pkgconf 的 Coop↔Scoop 交替与客户端间镜像一致。
 - 本轮真实安装基线、环境与复现命令见 [真实 Scoop 安装基线](real-scoop-baseline.md)。
 
 ## 尚未完成
 
-R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）；R11 已把 `installer.file/args` 与 `uninstaller.file/args` 接入同一个真实宿主（上游 `Invoke-Installer`，参数替换、`keep`、退出码与执行时序按 Scoop），并记录程序自身的未知外部副作用（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)）。MSI/InnoSetup/NSIS 等特殊安装器结构、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧执行/接管路径清理与完整交付验收仍分别由后续任务跟踪。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。
+R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）；R11 已把 `installer.file/args` 与 `uninstaller.file/args` 接入同一个真实宿主（上游 `Invoke-Installer`，参数替换、`keep`、退出码与执行时序按 Scoop），并记录程序自身的未知外部副作用（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)）；R12 已把 MSI 产物的管理镜像提取接入 IR 计划与执行引擎（只读数据库 + cabinet 解压 API，真实双向交替与镜像一致性验收）。InnoSetup/NSIS 等特殊安装器结构、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧执行/接管路径清理与完整交付验收仍分别由后续任务跟踪。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。

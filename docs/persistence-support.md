@@ -13,7 +13,7 @@
 
 | 样本 | 声明 | 说明 |
 | --- | --- | --- |
-| Main/7zip（`26.05`） | `"persist": ["Codecs", "Formats"]` | 两个目录映射；同时需要 MSI/EXE 安装器与脚本，生命周期仍未验证 |
+| Main/7zip（`26.05`） | `"persist": ["Codecs", "Formats"]` | 两个目录映射；MSI 镜像与 `post_install`/`uninstaller` 已由 #31/#33 接入。真实 7zip 是用户日常工具，本轮不执行其生命周期；等价的真实 MSI + persist 安装/更新/卸载组合由 `tests/msi-lifecycle.ps1` 覆盖 |
 | Main/rclone（`1.75.2`） | `"persist": "rclone.conf"` | 单文件映射；同时有 pre_install/uninstaller 脚本，生命周期仍未验证 |
 | Extras/vscode（`1.143.1`） | `"persist": "data"` | 目录映射；同时使用 7z、post_install 与卸载脚本，生命周期仍未验证 |
 
@@ -87,8 +87,8 @@
 
 未运行项：
 
-- 有脚本、快捷方式、环境变量、7z/MSI/安装器与 persist 的组合；已安装依赖与 persist 的组合见依赖生命周期测试。
-- 真实 Main/7zip、Main/rclone、Extras/vscode 的完整生命周期（当前仍被脚本/格式能力阻止）。
+- 有脚本、快捷方式、环境变量与 persist 的单包组合仍未运行；7z + persist + `post_install` 由 #31 hooks 测试覆盖，MSI + persist 的安装/更新/卸载由 #33 `tests/msi-lifecycle.ps1` 覆盖，已安装依赖与 persist 的组合见依赖生命周期测试。
+- 真实 Main/7zip、Main/rclone、Extras/vscode 的完整生命周期（#33 后 MSI 机制与组合已有隔离证据，但真实 7zip 作为用户工具未执行；rclone/vscode 仍由真实根上的单阶段生命周期测试部分覆盖）。
 - 权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装 persist 权限。
 - 数据迁移后整个事务失败时回滚 store 内容；当前明确不承诺该行为。
 - 多个写进程并发操作同一 store 的专项竞态；现有根目录写锁与通用并发测试提供边界，但未单独重复持久化场景。
@@ -115,5 +115,5 @@
 
 - 文件映射样本使用 `mediamtx`；`frp` 的 `frps.exe` 在本机被 Defender 判定为 `PUA:Win32/FRProxy` 隔离，因此没有改用该包，也没有修改杀毒设置。既有的 `persist/frp` 数据仍作为历史保留证据只读核对，未被搬动。
 - 测试创建的 store 是空的（本轮首次安装），因此“复用既有 store”的完整分支在真机由 Scoop/Coop 交替共享同一 store 证明；更早卸载遗留的 `frp`/`spotbugs`/`uv` store 没有被重新挂载，也没有被修改。
-- 脚本、快捷方式、环境变量、MSI/7z 安装器与持久化映射的真实组合；权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装以及并发写同一 store 的竞态仍未运行。
+- 脚本、快捷方式、环境变量、MSI/7z 安装器与持久化映射的真实组合；权限拒绝、跨卷 hardlink、ReFS 128 位文件 ID、ACL 继承、全局安装以及并发写同一 store 的竞态仍未运行。#33 后 MSI + persist 的安装/更新/卸载组合已在项目内真实 MSI 产物上覆盖（`tests/msi-lifecycle.ps1`）。
 - 数据迁移（persist 映射变化）仍明确拒绝而不是自动迁移；其失败回滚范围不在本页承诺内。

@@ -1,5 +1,6 @@
 #include "archive.hpp"
 #include "data.hpp"
+#include "msi.hpp"
 #include <windows.h>
 #include <archive.h>
 #include <archive_entry.h>
@@ -13,8 +14,6 @@
 
 namespace coop {
 namespace {
-constexpr std::uint64_t maximum_extracted_bytes = 16ull * 1024 * 1024 * 1024;
-constexpr std::uint64_t maximum_entries = 1000000;
 struct ArchiveDeleter {
     void operator()(archive* value) const { if (value) archive_read_free(value); }
 };
@@ -131,7 +130,7 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination) 
             if (result != ARCHIVE_OK) throw std::runtime_error("Cannot read archive header: "+archive_error(source.get()));
             EntryPtr entry{archive_entry_clone(raw)};
             if (!entry) throw std::runtime_error("Cannot inspect archive entry");
-            if (++entries > maximum_entries) throw std::runtime_error("Archive has too many entries");
+            if (++entries > maximum_archive_entries) throw std::runtime_error("Archive has too many entries");
             if (archive_entry_symlink(entry.get()) || archive_entry_hardlink(entry.get()))
                 throw std::runtime_error("Archive contains a link entry; links are not extracted");
             const auto name = safe_entry_path(entry.get());
@@ -182,38 +181,24 @@ void merge_archive_tree(const fs::path& source, const fs::path& extract_director
         }
     }
 }
-std::optional<fs::path> msi_installer() {
-    wchar_t configured[32768]{};
-    const auto configured_length = GetEnvironmentVariableW(L"COOP_MSIEXEC",configured,static_cast<DWORD>(std::size(configured)));
-    if (configured_length && configured_length < std::size(configured)) {
-        const fs::path candidate(configured);
-        if (fs::is_regular_file(candidate)) return candidate;
-        return std::nullopt;
-    }
-    std::vector<wchar_t> system_directory(32768);
-    const auto system_length = GetSystemDirectoryW(system_directory.data(),static_cast<UINT>(system_directory.size()));
-    if (system_length && system_length < system_directory.size()) {
-        const fs::path candidate = fs::path(system_directory.data())/L"msiexec.exe";
-        if (fs::is_regular_file(candidate)) return candidate;
-    }
-    wchar_t windows[32768]{};
-    const auto windows_length = GetWindowsDirectoryW(windows,static_cast<UINT>(std::size(windows)));
-    if (windows_length && windows_length < std::size(windows)) {
-        const fs::path candidate = fs::path(windows)/L"System32"/L"msiexec.exe";
-        if (fs::is_regular_file(candidate)) return candidate;
-    }
-    return std::nullopt;
+fs::path prepare_package_target(const fs::path& root, const fs::path& relative) {
+    if (relative.empty() || relative.is_absolute() || relative.has_root_name() || relative.has_root_directory())
+        throw std::runtime_error("Extracted entry has an unsafe path");
+    const auto target = root/relative;
+    ensure_parents(root,target);
+    return target;
 }
 std::vector<ExternalTool> package_external_tools(const Package& package) {
     std::vector<ExternalTool> tools;
-    const auto installer = msi_installer();
+    const auto database_api = msi_database_api();
+    const auto fdi_api = cabinet_api();
     for (const auto& artifact : package.artifacts) {
         if (artifact.archive != ArchiveKind::msi) continue;
-        tools.push_back({"msiexec.exe","MSI administrative extraction for "+artifact.filename,
-            "availability detected per system; Coop never downloads or installs external tools automatically",
-            installer.has_value(),false,
-            "administrative extraction writes the Windows Installer machine cache under %WINDIR%\\Installer, outside the selected project root; blocked until an isolated extraction mechanism is approved",
-            installer.value_or(fs::path{})});
+        tools.push_back({"Windows Installer APIs","read-only MSI database access (msi.dll) and embedded cabinet decompression (cabinet.dll) for "+artifact.filename,
+            "Windows system components; Coop never downloads or installs them and never runs msiexec.exe",
+            database_api.has_value() && fdi_api.has_value(),database_api.has_value() && fdi_api.has_value(),
+            "read-only database access only: no msiexec.exe process, no administrative installation or product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external, multi-part and vendor installer payloads are unsupported and fail with a named error",
+            database_api.value_or(fs::path{})});
     }
     return tools;
 }

@@ -136,8 +136,9 @@ $expectedClasses = @{
     'Main/android-clt'='executable'; 'Main/azure-cli'='executable';
     'Extras/notepadplusplus'='executable'; 'Extras/vscode'='executable'; 'Extras/everything'='executable';
     'Extras/firefox'='executable'; 'Extras/aider-desk'='executable';
-    # MSI administrative extraction stays blocked by the Windows Installer machine cache.
-    'Main/7zip'='unsupported';
+    # MSI artifacts are extracted from a read-only installer database view; the plan is executable
+    # without msiexec, elevation or a reboot (see docs/installer-support.md).
+    'Main/7zip'='executable';
     'Main/wget'='rejected'; 'Extras/adventuregamestudio'='rejected'
 }
 if ($index.samples.Count -ne 20 -or $expectedClasses.Count -ne 20) { throw 'The fixed corpus no longer contains exactly 20 audited samples' }

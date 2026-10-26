@@ -6,6 +6,7 @@
 #include "script.hpp"
 #include "shim.hpp"
 #include "archive.hpp"
+#include "msi.hpp"
 #include <algorithm>
 #include <iostream>
 #include <map>
@@ -223,6 +224,28 @@ Json external_tools_json(const Package& package) {
             {"path",path_text(tool.path)}});
     return result;
 }
+bool has_msi_artifact(const Package& package) {
+    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
+        return artifact.archive == ArchiveKind::msi;
+    });
+}
+// The permission and reboot facts are stated where the user reviews the plan, and they describe the
+// mechanism Coop actually uses rather than the vendor installer's own behaviour.
+Json msi_extraction_json() {
+    const auto database_api = msi_database_api();
+    const auto fdi_api = cabinet_api();
+    return {{"mechanism","read-only Windows Installer database access plus the Windows cabinet decompression API"},
+        {"database_api",database_api ? path_text(*database_api) : std::string{}},
+        {"cabinet_api",fdi_api ? path_text(*fdi_api) : std::string{}},
+        {"msiexec_started",false},
+        {"administrative_install",false},
+        {"elevation","not required for MSI image extraction; Coop writes only inside the selected root, and the read-only database view changes no system folder, registry, service or machine-wide state"},
+        {"reboot","not required for MSI image extraction; an administrative image is extracted, so the product installer's reboot scheduling is not executed"},
+        {"machine_cache","not written by the MSI image extraction: Coop opens the installer database read-only and never calls msiexec or registers a product"},
+        {"layout","administrative image layout from the Directory, Component, File and Media tables with long target names, then the declared extract_dir/extract_to"},
+        {"external_cabinets","unsupported: an MSI whose Media table names an external cabinet, or a multi-part cabinet, fails before any file is published"},
+        {"differences","the administrative-install copy of the MSI file itself and empty directories that only carry shortcuts are not written"}};
+}
 Json package_json(const Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
         {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
@@ -251,6 +274,7 @@ Json package_json(const Package& package) {
         {"interpreter",host.interpreter ? path_text(*host.interpreter) : std::string{}},
         {"problem",host.problem}};
     result["external_tools"] = external_tools_json(package);
+    if (has_msi_artifact(package)) result["msi_extraction"] = msi_extraction_json();
     result["dependencies"] = package.dependencies;
     // Installer/uninstaller programs run through the same real PowerShell host and pinned Scoop
     // library as hook scripts, calling upstream Invoke-Installer. The preview therefore names the
@@ -549,6 +573,8 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     }
     if (plan.previous && !plan.previous->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
+    if (has_msi_artifact(plan.package) || (plan.previous && has_msi_artifact(*plan.previous)))
+        result["lifecycle_checks"]["msi_extraction"] = "read-only Windows Installer database plus the Windows cabinet decompression API; no elevation, reboot, msiexec process or machine-cache write";
     if (plan.update_candidate && !plan.update_candidate->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
@@ -577,6 +603,11 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             {"hash",std::string(ir::digest_algorithm_name(item.algorithm))+":"+item.digest},
             {"renamed",item.renamed},{"extract_dir",path_text(item.extract_directory)},
             {"extract_to",path_text(item.extract_destination)}};
+        if (item.archive == ArchiveKind::msi) {
+            artifact["extraction"] = "read-only-msi-image";
+            artifact["requires_elevation"] = false;
+            artifact["reboot_required"] = false;
+        }
         // Keep the historical key only for genuine SHA256 artifacts. A SHA512 value must never be
         // labelled sha256.
         if (item.algorithm == ir::DigestAlgorithm::sha256) artifact["sha256"] = item.digest;
@@ -598,7 +629,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar and 7z archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; MSI artifacts are detected and their Windows Installer requirement is reported, but administrative extraction remains blocked because msiexec writes the machine cache under %WINDIR%\\Installer outside the selected project root; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z and MSI archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
     return result;
 }
 struct PackageOutcome {

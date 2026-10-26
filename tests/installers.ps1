@@ -10,10 +10,9 @@ $archives = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/deps/test
 $fixture1 = Join-Path $coopDirectory 'fixture-1.exe'
 $fixture2 = Join-Path $coopDirectory 'fixture-2.exe'
 $guard = Join-Path $coopDirectory 'process_guard.exe'
-$msi = Join-Path $archives '7z2605-x64.msi'
 $nodeArchive = Join-Path $archives 'node-v26.12.1-win-x64.7z'
 $pwshPath = (Get-Process -Id $PID).Path
-foreach ($path in @($fixture1,$fixture2,$guard,$msi,$nodeArchive,$pwshPath)) {
+foreach ($path in @($fixture1,$fixture2,$guard,$nodeArchive,$pwshPath)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing fixed test input: $path; run scripts/fetch-deps.ps1" }
 }
 
@@ -108,38 +107,10 @@ function Operations-After([object]$plan,[string]$kind,[object[]]$scriptPhases) {
     return @{publish=$publish;positions=$positions;operations=$operations}
 }
 
-$msiHash = File-Hash $msi
 $nodeHash = File-Hash $nodeArchive
-$msiManifest = @{version='26.05';url=(File-Uri $msi);hash=$msiHash;extract_dir='Files\7-Zip';
-    bin=@('7z.exe','7zG.exe','7zFM.exe')}
 $installerCacheBefore = @(Get-WindowsInstallerCacheState)
 
-# --- 1. MSI administrative extraction is disclosed but blocked by AC4. -----
-Write-Manifest 'main' 'seven' $msiManifest
-$msiPreview = Invoke-Guard 'msi-preview' @('--root',$root,'install','main/seven','--dry-run','--json')
-Check ($msiPreview.exit -eq 0) "MSI preview failed: $($msiPreview.error)"
-Check ($msiPreview.error -match 'Observed workload processes: 1') 'MSI preview started msiexec or PowerShell'
-$msiPlan = Parse-Json 'msi-preview' $msiPreview
-Check ($msiPlan.execution_available -eq $false) 'MSI administrative extraction was not blocked by the isolation limitation'
-Check ($msiPlan.artifacts[0].archive -eq 'msi') 'MSI preview did not report the MSI artifact'
-Check (@($msiPlan.operations | Where-Object { $_.kind -eq 'extract' }).Count -eq 1) 'MSI preview did not list the blocked extraction step'
-Check (@($msiPlan.external_tools).Count -eq 1 -and $msiPlan.external_tools[0].name -eq 'msiexec.exe') 'MSI preview did not disclose the external tool'
-Check ($msiPlan.external_tools[0].available -eq $true -and $msiPlan.external_tools[0].enabled -eq $false) 'MSI preview did not report detection separately from enablement'
-Check ($msiPlan.external_tools[0].policy -match 'availability detected per system' -and $msiPlan.external_tools[0].policy -notmatch '^detected on this system') 'MSI external tool policy claims detection without qualification'
-Check ($msiPlan.external_tools[0].limitation -match 'Installer' -and $msiPlan.external_tools[0].limitation -match 'outside the selected project root') 'MSI isolation limitation is missing from the plan'
-Check (@($msiPlan.package.external_tools).Count -eq 1 -and $msiPlan.package.external_tools[0].purpose -match '7z2605-x64\.msi') 'MSI artifact requirement is not tied to the sample file'
-Check (@($msiPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'machine cache' -and $_.message -match 'outside the selected project root' }).Count -eq 1) 'MSI blocking diagnostic does not name the machine-cache limitation'
-Check (-not (Test-Path -LiteralPath "$root/apps/seven") -and -not (Test-Path -LiteralPath "$root/.coop/transactions")) 'MSI preview wrote installation state'
-
-$transactionsBeforeMsiRefusal = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-$msiInstall = Invoke-Guard 'msi-refused-install' @('--root',$root,'install','main/seven','--json')
-Check ($msiInstall.exit -ne 0) 'blocked MSI install unexpectedly succeeded'
-Check ($msiInstall.error -match 'Observed workload processes: 1' -and $msiInstall.error -match 'machine cache') 'blocked MSI install did not refuse before starting msiexec'
-$transactionsAfterMsiRefusal = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-Check (($transactionsAfterMsiRefusal -join ',') -eq ($transactionsBeforeMsiRefusal -join ',')) 'blocked MSI install created a transaction'
-Check (-not (Test-Path -LiteralPath "$root/apps/seven/current") -and -not (Test-Path -LiteralPath "$root/.coop/packages/seven.json")) 'blocked MSI install published package state'
-
-# --- 2. Native 7z archive extraction with the real Main/nodejs artifact. ----
+# --- 1. Native 7z archive extraction with the real Main/nodejs artifact. ----
 $nodeManifest = @{version='26.12.1';url=(File-Uri $nodeArchive);hash=$nodeHash;
     extract_dir='node-v26.12.1-win-x64';bin='node.exe'}
 Write-Manifest 'main' 'nodepkg' $nodeManifest
@@ -159,25 +130,7 @@ Check (Test-Path -LiteralPath "$root/apps/nodepkg/current/node.exe") '7z archive
 $nodeUninstall = Invoke-Coop 'node-uninstall' @('--root',$root,'uninstall','nodepkg','--json')
 Check ($nodeUninstall.exit -eq 0) "7z uninstall failed: $($nodeUninstall.error)"
 
-# --- 3. Missing MSI tool is disclosed, never installed or claimed. -----------
-Write-Manifest 'main' 'msimissing' @{version='1';url=(File-Uri $msi);hash=$msiHash;extract_dir='Files\7-Zip';bin='7z.exe'}
-$missingTool = @{COOP_MSIEXEC="$root/missing-msiexec.exe"}
-$transactionsBeforeMissing = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-$missingPreview = Invoke-Coop 'msi-missing-preview' @('--root',$root,'install','main/msimissing','--dry-run','--json') $missingTool
-Check ($missingPreview.exit -eq 0) "missing MSI tool preview failed: $($missingPreview.error)"
-$missingPlan = Parse-Json 'msi-missing-preview' $missingPreview
-Check ($missingPlan.execution_available -eq $false) 'missing MSI tool stayed executable'
-Check (@($missingPlan.external_tools).Count -eq 1 -and $missingPlan.external_tools[0].available -eq $false) 'missing MSI tool was not reported'
-Check (@($missingPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'msiexec\.exe' }).Count -eq 1) 'missing MSI tool diagnostic is absent'
-$transactionsAfterMissingPreview = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-Check (($transactionsAfterMissingPreview -join ',') -eq ($transactionsBeforeMissing -join ',')) 'missing MSI tool preview started a transaction'
-$missingInstall = Invoke-Coop 'msi-missing-install' @('--root',$root,'install','main/msimissing','--json') $missingTool
-Check ($missingInstall.exit -ne 0) 'missing MSI tool install unexpectedly succeeded'
-$transactionsAfterMissingInstall = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-Check ((($transactionsAfterMissingInstall -join ',') -eq ($transactionsBeforeMissing -join ',')) -and
-    -not (Test-Path -LiteralPath "$root/apps/msimissing")) 'missing MSI tool install created state'
-
-# --- 4. installer.script runs in Scoop order with the documented context. ---
+# --- 2. installer.script runs in Scoop order with the documented context. ---
 $installerZip = New-PayloadZip 'installerpkg' @{'app.exe'=[IO.File]::ReadAllBytes($fixture1);'payload/inner.txt'='inner'}
 $installerScript = @(
     '$marker = Join-Path -Path $dir -ChildPath ''installer-context.txt''',
@@ -241,7 +194,7 @@ Check ($installerFailureJournal.state -eq 'rolled-back' -and @($installerFailure
 Check (-not (Test-Path -LiteralPath "$root/apps/installerfail/current") -and -not (Test-Path -LiteralPath "$root/apps/installerfail/1") -and
     -not (Test-Path -LiteralPath "$root/shims/installerfail.exe")) 'installer failure published state'
 
-# --- 6. Real rclone uninstaller.script with Get-Item LinkType. ---------------
+# --- 3. Real rclone uninstaller.script with Get-Item LinkType. ---------------
 $rcloneManifest = Get-CorpusManifest 'corpus/main/rclone.json'
 $rcloneUninstaller = $rcloneManifest.uninstaller.script
 Check ($rcloneUninstaller -match 'Get-Item' -and $rcloneUninstaller -match 'LinkType') 'real rclone uninstaller text was not loaded'
@@ -291,7 +244,7 @@ Check ($uninstallFailureJournal.state -eq 'rolled-back' -and @($uninstallFailure
 Check ((Test-Path -LiteralPath "$root/apps/uninstallfail/current") -and (Test-Path -LiteralPath "$root/shims/uninstallfail.exe") -and
     (Test-Path -LiteralPath "$root/.coop/packages/uninstallfail.json")) 'uninstaller failure removed the installed package'
 
-# --- 7. Real samples: remaining blockers are mechanisms, not script text. -----
+# --- 4. Real samples: remaining execution gaps are installer mechanisms. -----
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/main/7zip.json" "$root/buckets/main/bucket/7zip.json"
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/main/python.json" "$root/buckets/main/bucket/python.json"
 Copy-Item -LiteralPath "$PSScriptRoot/corpus/extras/notepadplusplus.json" "$root/buckets/extras/bucket/notepadplusplus.json"
@@ -299,11 +252,10 @@ $sevenSample = Invoke-Guard 'seven-sample-preview' @('--root',$root,'install','m
 Check ($sevenSample.exit -eq 0) "Main/7zip preview failed: $($sevenSample.error)"
 Check ($sevenSample.error -match 'Observed workload processes: 1') 'Main/7zip preview started PowerShell or msiexec'
 $sevenPlan = Parse-Json 'seven-sample-preview' $sevenSample
-Check ($sevenPlan.execution_available -eq $false) 'Main/7zip MSI artifact was not blocked by the machine-cache limitation'
+Check ($sevenPlan.execution_available -eq $true) "Main/7zip MSI preview stayed blocked: $(@($sevenPlan.diagnostics) | ConvertTo-Json -Compress)"
+Check ($sevenPlan.package.msi_extraction.msiexec_started -eq $false -and $sevenPlan.package.msi_extraction.elevation -match 'not required' -and
+    $sevenPlan.package.msi_extraction.reboot -match 'not required') 'Main/7zip preview does not state the MSI permission and reboot facts'
 Check (@($sevenPlan.package.scripts).Count -eq 2 -and @($sevenPlan.package.scripts | Where-Object { $_.text -match 'reg' }).Count -eq 2) 'Main/7zip script text was refused instead of being reported as executable text'
-Check (@($sevenPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'machine cache' }).Count -eq 1) 'Main/7zip blocking diagnostic does not name the MSI limitation'
-$sevenSampleInstall = Invoke-Guard 'seven-sample-install' @('--root',$root,'install','main/7zip','--json')
-Check ($sevenSampleInstall.exit -ne 0 -and $sevenSampleInstall.error -match 'Observed workload processes: 1') 'Main/7zip execution was not refused before msiexec/PowerShell'
 
 $nppSample = Invoke-Guard 'npp-sample-preview' @('--root',$root,'install','extras/notepadplusplus','--dry-run','--json')
 Check ($nppSample.exit -eq 0) "Extras/notepadplusplus preview failed: $($nppSample.error)"
@@ -326,10 +278,10 @@ Check ($pythonUninstaller.host -match 'PowerShell' -and $pythonUninstaller.text 
 # separate tickets, so no sample is executed here.
 Check ($pythonPlan.package.script_support.problem -eq '') 'Main/python preview reported a missing hook host'
 
-# --- 8. Measured system state and evidence paths. ----------------------------
+# --- 5. Measured system state and evidence paths. ----------------------------
 $installerCacheAfter = @(Get-WindowsInstallerCacheState)
 $installerCacheUnchanged = (($installerCacheBefore -join "`n") -eq ($installerCacheAfter -join "`n"))
-Check ($installerCacheUnchanged) 'MSI preview or refusal changed the Windows Installer machine cache'
+Check ($installerCacheUnchanged) 'MSI preview changed the Windows Installer machine cache'
 Check ($rcloneJournal.scripts[1].stdout_log.StartsWith($root)) 'script evidence escaped the isolated test root'
 
 @{
@@ -339,9 +291,7 @@ Check ($rcloneJournal.scripts[1].stdout_log.StartsWith($root)) 'script evidence 
     runs=$script:runs
     coop_sha256=(File-Hash $CoopExe)
     powershell=$pwshPath
-    msi_artifact=@{path=$msi;sha256=$msiHash}
     sevenzip_artifact=@{path=$nodeArchive;sha256=$nodeHash}
-    msi_execution='blocked by AC4; no msiexec process was started and no MSI payload was executed'
     windows_installer_cache=@{
         path=(Join-Path $env:WINDIR 'Installer')
         entries_before=@($installerCacheBefore).Count
@@ -350,11 +300,11 @@ Check ($rcloneJournal.scripts[1].stdout_log.StartsWith($root)) 'script evidence 
         sample_before=@($installerCacheBefore | Select-Object -First 3)
         sample_after=@($installerCacheAfter | Select-Object -First 3)
     }
-    real_script_sources=@('Main/7zip MSI artifact (preview/refusal only) and post_install/uninstaller script text','Main/nodejs 7z artifact','Main/rclone uninstaller.script (executed)','Extras/notepadplusplus uninstaller.script text','Main/python installer.script text and uninstaller.script text')
-    script_text_policy='Script text is no longer classified as compatible or incompatible; the remaining blocks are MSI/MSI-cache mechanisms and installer/uninstaller process declarations.'
+    real_script_sources=@('Main/7zip MSI preview and post_install/uninstaller script text','Main/nodejs 7z artifact','Main/rclone uninstaller.script (executed)','Extras/notepadplusplus uninstaller.script text','Main/python installer.script text and uninstaller.script text')
+    script_text_policy='Script text is not classified as compatible or incompatible; the remaining execution gaps are installer mechanisms tracked by their own tickets.'
     node_program_version=$nodeVersion
     fixture_artifacts='project fixture programs; no external tool stand-in was executed'
-    system_writes='measured C:\Windows\Installer SourceHash entries before/after MSI preview and refusal; unchanged. MSI execution is blocked because msiexec writes that machine cache outside the project root.'
+    system_writes='measured C:\Windows\Installer SourceHash entries before/after the MSI previews; unchanged. MSI execution is covered by tests/msi-lifecycle.ps1.'
 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$root/evidence.json" -Encoding utf8
-Write-Output "PASS installer/uninstaller scripts, blocked MSI limitation, native 7z and external-tool disclosure: $root/evidence.json ($script:checks checks)"
+Write-Output "PASS installer/uninstaller scripts, MSI preview facts, native 7z and external-tool disclosure: $root/evidence.json ($script:checks checks)"
 exit 0

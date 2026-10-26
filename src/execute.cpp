@@ -8,6 +8,7 @@
 #include "user_environment.hpp"
 #include "script.hpp"
 #include "shim.hpp"
+#include "msi.hpp"
 #include <windows.h>
 #include <array>
 #include <cctype>
@@ -62,9 +63,9 @@ void require_capabilities(const Package& package) {
         case ArchiveKind::seven_zip:
             break;
         case ArchiveKind::msi:
-            if (!msi_installer())
-                throw std::runtime_error("MSI extraction requires Windows Installer (msiexec.exe), which was not found; Coop does not download or install external tools automatically. MSI administrative extraction is also blocked because Windows Installer writes its machine cache under %WINDIR%\\Installer outside the selected project root");
-            throw std::runtime_error("MSI administrative extraction is blocked because Windows Installer writes its machine cache under %WINDIR%\\Installer outside the selected project root; an isolated extraction mechanism needs explicit human approval");
+            if (!msi_database_api() || !cabinet_api())
+                throw std::runtime_error("MSI extraction requires the Windows Installer database API (msi.dll) and the Windows cabinet decompression API (cabinet.dll), Windows system components that were not found; Coop never downloads or installs external tools, and it never falls back to msiexec.exe");
+            break;
         }
     }
     for (const auto& command : package.commands)
@@ -977,7 +978,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_stage();
                 const auto& artifact = package.artifacts[step.index];
                 const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
-                extract_archive(downloaded_files[step.index],raw);
+                if (artifact.archive == ArchiveKind::msi) {
+                    // MSI artifacts are extracted from a read-only view of the installer database and
+                    // its embedded cabinets. The journal records that no msiexec process, machine
+                    // cache entry, elevation or reboot is involved, next to what was actually read.
+                    const auto record = extract_msi_image(downloaded_files[step.index],raw,
+                        transaction/(L"msi-work-"+std::to_wstring(step.index)));
+                    if (!journal.contains("msi_extractions")) journal["msi_extractions"] = Json::array();
+                    auto entry = record;
+                    entry["index"] = step.index;
+                    entry["filename"] = artifact.filename;
+                    journal["msi_extractions"].push_back(std::move(entry));
+                    save();
+                } else {
+                    extract_archive(downloaded_files[step.index],raw);
+                }
                 const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
                 // Scoop 0.6.0 unpacks a compressed tar wrapper first and applies extract_dir while
                 // extracting the inner tar; plain tar applies it directly. Merge the tree below the

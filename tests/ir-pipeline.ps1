@@ -121,11 +121,13 @@ $msiManifest = @{version='1.0.0';url='https://invalid.example/setup.msi';hash=('
 $msiManifest | Set-Content "$root/buckets/main/bucket/msipkg.json" -Encoding utf8
 $msiPreview = Invoke-Coop @('--root',$root,'install','msipkg','--dry-run','--json')
 $msiPlan = ($msiPreview.text | ConvertFrom-Json)
-if ($msiPlan.execution_available -ne $false) { throw 'an MSI package preview claimed to be executable' }
-if (@($msiPlan.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw 'the MSI execution blocker is missing' }
+if ($msiPlan.execution_available -ne $true) { throw "an MSI package preview stayed blocked: $(@($msiPlan.diagnostics) | ConvertTo-Json -Compress)" }
+if ($msiPlan.package.msi_extraction.msiexec_started -ne $false -or $msiPlan.package.msi_extraction.administrative_install -ne $false) {
+    throw 'the MSI preview does not state that no msiexec process or administrative install is used'
+}
 $msiCapability = @($msiPlan.capabilities | Where-Object id -eq 'windows-installer')
-if ($msiCapability.Count -ne 1 -or $msiCapability[0].supported -ne $false) { throw 'the Windows Installer capability gap is missing' }
-if ($msiPreview.code -ne 0) { throw 'an unsupported-but-readable package preview did not report a plan' }
+if ($msiCapability.Count -ne 1 -or $msiCapability[0].supported -ne $true) { throw 'the Windows Installer capability is missing or reported as a gap' }
+if ($msiPreview.code -ne 0) { throw 'a readable package preview did not report a plan' }
 if (Test-Path "$root/apps/msipkg") { throw 'a preview installed an MSI package' }
 
 # --- Read-only pipeline starts no helper process --------------------------------------

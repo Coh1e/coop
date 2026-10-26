@@ -122,24 +122,18 @@ if ((Test-Path "$root/apps/ripgrep/15.2.0") -or ([IO.File]::ReadAllText("$root/.
 $journal = Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | Sort-Object LastWriteTime | Select-Object -Last 1
 if ((Get-Content $journal.FullName -Raw | ConvertFrom-Json).state -ne 'rolled-back') { throw 'rejected archive update journal does not show rollback' }
 
-# Unsupported mechanisms fail clearly without starting an external installer.
+# A corrupt MSI database fails clearly at extraction without msiexec and without publishing state.
 $root = New-TestRoot
-$unsupported = @(
-    @{Name='msi'; Manifest=@{version='1';url='https://example.invalid/setup.msi';hash=('0'*64);bin='setup.exe'}; Pattern='msiexec'}
-)
-$previousMsiExec = $env:COOP_MSIEXEC
-foreach ($item in $unsupported) {
-    Write-Manifest $root $item.Name $item.Manifest
-    if ($item.Name -eq 'msi') { $env:COOP_MSIEXEC = "$root/missing-msiexec.exe" }
-    $output = & $CoopExe --root $root install "test/$($item.Name)" --json 2>&1
-    if ($item.Name -eq 'msi') {
-        if ($null -eq $previousMsiExec) { Remove-Item Env:COOP_MSIEXEC -ErrorAction SilentlyContinue }
-        else { $env:COOP_MSIEXEC = $previousMsiExec }
-    }
-    Assert-Failed "unsupported $($item.Name) archive unexpectedly succeeded" ($output -join "`n")
-    if (($output -join "`n") -notmatch [regex]::Escape($item.Pattern)) { throw "unsupported $($item.Name) mechanism was not reported clearly" }
-    if ((Test-Path "$root/apps/$($item.Name)/current") -or (Test-Path "$root/.coop/packages/$($item.Name).json")) { throw "unsupported $($item.Name) published state" }
-}
+$brokenMsi = Join-Path $root 'fixtures/broken.msi'
+New-Item -ItemType Directory -Path (Split-Path $brokenMsi) -Force | Out-Null
+[IO.File]::WriteAllText($brokenMsi,'this is not an installer database',[Text.UTF8Encoding]::new($false))
+Write-Manifest $root 'msi' @{version='1';url=(File-Uri $brokenMsi);hash=(Get-FileHash -LiteralPath $brokenMsi -Algorithm SHA256).Hash.ToLower();bin='setup.exe'}
+$output = & $CoopExe --root $root install test/msi --json 2>&1
+Assert-Failed 'corrupt MSI archive unexpectedly succeeded' ($output -join "`n")
+if (($output -join "`n") -notmatch 'MSI database') { throw 'corrupt MSI failure was not reported clearly' }
+if ((Test-Path "$root/apps/msi/current") -or (Test-Path "$root/.coop/packages/msi.json")) { throw 'corrupt MSI published state' }
+$msiJournal = Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+if ($msiJournal -and (Get-Content $msiJournal.FullName -Raw | ConvertFrom-Json).state -ne 'rolled-back') { throw 'corrupt MSI journal does not show rollback' }
 
 # Interrupted archive download keeps the previous current version and a pending journal.
 $root = New-TestRoot

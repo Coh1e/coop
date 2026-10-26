@@ -104,7 +104,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 
 `tests/real-scoop-hooks.ps1` 在本机真实 Scoop 根（`C:\Users\Neo\scoop`，Scoop v0.6.0，`main` 修订 `a97619fe`）上执行了一次有界的真实生命周期。本轮验收使用最终代码构建的 `coop.exe`（SHA256 `6e3f51a953ac23c29d9993575b857b3b1e12fad4854df3bf5d68f35e87baf587`，构建目标也会把该二进制摘要记录在 `head-and-versions` 证据中），运行目录为 `.local/pi/tasks/31/evidence/real-rclone-coop-6e3f51a953ac/`：
 
-- 只读预览：已安装 `git` 的更新计划现在 `execution_available=true`，列出 `pre_install`/`post_install`/`pre_uninstall`/`uninstaller` 四个 Hook；`7zip` 仍因 MSI 机器缓存限制被阻塞，但两个 Hook 文本正常列出。
+- 只读预览：已安装 `git` 的更新计划现在 `execution_available=true`，列出 `pre_install`/`post_install`/`pre_uninstall`/`uninstaller` 四个 Hook；`7zip` 在本轮（#31）仍因 MSI 机器缓存限制被阻塞，但两个 Hook 文本正常列出。#33 改为只读 MSI 镜像提取后，7zip 更新预览为可执行，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)。
 - 真实安装 `main/rclone` 1.75.2（zip、真实下载）：`pre_install` 原文在真实 PowerShell 中运行，`$scoopdir`=`C:\Users\Neo\scoop`，创建并持久化 `rclone.conf`；事务记录把 Manifest 副本路径写入 `scripts[i].manifest`；`shims/rclone.exe version` 返回 `rclone v1.75.2`，`scoop list` 能列出 Coop 创建的安装。
 - 真实卸载：`uninstaller.script` 原文运行，同样接收到固定的 `$manifest`；普通卸载保留持久化数据，`scoop list` 不再列出 rclone；随后只删除本轮创建的 `persist/rclone` store，前后比对应用、shim、持久化目录集合一致，无 pending 事务。
 
@@ -115,7 +115,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 - 本机真实 Scoop 根上的其余 14 个已安装包的 Hook 生命周期由 [R19 / #40](https://github.com/Coh1e/coop/issues/40) 跟踪；本轮真实根只实际执行了 rclone 的 `pre_install` 与 `uninstaller.script`（见上节）以及 groovyserv 的真实 `installer.file` 程序（#32），其他已安装包的 Hook/安装器文本只做了只读预览。
 - 真实 `installer.file` 程序只在真实根上执行过 Main/groovyserv 的 `bin\setup.bat`（#32）。Main/vcpkg（安装器程序 + `pre_install`/`post_install`/`uninstaller.script`）只做了只读预览；其自身声明会把完整 vcpkg 仓库取到 `persist` 并写入用户 MSBuild 集成，未在本轮有界范围内执行。真实 `uninstaller.file/args` 没有 Main/Extras 样本。
 - `reg import`、服务控制、`Start-Process` 等会修改项目外状态的原文没有在真实根上执行；它们仍是受信脚本副作用，不承诺回滚。
-- MSI/Dark、Inno Setup、NSIS 机制本身（R12–R14）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark/MSI helper 时以失败结束。
+- Dark、Inno Setup、NSIS 等厂商安装器机制本身（R13–R14）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark helper 时以失败结束。MSI 产物提取已由 R12/#33 交付（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)），这是管理镜像提取，不执行 python 安装器脚本本身。
 - `post_uninstall` 中删除用户数据的真实样本（`Extras/aider-desk`、`Main/azure-cli`）没有执行；只用合成脚本验证阶段语义与 `$purge`。
 - Windows PowerShell 5.1 解释器路径只实现为回退候选，本轮未单独运行；`pwsh` 路径已实际验证。Manifest 读取已加 `-Encoding UTF8`（与 Scoop 的 loader 一致），但 5.1 下的非 ASCII Manifest 行为仍未实际运行。
 - 卡死脚本的超时/取消、无效 UTF-8 输出的可读性（JSON 只保证替换为 `?`）与任意脚本外部副作用的自动回滚不在承诺范围。

@@ -64,8 +64,8 @@ void validate(Package& package) {
         if (!supported_url(download.url))
             report(package,Layer::validation,"unsupported-download","Artifact URL scheme is not supported");
         if (download.format == ArchiveFormat::msi)
-            capability(package,"windows-installer",false,
-                "MSI artifacts need Windows Installer; administrative extraction writes the machine cache under %WINDIR%\\Installer outside the selected root");
+            capability(package,"windows-installer",true,
+                "MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API: the Directory/Component/File/Media tables give the administrative image layout, no msiexec.exe process runs, no product is registered, no elevation or reboot is requested and no %WINDIR%\\Installer machine cache is written; external, multi-part and vendor installer payloads are reported as unsupported instead of being executed");
         else if (download.format != ArchiveFormat::file)
             capability(package,"archive-"+std::string(archive_format_name(download.format)),true,
                 "Native libarchive extraction of "+std::string(archive_format_name(download.format))+" with declared extract_dir/extract_to layout");

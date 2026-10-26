@@ -77,6 +77,7 @@ $testArchives = @(
     @{Name='air_1.67.4_windows_amd64.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_amd64.tar.gz'; Hash='c35dbd568cff98055cc382d003bfda06bcdae82389568fb5e60ce5da278fa79d'},
     @{Name='air_1.67.4_windows_386.tar.gz'; Url='https://github.com/air-verse/air/releases/download/v1.67.4/air_1.67.4_windows_386.tar.gz'; Hash='91df7ef7f35da4a23129e172675137e1b8cd6835392736d817bb443c0dc424c8'},
     @{Name='7z2605-x64.msi'; Url='https://github.com/ip7z/7zip/releases/download/26.05/7z2605-x64.msi'; Hash='3fe4ab99fa15629c652944309a2b2bc6e41fc933fc6b63f5df1ebcf3aea68263'},
+    @{Name='7z2603-x64.msi'; Url='https://github.com/ip7z/7zip/releases/download/26.03/7z2603-x64.msi'; Hash='c0680064d698a62dd4a5a47f403db356a6531a5473e4c4b1d090ea2590513926'},
     @{Name='node-v26.12.1-win-x64.7z'; Url='https://nodejs.org/dist/v26.12.1/node-v26.12.1-win-x64.7z'; Hash='4deef78146a60555c9518438cae38da8df71722ca856920b90078f5cdeb642a6'},
     @{Name='luajit-2.1.1791988261-1-any.pkg.tar.zst'; Url='https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-luajit-2.1.1791988261-1-any.pkg.tar.zst'; Hash='d559881bffc105af4482eab52a34fa57963047cf45e735a5c0f8daca605c68a1'},
     @{Name='tidy-5.8.0-win64.zip'; Url='https://github.com/htacg/tidy-html5/releases/download/5.8.0/tidy-5.8.0-win64.zip'; Hash='ffb2f86484c66e70e6a6da369cb8f0f459ad2ffec7c7ca80d09a13445ee51a40'},
@@ -84,4 +85,4 @@ $testArchives = @(
     @{Name='curl-8.23.0_5-win64-mingw.tar.xz'; Url='https://curl.se/windows/dl-8.23.0_5/curl-8.23.0_5-win64-mingw.tar.xz'; Hash='b6ad235d1907d96615334532eab1db0040860e6b5adc3b8749a4331924449c3b'}
 )
 foreach ($file in $testArchives) { Get-PinnedFile $file.Name $file.Url $file.Hash $archives | Out-Null }
-Write-Output 'Verified fixed real ZIP, tar.gz/tar.xz/tar.zst, 7z, 7z SFX and MSI test archives'
+Write-Output 'Verified fixed real ZIP, tar.gz/tar.xz/tar.zst, 7z, 7z SFX and 7-Zip MSI (26.05/26.03) test archives'

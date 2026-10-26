@@ -77,8 +77,9 @@ $sevenUpdate = Test-Coop '7zip-update-preview' @('update','7zip','--dry-run','--
 Assert ($sevenUpdate.exit -eq 0) "7zip update preview failed: $($sevenUpdate.error)"
 $sevenUpdatePlan = Get-Json $sevenUpdate
 Assert (@($sevenUpdatePlan.package.scripts).Count -eq 2) 'installed 7zip update plan did not expose its two hook phases'
-Assert ($sevenUpdatePlan.execution_available -eq $false) '7zip MSI update stayed executable'
-Assert (@($sevenUpdatePlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'machine cache' }).Count -eq 1) '7zip MSI limitation is not reported'
+Assert ($sevenUpdatePlan.execution_available -eq $true) "7zip MSI update preview stayed blocked: $(@($sevenUpdatePlan.diagnostics) | ConvertTo-Json -Compress)"
+Assert ($sevenUpdatePlan.package.msi_extraction.msiexec_started -eq $false -and $sevenUpdatePlan.package.msi_extraction.administrative_install -eq $false) '7zip MSI preview does not state the read-only extraction facts'
+Assert (@($sevenUpdatePlan.package.msi_extraction.elevation -match 'not required') -and @($sevenUpdatePlan.package.msi_extraction.reboot -match 'not required')) '7zip MSI preview does not state the permission and reboot facts'
 
 # 2. The bounded real lifecycle: Main/rclone declares real pre_install and uninstaller.script.
 $rcloneManifest = Get-Content -LiteralPath "$Root/buckets/main/bucket/rclone.json" -Raw | ConvertFrom-Json

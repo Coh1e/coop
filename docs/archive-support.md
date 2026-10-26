@@ -24,10 +24,10 @@
 | tar.zst / tzst | 已运行 | 已验证 | Main/luajit 2.1.1791988261-1 的 Arch/MSYS2 `.pkg.tar.zst`；嵌套 `extract_dir=mingw64`、真实 `luajit -v`、Scoop reset；坏 tar.zst 更新保留当前版本 |
 | tar.bz2 / tbz / tbz2 / tar.lzma / tlz | 已运行 | 路径已验证 | 项目内真实压缩流夹具：嵌套同名目录、`extract_dir` 提升内容、程序运行与卸载；没有挑选 Main/Extras 中同时满足本票边界的真实包，因此不写成真实生态样本 |
 | 7z | 已运行 | 已验证 | Main/fastfetch 2.68.1 → 2.70.0 的官方 7z；真实 `fastfetch --version`、更新保留旧版本、Scoop reset；Main/unzip 6.00 的真实 `#/dl.7z` 自解压下载改名为 7z 后安装、运行、Scoop reset 与卸载 |
-| MSI | 未启用（隔离限制） | 未启用 | 计划检测并按需报告系统 `msiexec.exe`，但 `msiexec /a` 会写入 `%WINDIR%\Installer` 机器缓存，超出项目根；执行前明确阻塞，证据见 [Installer/Uninstaller 与特殊安装机制](installer-support.md) |
+| MSI | 已运行 | 已验证 | 只读 Windows Installer 数据库（`msi.dll`）+ Windows cabinet 解压 API（`cabinet.dll`）生成与 Scoop `Expand-MsiArchive` 相同的管理镜像；真实 7-Zip 26.05 → 26.03 安装/更新/卸载与损坏失败见 `tests/msi-lifecycle.ps1`，真实共用根 kalker/pkgconf 双向交替见 `tests/real-scoop-msi.ps1`；不启动 `msiexec`、不提权、不重启、不写机器缓存 |
 | InnoSetup / NSIS / WiX 等特殊安装器 | 未启用 | 未启用 | 由 Manifest 诊断或安装器/脚本能力拒绝；普通压缩库能力不冒充安装器提取 |
 
-`ArchiveKind` 的 ZIP、tar 系列与 7z 路径进入真实 CLI 生命周期；MSI 只在计划中显示外部工具与隔离限制，实际执行阻塞。普通 `adopt` 旧路径仍只接受调查过的直接单文件布局；共享归档安装的实际更新/卸载不再依赖该旧路径（见下文）。
+`ArchiveKind` 的 ZIP、tar 系列、7z 与 MSI 路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），不与普通归档共用解压实现。普通 `adopt` 旧路径仍只接受调查过的直接单文件布局；共享归档安装的实际更新/卸载不再依赖该旧路径（见下文）。
 
 ## 目录布局语义
 
@@ -66,7 +66,8 @@
 | tidy 5.8.0 win64 ZIP（嵌套布局） | `ffb2f86484c66e70e6a6da369cb8f0f459ad2ffec7c7ca80d09a13445ee51a40` |
 | curl 8.23.0_5 win64 mingw tar.xz | `b6ad235d1907d96615334532eab1db0040860e6b5adc3b8749a4331924449c3b` |
 | unzip 6.00 7z SFX 下载 | `7869ee36346b47701ef01efd0bc2889f970266b66c80b30f74303d50bf7fa33d` |
-| 7-Zip 26.05 x64 MSI（仅预览/拒绝） | `3fe4ab99fa15629c652944309a2b2bc6e41fc933fc6b63f5df1ebcf3aea68263` |
+| 7-Zip 26.05 x64 MSI（安装/更新目标） | `3fe4ab99fa15629c652944309a2b2bc6e41fc933fc6b63f5df1ebcf3aea68263` |
+| 7-Zip 26.03 x64 MSI（更新前版本） | `c0680064d698a62dd4a5a47f403db356a6531a5473e4c4b1d090ea2590513926` |
 
 Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机 Scoop 保存的安装记录；项目内测试只把 URL 改写为 `file://` 缓存（含 Unicode/空格测试根时验证转义路径）。实际程序版本由运行 `rg --version`、`air -v`、`fastfetch --version`、`luajit -v`、`curl --version`、`unzip -v`、`tidy --version` 观察，不由目录存在推断。
 
@@ -90,13 +91,15 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 ## 测试
 
 - `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 与 7z SFX 安装由 `process_guard` 观察，不能启动外部解压器。
-- `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、MSI 拒绝、中断更新和当前版本保护。
+- `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、损坏 MSI 在数据库阶段失败、中断更新和当前版本保护。
+- `tests/msi-lifecycle.ps1`（CTest `msi_lifecycle`）：真实 7-Zip 26.05/26.03 MSI 的只读预览、安装、更新、卸载、持久化保留与截断 MSI 失败；全程 `process_guard` 观察无 `msiexec`，Windows Installer 机器缓存不变。
+- `tests/real-scoop-msi.ps1`：真实共用根上 kalker/pkgconf 的 Coop↔Scoop 双向交替与客户端间版本目录逐文件 SHA256 对比。
 - `tests/scoop-interop.ps1`（CTest `scoop_interop`）：无 Coop 记录的共享归档更新/卸载、Scoop reset、缺失入口拒绝，以及直接文件/多产物路径。
 - `tests/real-scoop-archives.ps1`：上述同一真实 Scoop 根上的顺序交替脚本，只选择未安装的包，失败时尽力卸载本轮安装并删除临时 bucket。
 
 ## 未完成与边界
 
 - 本文件只证明这些真实样本与机制路径，不构成 Main/Extras 完整分母、安装器、真实脚本、用户环境或全部入口类型的完成证明。
-- MSI 管理安装仍因 `%WINDIR%\Installer` 机器缓存阻塞；InnoSetup/NSIS/WiX 安装器结构、分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
+- MSI 管理镜像提取已启用（#33）；外部 cabinet、多段/partial cabinet 与厂商 EXE 安装器结构（Inno/NSIS/WiX）仍未启用；分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 共享归档的更新/卸载以标准布局和入口目标为事实；Scoop 不提供解压树摘要，因此用户对版本目录内部的任意修改不会像直接文件摘要那样被逐一发现。需要内容摘要的场景仍应使用可核对产物的包，或后续在卸载/清理前增加显式树摘要记录。
 - `adopt` 专用旧路径仍拒绝归档布局；实际共享更新/卸载走 IR 计划路径，不要求该旧命令。由 #43 统一清理旧路径。

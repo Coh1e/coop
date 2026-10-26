@@ -26,6 +26,8 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **安装器程序（Installer Program）**：Manifest 的 `installer`/`uninstaller` 对象通过 `file`/`args`（可带 `keep`）声明的外部程序，与 `installer.script`/`uninstaller.script` 脚本区分。它由真实 PowerShell 调用固定的 Scoop `Invoke-Installer` 执行，在版本目录运行并使用 Scoop 的参数替换与删除语义；程序自身的外部副作用属于未知范围，不承诺回滚。
 
+**MSI 镜像提取（MSI Image Extraction）**：对 Manifest 中 `.msi` 产物执行 Scoop `Expand-MsiArchive` 对应的管理镜像提取：从只读的 Windows Installer 数据库表推导目录、文件与 cabinet 布局，再用 Windows cabinet 解压 API 展开内嵌 cabinet。它不等同于运行厂商安装器，不启动 `msiexec`、不注册产品、不改写 `%WINDIR%\Installer` 机器缓存，也不需要管理员权限或重启；外部 cabinet、多段 cabinet 与厂商安装器载荷不在此能力内。
+
 **Scoop 兼容库（Scoop Compatibility Library）**：随 Coop 分发、与固定 Scoop 修订逐字节一致的 PowerShell 库副本，为生命周期 Hook 提供 Scoop 的上下文变量与辅助函数语义，而不是另建一套缩水实现。
 
 **已验证行为（Verified Behavior）**：已有可复现证据证明符合约定兼容语义的软件管理行为。它描述当前验证状态，不定义产品的目标兼容上限。
