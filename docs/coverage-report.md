@@ -68,7 +68,7 @@
 | SHA1 | 204 | 204 | 203 | 0 |
 | MD5 | 40 | 40 | 40 | 0 |
 
-产物与摘要算法行按 64bit 计划实际选中的产物/算法统计（一份 Manifest 可选多个算法时各计一次）；Manifest 根与架构对象里的原始 `tar.gz`/`tar.xz`/`tar.zst` 声明另计为 tar 家族。多下载项与 `#/` 重命名是没有对应计划字段的声明特征，因此按 Manifest 结构统计。
+产物与摘要算法行按 64bit 计划实际选中的产物/算法统计（一份 Manifest 可选多个算法时各计一次）；Manifest 根与架构对象里的原始 `tar.gz`/`tar.xz`/`tar.zst` 声明另计为 tar 家族。多下载项与 `#/` 重命名是没有对应计划字段的声明特征，因此按 Manifest 结构统计。原始 URL 还包含 `.exe`（1109 个包，计划归一为 `none`/`7z`/`msi`/`inno` 并按内容识别 NSIS）、无扩展名（289 个包，多为动态下载端点）等格式；本节只列主要机制族，**完整 59 行逐机制计数**（含各 `local.*`/`download.*` 变体与 `installer.args` 等）见 `tests/coverage/baseline.json` 的 `mechanisms` 与证据 `summary.json`。
 
 NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executable 产物在校验后按内容识别；本轮 helper 可用，因此这 408 个计划可执行，但只有真实运行的包才能证明解包行为（本轮没有新增 NSIS 真机样本）。
 
@@ -85,7 +85,9 @@ NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executab
 | `extract_dir` | 1274 | 1274 | 1259 | 4 |
 | `extract_to` | 33 | 33 | 33 | 0 |
 | `installer` 声明 | 238 | 238 | 236 | 1 |
+| `installer.file`／`installer.args` | 7／10 | 7／10 | 7／10 | 0 |
 | `uninstaller` 声明 | 165 | 165 | 162 | 3 |
+| `uninstaller.file`／`uninstaller.args` | 4／2 | 4／2 | 4／2 | 0 |
 | `psmodule` | 28 | 28 | **0** | 0 |
 | 64bit 架构对象 | 3166 | 3166 | 3152 | 13 |
 | 32bit 架构对象 | 1139 | 1139 | 1132 | 7 |
