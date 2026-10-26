@@ -86,7 +86,10 @@ $testArchives = @(
     @{Name='innounp-2.zip'; Url='https://raw.githubusercontent.com/jrathlev/InnoUnpacker-Windows-GUI/refs/heads/master/innounp-2/bin/innounp-2.zip'; Hash='10fce27b6344b7674d5625cc34afca1c88c12183d957c6d93e401097fa2556cd'},
     @{Name='units-2.26-setup.exe'; Url='https://ftp.gnu.org/gnu/units/windows/units-2.26-setup.exe'; Hash='68b2868ed510562cd0a5ccc3269fc4c3c452d5606ac675eb0712b060651c9a83'},
     @{Name='units-2.27-setup.exe'; Url='https://ftp.gnu.org/gnu/units/windows/units-2.27-setup.exe'; Hash='db7a0bf90a20fcf9ec6a3de8eb10b798f7f61fee1efc4b4bf89f01b4b6d83da2'},
-    @{Name='rizin-0.9.1-installer.exe'; Url='https://github.com/rizinorg/rizin/releases/download/v0.9.1/rizin_installer-v0.9.1-x86_64.exe'; Hash='3bfea0e6e4cd3c557fa61e2118805047da73da8907a26007c64d7f32bc113f22'}
+    @{Name='rizin-0.9.1-installer.exe'; Url='https://github.com/rizinorg/rizin/releases/download/v0.9.1/rizin_installer-v0.9.1-x86_64.exe'; Hash='3bfea0e6e4cd3c557fa61e2118805047da73da8907a26007c64d7f32bc113f22'},
+    @{Name='apngasm-3.1.1-AMD64.exe'; Url='https://github.com/apngasm/apngasm/releases/download/3.1.1/apngasm_3.1-0_AMD64.exe'; Hash='692147d9bf4d5d1db1043e44a38a8f9a5e97425cca49c951ff58b37800b9851e'},
+    @{Name='apngasm-3.1.3-AMD64.exe'; Url='https://github.com/apngasm/apngasm/releases/download/3.1.3/apngasm_3.1-3_AMD64.exe'; Hash='59086b95474a36dd4c173cc6d97ee01b868727c00f721fa04d8ec3c1535f48cc'},
+    @{Name='elm-0.19.3-installer.exe'; Url='https://github.com/elm/compiler/releases/download/0.19.3/installer-for-windows.exe'; Hash='964dbef5f34a500bfaead2ea1238d7c3c94d7e69416012ce02a012995240c982'}
 )
 foreach ($file in $testArchives) { Get-PinnedFile $file.Name $file.Url $file.Hash $archives | Out-Null }
-Write-Output 'Verified fixed real ZIP, tar.gz/tar.xz/tar.zst, 7z, 7z SFX, 7-Zip MSI (26.05/26.03), GNU Units Inno Setup (2.26/2.27), rizin Inno Setup and innounp helper test archives'
+Write-Output 'Verified fixed real ZIP, tar.gz/tar.xz/tar.zst, 7z, 7z SFX, 7-Zip MSI (26.05/26.03), GNU Units Inno Setup (2.26/2.27), rizin Inno Setup, apngasm NSIS (3.1.1/3.1.3), elm NSIS (0.19.3) and innounp helper test archives'

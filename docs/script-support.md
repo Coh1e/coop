@@ -50,7 +50,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 
 - 兼容库是 `assets/scoop-lib/` 中 Scoop v0.6.0 提交 `e6aa3b36` 的逐字节副本（MIT，含上游 LICENSE 与每个文件的 blob/SHA256 来源表），构建时复制到 `coop.exe` 旁的 `scoop-lib/`；`COOP_SCOOP_LIB` 可指向另一份同布局副本（只作用于当前子进程）。Coop 不读取所选管理根内已安装 Scoop 的库，避免 Hook 语义随环境漂移。
 - `info`/`warn` 通过 `Write-Host` 写 stdout 并保留 `INFO  ` / `WARN  ` 前缀，与 Scoop 一致；不再是“warn 写 stderr”的自定义行为。
-- 依赖外部工具的 helper（例如 `Expand-7zipArchive` 需要 `7zip`、`Expand-InnoArchive` 需要 `innounp`、`Expand-DarkArchive` 需要 `dark`）会按 Scoop 的方式在该 root 下查找 helper。找不到时 Hook 以非零退出码失败并保留日志；Coop 不自动下载或安装这些工具。MSI 与 Inno Setup 产物机制本身已分别由 R12/#33 与 R13/#34 交付；NSIS 等其余厂商安装器仍待后续任务。
+- 依赖外部工具的 helper（例如 `Expand-7zipArchive` 需要 `7zip`、`Expand-InnoArchive` 需要 `innounp`、`Expand-DarkArchive` 需要 `dark`）会按 Scoop 的方式在该 root 下查找 helper。找不到时 Hook 以非零退出码失败并保留日志；Coop 不自动下载或安装这些工具。MSI、Inno Setup 与 NSIS 产物机制本身已分别由 R12/#33、R13/#34 与 R14/#35 交付；WiX/Dark 等其余厂商安装器仍待后续任务。
 
 ## 阶段与目录时序
 
@@ -115,7 +115,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 - 本机真实 Scoop 根上的其余 14 个已安装包的 Hook 生命周期由 [R19 / #40](https://github.com/Coh1e/coop/issues/40) 跟踪；本轮真实根只实际执行了 rclone 的 `pre_install` 与 `uninstaller.script`（见上节）以及 groovyserv 的真实 `installer.file` 程序（#32），其他已安装包的 Hook/安装器文本只做了只读预览。
 - 真实 `installer.file` 程序只在真实根上执行过 Main/groovyserv 的 `bin\setup.bat`（#32）。Main/vcpkg（安装器程序 + `pre_install`/`post_install`/`uninstaller.script`）只做了只读预览；其自身声明会把完整 vcpkg 仓库取到 `persist` 并写入用户 MSBuild 集成，未在本轮有界范围内执行。真实 `uninstaller.file/args` 没有 Main/Extras 样本。
 - `reg import`、服务控制、`Start-Process` 等会修改项目外状态的原文没有在真实根上执行；它们仍是受信脚本副作用，不承诺回滚。
-- NSIS、Dark 等厂商安装器机制本身（后续任务）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark helper 时以失败结束。MSI 产物提取已由 R12/#33 交付（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)），Inno Setup 的 `innosetup` 提取已由 R13/#34 通过声明的 innounp helper 交付；两者都不等同于执行 python 安装器脚本本身。
+- Dark/WiX 等厂商安装器机制本身（后续任务）：`Main/python` 的 `installer.script` 文本会运行，但缺少 Dark helper 时以失败结束。MSI 产物提取已由 R12/#33 交付（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)），Inno Setup 的 `innosetup` 提取已由 R13/#34 通过声明的 innounp helper 交付，NSIS 安装器载荷已由 R14/#35 通过声明的 7-Zip helper 交付；它们都不等同于执行 python 安装器脚本本身。
 - `post_uninstall` 中删除用户数据的真实样本（`Extras/aider-desk`、`Main/azure-cli`）没有执行；只用合成脚本验证阶段语义与 `$purge`。
 - Windows PowerShell 5.1 解释器路径只实现为回退候选，本轮未单独运行；`pwsh` 路径已实际验证。Manifest 读取已加 `-Encoding UTF8`（与 Scoop 的 loader 一致），但 5.1 下的非 ASCII Manifest 行为仍未实际运行。
 - 卡死脚本的超时/取消、无效 UTF-8 输出的可读性（JSON 只保证替换为 `?`）与任意脚本外部副作用的自动回滚不在承诺范围。

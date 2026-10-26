@@ -85,5 +85,5 @@
 - 未运行 neovim、cmake、oh-my-posh 的真实下载/安装；其计划可执行，但生命周期未验证。
 - 未运行 9 份“已知不支持”样本的执行路径（这是有意拒绝），也未运行 4 份被拒绝样本的实际安装。它们的脚本、MSI、InnoSetup 或 SHA512 兼容工作属于后续范围；MSI（#33）与 Inno Setup（#34）机制随后已启用，SHA512 也已支持，但这些样本仍未运行，本报告的分类只代表该轮。
 - 未执行 arm64 真实程序、真实用户 Scoop 迁移/回滚、正式发布、私有或 SSH Git 来源、跨工具交替写入。本轮 `git-live` 只验证公开 GitHub/GitLab HTTPS；未做 Main/Extras 全量规模的网络性能测量。
-- 该轮 MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、系统级注册表/环境写入尚未实现；随后 MSI（#33）与 Inno Setup（#34，通过声明的外部 innounp helper）已交付，`installer.file/args` 安装器/卸载器程序已由 R11（#32）接入真实 PowerShell 与固定 Scoop `Invoke-Installer`，但程序自身的项目外副作用不承诺回滚；NSIS 等其余厂商安装器与系统级注册表/环境写入仍未实现。用户级 `env_set`/`env_add_path` 已由 R08 写入并撤销，但完整生态兼容不能由 20 个样本推断。
+- 该轮 MSI 隔离提取方案、InnoSetup/NSIS 等特殊安装器、系统级注册表/环境写入尚未实现；随后 MSI（#33）、Inno Setup（#34，通过声明的外部 innounp helper）与 NSIS 安装器载荷（#35，通过声明的外部 7-Zip helper）已交付，`installer.file/args` 安装器/卸载器程序已由 R11（#32）接入真实 PowerShell 与固定 Scoop `Invoke-Installer`，但程序自身的项目外副作用不承诺回滚；WiX/Dark 等其余厂商安装器与系统级注册表/环境写入仍未实现。用户级 `env_set`/`env_add_path` 已由 R08 写入并撤销，但完整生态兼容不能由 20 个样本推断。
 - 本轮完整命令、退出码和测试根证据保存在 `.local/pi/tasks/20/evidence`（被忽略的本地任务证据），其中 `acceptance-evidence.json` 记录逐样本计划分类、首条路径状态、进程观测与工具版本。可重跑入口是 `ctest --test-dir .local/build --output-on-failure -R '^acceptance$'`。

@@ -57,6 +57,7 @@ Package project(const ir::Package& definition) {
         artifact.digest = item.digest.value;
         artifact.algorithm = item.digest.algorithm;
         artifact.renamed = item.renamed;
+        artifact.installer_payload = item.installer_payload;
         artifact.archive = legacy_archive(item.format);
         if (!item.extract_directory.empty()) artifact.extract_directory = fs::path(wide(item.extract_directory));
         if (!item.extract_destination.empty()) artifact.extract_destination = fs::path(wide(item.extract_destination));

@@ -63,6 +63,9 @@ void validate(Package& package) {
         }
         if (!supported_url(download.url))
             report(package,Layer::validation,"unsupported-download","Artifact URL scheme is not supported");
+        if (download.installer_payload)
+            capability(package,"nsis-installer",true,
+                "An executable self-extractor declared as an archive payload (Scoop's #/name rename) is inspected by content after digest verification: when the payload carries the NSIS FirstHeader signature (DE AD BE EF followed by NullsoftInst) it is unpacked by the separately installed 7-Zip helper found at apps/7zip/current in the selected root, with Scoop's Expand-7zipArchive arguments (x, -o<destination>, -xr!*.nsis, -y and -ir!<extract_dir>\\* when extract_dir is declared); other payloads stay with the native archive reader, the vendor setup.exe is never executed, the helper is detected and never downloaded, installed or bundled, and a missing helper or a non-zero helper exit fails with a named error before a version is published");
         if (download.format == ArchiveFormat::msi)
             capability(package,"windows-installer",true,
                 "MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API: the Directory/Component/File/Media tables give the administrative image layout, no msiexec.exe process runs, no product is registered, no elevation or reboot is requested and no %WINDIR%\\Installer machine cache is written; external, multi-part and vendor installer payloads are reported as unsupported instead of being executed");

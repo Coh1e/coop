@@ -26,9 +26,10 @@
 | 7z | 已运行 | 已验证 | Main/fastfetch 2.68.1 → 2.70.0 的官方 7z；真实 `fastfetch --version`、更新保留旧版本、Scoop reset；Main/unzip 6.00 的真实 `#/dl.7z` 自解压下载改名为 7z 后安装、运行、Scoop reset 与卸载 |
 | MSI | 已运行 | 已验证 | 只读 Windows Installer 数据库（`msi.dll`）+ Windows cabinet 解压 API（`cabinet.dll`）生成与 Scoop `Expand-MsiArchive` 相同的管理镜像；真实 7-Zip 26.05 → 26.03 安装/更新/卸载与损坏失败见 `tests/msi-lifecycle.ps1`，真实共用根 kalker/pkgconf 双向交替见 `tests/real-scoop-msi.ps1`；不启动 `msiexec`、不提权、不重启、不写机器缓存 |
 | Inno Setup（`innosetup`） | 已运行 | 已验证 | 通过 root 内已安装的 innounp helper（不内嵌、不下载）按 Scoop `Expand-InnoArchive` 的参数与 `-c` 选择提取声明的 Inno 目录；真实 Units 2.27 → 2.26 安装/更新/卸载、项目内变体的相对 `extract_dir` 与真实 rizin `{app}\bin`、helper 缺失与截断失败见 `tests/inno-lifecycle.ps1`，真实共用根 Main/units 双向交替与逐文件镜像一致见 `tests/real-scoop-inno.ps1`；不启动厂商安装器、不提权、不重启 |
-| NSIS / WiX 等其他特殊安装器 | 未启用 | 未启用 | 由 Manifest 诊断或安装器能力拒绝；普通压缩库能力不冒充安装器提取，Inno Setup 的成功也不外推到这些格式 |
+| NSIS 安装器载荷 | 已运行 | 已验证 | 声明为归档产物的 NSIS 自解压器在摘要校验后按 FirstHeader 签名识别，再由 root 内已安装的 7-Zip helper 按 Scoop `Expand-7zipArchive` 参数解包（不内嵌、不下载、不执行 `setup.exe`）；真实 apngasm 3.1.3 → 3.1.1 安装/更新/卸载、elm 0.19.3 的 `-ir!bin\*` 选择、截断失败与缺失 helper 见 `tests/nsis-lifecycle.ps1`，真实共用根 Main/apngasm 双向交替与逐文件镜像一致见 `tests/real-scoop-nsis.ps1` |
+| WiX/Dark 等其他特殊安装器 | 未启用 | 未启用 | 由 Manifest 诊断或安装器能力拒绝；普通压缩库能力不冒充安装器提取，Inno Setup 与 NSIS 的成功也不外推到这些格式 |
 
-`ArchiveKind` 的 ZIP、tar 系列、7z、MSI 与 Inno Setup 路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#inno-setup-提取34)），两者都不与普通归档共用解压实现。普通 `adopt` 旧路径仍只接受调查过的直接单文件布局；共享归档安装的实际更新/卸载不再依赖该旧路径（见下文）。
+`ArchiveKind` 的 ZIP、tar 系列、7z、MSI、Inno Setup 与 NSIS 载荷路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper，NSIS 安装器载荷使用单独安装的 7-Zip helper（#35，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#nsis-安装器载荷提取35)），三者都不与普通归档共用解压实现。普通 7z/ZIP/tar 载荷不会因为 NSIS 支持而变成需要 7-Zip：只有摘要校验后内容命中 NSIS 签名时才使用 helper。普通 `adopt` 旧路径仍只接受调查过的直接单文件布局；共享归档安装的实际更新/卸载不再依赖该旧路径（见下文）。
 
 ## 目录布局语义
 
@@ -94,6 +95,8 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 - `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 与 7z SFX 安装由 `process_guard` 观察，不能启动外部解压器。
 - `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、损坏 MSI 在数据库阶段失败、中断更新和当前版本保护。
 - `tests/msi-lifecycle.ps1`（CTest `msi_lifecycle`）：真实 7-Zip 26.05/26.03 MSI 的只读预览、安装、更新、卸载、持久化保留与截断 MSI 失败；全程 `process_guard` 观察无 `msiexec`，Windows Installer 机器缓存不变。
+- `tests/nsis-lifecycle.ps1`（CTest `nsis_lifecycle`）：真实 apngasm 3.1.3/3.1.1 NSIS 载荷的只读预览、安装、更新、截断失败、缺失 helper 与普通卸载；helper 来自同一 root 的普通 7-Zip 26.05 安装并断言逐文件不变，全程 `process_guard` 观察无 `setup.exe`。
+- `tests/real-scoop-nsis.ps1`：真实共用根上 Main/apngasm 的 Coop↔Scoop 双向交替与客户端间版本目录逐文件 SHA256 对比。
 - `tests/real-scoop-msi.ps1`：真实共用根上 kalker/pkgconf 的 Coop↔Scoop 双向交替与客户端间版本目录逐文件 SHA256 对比。
 - `tests/scoop-interop.ps1`（CTest `scoop_interop`）：无 Coop 记录的共享归档更新/卸载、Scoop reset、缺失入口拒绝，以及直接文件/多产物路径。
 - `tests/real-scoop-archives.ps1`：上述同一真实 Scoop 根上的顺序交替脚本，只选择未安装的包，失败时尽力卸载本轮安装并删除临时 bucket。
@@ -101,6 +104,6 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 ## 未完成与边界
 
 - 本文件只证明这些真实样本与机制路径，不构成 Main/Extras 完整分母、安装器、真实脚本、用户环境或全部入口类型的完成证明。
-- MSI 管理镜像提取已启用（#33）；Inno Setup 提取已通过声明的外部 innounp helper 启用（#34），不内嵌也不静默下载该工具。外部 cabinet、多段/partial cabinet、NSIS/WiX 与厂商 EXE 安装器结构仍未启用；分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
+- MSI 管理镜像提取已启用（#33）；Inno Setup 提取已通过声明的外部 innounp helper 启用（#34）；NSIS 安装器载荷提取已通过声明的外部 7-Zip helper 启用（#35），不内嵌也不静默下载这些工具。外部 cabinet、多段/partial cabinet、WiX/Dark 与厂商 EXE 安装器结构仍未启用；分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 共享归档的更新/卸载以标准布局和入口目标为事实；Scoop 不提供解压树摘要，因此用户对版本目录内部的任意修改不会像直接文件摘要那样被逐一发现。需要内容摘要的场景仍应使用可核对产物的包，或后续在卸载/清理前增加显式树摘要记录。
 - `adopt` 专用旧路径仍拒绝归档布局；实际共享更新/卸载走 IR 计划路径，不要求该旧命令。由 #43 统一清理旧路径。

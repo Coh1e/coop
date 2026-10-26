@@ -7,6 +7,7 @@
 #include "shim.hpp"
 #include "archive.hpp"
 #include "inno.hpp"
+#include "nsis.hpp"
 #include "msi.hpp"
 #include <algorithm>
 #include <iostream>
@@ -236,6 +237,11 @@ bool has_inno_artifact(const Package& package) {
         return artifact.archive == ArchiveKind::inno_setup;
     });
 }
+bool has_nsis_payload(const Package& package) {
+    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
+        return artifact.installer_payload;
+    });
+}
 // The permission and reboot facts are stated where the user reviews the plan, and they describe the
 // mechanism Coop actually uses rather than the vendor installer's own behaviour.
 Json msi_extraction_json() {
@@ -273,6 +279,29 @@ Json inno_setup_json(const Context& context) {
         {"layout","the files below the selected Inno directory, then the declared extract_dir/extract_to; file contents and timestamps are what innounp writes"},
         {"limitations","encrypted installers need a password Coop does not supply, and an Inno Setup version the installed innounp cannot read fails with a named non-zero error before a version is published"}};
 }
+// An NSIS installer payload is a self-extracting executable that the Manifest declares as an
+// archive (Scoop's `#/dl.7z` idiom). The declared suffix cannot decide the real container, so the
+// plan states the content-detection rule and the helper the backend would use. Every ordinary
+// archive keeps the native reader.
+Json nsis_extraction_json(const Context& context) {
+    const auto helper = nsis_helper(context);
+    return {{"mechanism","external 7-Zip helper using Scoop's Expand-7zipArchive arguments"},
+        {"payload","an executable self-extractor declared as an archive payload (for example `#/dl.7z`)"},
+        {"content_detection","after digest verification Coop inspects the payload bytes: only an NSIS installer uses the helper, every other payload stays with the native archive reader"},
+        {"signature","NSIS FirstHeader magic DE AD BE EF followed by the ASCII marker NullsoftInst; the byte offset is recorded in the transaction journal"},
+        {"helper",path_text(helper.path)},
+        {"helper_available",!helper.path.empty()},
+        {"helper_problem",helper.problem},
+        {"helper_lookup","apps/7zip/current/7z.exe under the selected root and the optional global root"},
+        {"helper_policy","a separate 7-Zip software dependency of this package mechanism, not a Coop core dependency; Coop detects it and never downloads, installs or bundles it"},
+        {"arguments","x <payload> -o<destination> -xr!*.nsis -y, plus -ir!<extract_dir>\\* when extract_dir is declared, exactly as Scoop 0.6.0's Expand-7zipArchive"},
+        {"installer_executed",false},
+        {"elevation","not requested: 7-Zip unpacks files into the selected root and the vendor setup.exe never runs"},
+        {"reboot","not required: no vendor setup.exe process is started, so its reboot scheduling cannot run"},
+        {"installer_effects","not executed: the vendor setup.exe's install directory, registry, services, Start Menu entries, [Run] steps and uninstall registration are outside this extraction"},
+        {"layout","the whole extracted NSIS payload, or the declared extract_dir selection, then the declared extract_to; file contents and timestamps are what 7-Zip writes"},
+        {"limitations","the helper is used only when the verified content is an NSIS installer, so preview cannot promise that the payload needs it; a missing helper, a non-NSIS payload 7-Zip cannot read, or a non-zero helper exit fails with a named non-zero error before a version is published"}};
+}
 Json package_json(const Context& context, const Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
         {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
@@ -303,6 +332,7 @@ Json package_json(const Context& context, const Package& package) {
     result["external_tools"] = external_tools_json(context,package);
     if (has_msi_artifact(package)) result["msi_extraction"] = msi_extraction_json();
     if (has_inno_artifact(package)) result["inno_setup"] = inno_setup_json(context);
+    if (has_nsis_payload(package)) result["nsis_extraction"] = nsis_extraction_json(context);
     result["dependencies"] = package.dependencies;
     // Installer/uninstaller programs run through the same real PowerShell host and pinned Scoop
     // library as hook scripts, calling upstream Invoke-Installer. The preview therefore names the
@@ -609,6 +639,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             "declared external innounp helper "+path_text(helper.path)+
             " with Scoop's Expand-InnoArchive arguments; the vendor installer is never run and no elevation or reboot is requested";
     }
+    if (has_nsis_payload(plan.package) || (plan.previous && has_nsis_payload(*plan.previous))) {
+        const auto helper = nsis_helper(context);
+        result["lifecycle_checks"]["nsis_extraction"] = helper.path.empty() ? helper.problem :
+            "declared external 7-Zip helper "+path_text(helper.path)+
+            " with Scoop's Expand-7zipArchive arguments for a content-detected NSIS installer payload; other payloads stay on the native archive reader, the vendor setup.exe is never run and no elevation or reboot is requested";
+    }
     if (plan.update_candidate && !plan.update_candidate->scripts.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (std::any_of(plan.package.commands.begin(),plan.package.commands.end(),[](const CommandExposure& command) {
@@ -647,6 +683,12 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             artifact["reboot_required"] = false;
             artifact["vendor_installer_executed"] = false;
             artifact["inno_selection"] = "-c"+inno_selection(path_text(item.extract_directory));
+        } else if (item.installer_payload) {
+            artifact["extraction"] = "native-archive-or-external-7zip-nsis";
+            artifact["requires_elevation"] = false;
+            artifact["reboot_required"] = false;
+            artifact["vendor_installer_executed"] = false;
+            artifact["payload_check"] = "after digest verification: an NSIS installer payload uses the declared external 7-Zip helper with Scoop's Expand-7zipArchive arguments, and every other payload stays with the native archive reader";
         }
         // Keep the historical key only for genuine SHA256 artifacts. A SHA512 value must never be
         // labelled sha256.
@@ -669,7 +711,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
-    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z, MSI and Inno Setup archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); Inno Setup .exe artifacts are unpacked by the separately installed innounp helper with Scoop's Expand-InnoArchive arguments and layout (the vendor installer is never executed, the helper is detected and never downloaded, and its own [Run]/[Registry]/service/shortcut effects are outside the extraction); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
+    result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z, MSI, Inno Setup and NSIS installer-payload archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); Inno Setup .exe artifacts are unpacked by the separately installed innounp helper with Scoop's Expand-InnoArchive arguments and layout (the vendor installer is never executed, the helper is detected and never downloaded, and its own [Run]/[Registry]/service/shortcut effects are outside the extraction); an executable self-extractor declared as an archive payload is inspected by content after verification and, when it is an NSIS installer, unpacked by the separately installed 7-Zip helper with Scoop's Expand-7zipArchive arguments (ordinary 7z, ZIP and tar payloads stay native, the vendor setup.exe is never executed, and the helper is detected and never downloaded); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR command entries with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
     return result;
 }
 struct PackageOutcome {

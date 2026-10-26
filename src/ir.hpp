@@ -37,6 +37,11 @@ struct Download {
     std::string extract_directory;
     std::string extract_destination;
     bool renamed = false;
+    // The source declares an executable as an archive payload (Scoop's `#/name.7z` rename idiom,
+    // for example an NSIS setup.exe downloaded as dl.7z). The declared archive format is still the
+    // transport; whether the verified content is an NSIS installer is decided by content detection,
+    // because a self-extracting executable can be a 7z SFX or an NSIS installer.
+    bool installer_payload = false;
 };
 
 // Command entries are identified by their package-relative target and alias. The IR stores only

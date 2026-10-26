@@ -16,6 +16,10 @@ struct Artifact {
     std::string digest;
     ir::DigestAlgorithm algorithm = ir::DigestAlgorithm::sha256;
     bool renamed = false;
+    // The source declared an executable archive payload (Scoop's `#/name.7z` idiom). The backend
+    // inspects the verified content: an NSIS installer uses the declared 7-Zip helper, everything
+    // else stays with the native archive reader.
+    bool installer_payload = false;
     ArchiveKind archive = ArchiveKind::none;
     fs::path extract_directory;
     fs::path extract_destination;

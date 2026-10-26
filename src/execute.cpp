@@ -10,6 +10,7 @@
 #include "shim.hpp"
 #include "inno.hpp"
 #include "msi.hpp"
+#include "nsis.hpp"
 #include <windows.h>
 #include <array>
 #include <cctype>
@@ -1011,6 +1012,20 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     journal["inno_extractions"].push_back(std::move(entry));
                     save();
                     merge_directory.clear();
+                } else if ((artifact.archive == ArchiveKind::zip || artifact.archive == ArchiveKind::seven_zip) &&
+                           inspect_nsis_payload(downloaded_files[step.index]).detected) {
+                    // The declared suffix only describes the transport. An NSIS installer is
+                    // unpacked by the 7-Zip helper that Scoop's Expand-7zipArchive also uses; the
+                    // helper is detected in the selected root and never downloaded.
+                    const auto helper = nsis_helper(context);
+                    if (helper.path.empty()) throw std::runtime_error(helper.problem);
+                    auto entry = extract_nsis_archive(context,helper.path,downloaded_files[step.index],raw,
+                        path_text(artifact.extract_directory),transaction,step.index);
+                    entry["index"] = step.index;
+                    entry["filename"] = artifact.filename;
+                    if (!journal.contains("nsis_extractions")) journal["nsis_extractions"] = Json::array();
+                    journal["nsis_extractions"].push_back(std::move(entry));
+                    save();
                 } else {
                     extract_archive(downloaded_files[step.index],raw);
                 }

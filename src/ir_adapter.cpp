@@ -216,6 +216,15 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
             validate_component(local_name);
             download.filename = local_name;
             download.format = archive_format(local_name,innosetup);
+            // Scoop's `#/name` fragment renames the download. When an executable URL becomes an
+            // archive name, the payload is an installer self-extractor; its real format (7z SFX or
+            // NSIS) is decided later from the verified content, never by the declared suffix.
+            if (download.format != ArchiveFormat::file && download.format != ArchiveFormat::msi &&
+                download.format != ArchiveFormat::inno_setup) {
+                auto source_name = download.url.substr(download.url.find_last_of("/\\")+1);
+                source_name = source_name.substr(0,source_name.find('?'));
+                download.installer_payload = lower(source_name).ends_with(".exe");
+            }
             if (index < hashes.size()) download.digest = parse_digest(hashes[index]);
             if (download.format != ArchiveFormat::file) {
                 if (archive_index < extract_directories.size())

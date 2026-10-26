@@ -30,6 +30,8 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **Inno Setup 提取（Inno Setup Extraction）**：对声明 `innosetup` 的 `.exe` 产物，使用安装在选中 root 内的外部 innounp helper，按 Scoop `Expand-InnoArchive` 相同的参数与 `-c` 选择解包声明的 Inno 目录。helper 是包机制所需的外部软件依赖，不是 Coop 核心依赖：Coop 检测它、复用它，但从不下载、安装或内嵌它；缺失时在写入前明确阻塞。厂商安装器本身不会运行，因此 `[Run]`、注册表、服务、快捷方式和卸载登记等安装器副作用不在此能力内。
 
+**NSIS 安装器载荷提取（NSIS Installer Payload Extraction）**：Manifest 通过 `#/dl.7z` 之类的改名把可执行自解压器声明为归档产物时，Coop 在摘要校验后检查载荷内容；命中 NSIS FirstHeader 签名（`DE AD BE EF` + `NullsoftInst`）才使用安装在选中 root 内的外部 7-Zip helper，按 Scoop `Expand-7zipArchive` 相同的参数（`-xr!*.nsis`、`-y`，声明时追加 `-ir!<extract_dir>\*`）解包。其他载荷仍由原生解压路径处理；helper 从不下载、安装或内嵌，缺失时在写入前具名失败。厂商 `setup.exe` 不会运行，因此其安装目录、注册表、服务、快捷方式和卸载登记等副作用不在此能力内。
+
 **Scoop 兼容库（Scoop Compatibility Library）**：随 Coop 分发、与固定 Scoop 修订逐字节一致的 PowerShell 库副本，为生命周期 Hook 提供 Scoop 的上下文变量与辅助函数语义，而不是另建一套缩水实现。
 
 **已验证行为（Verified Behavior）**：已有可复现证据证明符合约定兼容语义的软件管理行为。它描述当前验证状态，不定义产品的目标兼容上限。

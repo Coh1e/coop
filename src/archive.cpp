@@ -2,6 +2,7 @@
 #include "data.hpp"
 #include "inno.hpp"
 #include "msi.hpp"
+#include "nsis.hpp"
 #include <windows.h>
 #include <archive.h>
 #include <archive_entry.h>
@@ -195,7 +196,21 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
     const auto fdi_api = cabinet_api();
     InnoHelper inno;
     bool inno_looked_up = false;
+    NsisHelper nsis;
+    bool nsis_looked_up = false, nsis_reported = false;
     for (const auto& artifact : package.artifacts) {
+        if (artifact.installer_payload && !nsis_reported) {
+            if (!nsis_looked_up) { nsis = nsis_helper(context); nsis_looked_up = true; }
+            nsis_reported = true;
+            tools.push_back({"7-Zip (NSIS installer payloads)",
+                "unpack the NSIS payload of "+artifact.filename+" with the same arguments as Scoop's Expand-7zipArchive after the verified content is identified as an NSIS installer",
+                "separately installed 7-Zip software package in the selected root; Coop detects it, never downloads, installs or bundles it, and never substitutes a bundled unpacker",
+                !nsis.path.empty(),!nsis.path.empty(),
+                nsis.path.empty() ? nsis.problem :
+                    "conditional: only a payload whose verified content carries the NSIS FirstHeader signature is unpacked with this helper, while ordinary 7z, ZIP and tar artifacts stay on the native archive reader; the vendor setup.exe is never executed, so its install directory, registry, service and uninstall-registration effects do not happen",
+                nsis.path});
+            continue;
+        }
         if (artifact.archive == ArchiveKind::inno_setup) {
             if (!inno_looked_up) { inno = inno_helper(context); inno_looked_up = true; }
             tools.push_back({"innounp (Inno Setup unpacker)",
