@@ -122,31 +122,49 @@ foreach ($number in 1..1200) { [IO.File]::WriteAllText((Join-Path $repository ('
 Invoke-FixtureGit @('-C',$repository,'add','auxiliary') | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','interruption fixture') | Out-Null
 $registryPath = Join-Path $root '.coop/buckets.json'
-$beforeCrash = (Get-FileHash -LiteralPath $registryPath).Hash
 $journals = Join-Path $root '.coop/bucket-refresh'
-$existingJournals = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
-$start = [Diagnostics.ProcessStartInfo]::new($CoopExe)
-$start.UseShellExecute = $false
-$start.CreateNoWindow = $true
-$start.RedirectStandardOutput = $true
-$start.RedirectStandardError = $true
-foreach ($argument in @('--root',$root,'bucket','update','git','--json')) { $start.ArgumentList.Add($argument) }
-$updater = [Diagnostics.Process]::Start($start)
-$updaterOutput = $updater.StandardOutput.ReadToEndAsync()
-$updaterError = $updater.StandardError.ReadToEndAsync()
-$deadline = [DateTime]::UtcNow.AddSeconds(30)
 $interrupted = $false
-while (-not $updater.HasExited -and [DateTime]::UtcNow -lt $deadline) {
-    $newJournal = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin $existingJournals })
-    if ($newJournal.Count) { $updater.Kill($true); $interrupted = $true; break }
-    Start-Sleep -Milliseconds 2
+$updater = $null
+for ($attempt = 1; $attempt -le 4 -and -not $interrupted; $attempt++) {
+    # Give each attempt a fresh source commit so a completed attempt can be retried instead of
+    # becoming a no-op. The kill is accepted only while the published registry is still old.
+    [IO.File]::WriteAllText((Join-Path $repository ("interrupt-$attempt.txt")),("attempt $attempt"))
+    Invoke-FixtureGit @('-C',$repository,'add',("interrupt-$attempt.txt")) | Out-Null
+    Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m',("interruption trigger $attempt")) | Out-Null
+    $beforeCrash = (Get-FileHash -LiteralPath $registryPath).Hash
+    $existingJournals = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+    $start = [Diagnostics.ProcessStartInfo]::new($CoopExe)
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    foreach ($argument in @('--root',$root,'bucket','update','git','--json')) { $start.ArgumentList.Add($argument) }
+    $updater = [Diagnostics.Process]::Start($start)
+    $updaterOutput = $updater.StandardOutput.ReadToEndAsync()
+    $updaterError = $updater.StandardError.ReadToEndAsync()
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $sawJournal = $false
+    while (-not $updater.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+        $newJournal = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin $existingJournals })
+        if ($newJournal.Count) {
+            $sawJournal = $true
+            if ((Get-FileHash -LiteralPath $registryPath).Hash -eq $beforeCrash) {
+                $updater.Kill($true)
+                $interrupted = $true
+                break
+            }
+        }
+        Start-Sleep -Milliseconds 2
+    }
+    if (-not $updater.HasExited) { $updater.Kill($true) }
+    $updater.WaitForExit()
+    $updaterOutput.GetAwaiter().GetResult() | Out-Null
+    $updaterError.GetAwaiter().GetResult() | Out-Null
+    if (-not $interrupted -and -not $sawJournal) { Start-Sleep -Milliseconds 50 }
 }
-if (-not $updater.HasExited) { $updater.Kill($true) }
-$updater.WaitForExit()
-$updaterOutput.GetAwaiter().GetResult() | Out-Null
-$updaterError.GetAwaiter().GetResult() | Out-Null
 if (-not $interrupted) { throw 'Failed to observe an actual in-progress refresh interruption' }
 if ((Get-FileHash -LiteralPath $registryPath).Hash -ne $beforeCrash) { throw 'Interruption changed published registry' }
+if (-not (Test-Path -LiteralPath (Join-Path $journals 'git.json'))) { throw 'Interrupted refresh did not leave its journal' }
 $pending = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq git
 if ($LASTEXITCODE -ne 0 -or $pending.refresh_pending -ne $true -or -not (Test-Path -LiteralPath $pending.refresh_journal)) { throw 'Interruption journal was not surfaced by bucket list' }
 $items = (& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json
