@@ -158,11 +158,11 @@ try {
     Assert-True ($modified.value -eq 'package-v1') "install did not persist $modifiedName"
     Assert-PathHas $path $coopPath 'install did not add the declared PATH entry'
     foreach ($entry in (Path-Entries $snapshots['Path'].value)) { Assert-PathHas $path $entry 'install removed an existing user PATH entry' }
-    $terminal = New-TerminalObservation 'install'
-    Assert-True ($terminal -match [regex]::Escape("absent=package-v1")) "a new terminal did not read env_set: $terminal"
-    Assert-True ($terminal -match [regex]::Escape("restore=package-v1")) "a new terminal did not read env_set: $terminal"
-    Assert-True ($terminal -match [regex]::Escape("modified=package-v1")) "a new terminal did not read env_set: $terminal"
-    Assert-True ($terminal -match [regex]::Escape("\apps\$package\current\bin")) "a new terminal did not read the declared PATH entry: $terminal"
+    $terminalInstall = New-TerminalObservation 'install'
+    Assert-True ($terminalInstall -match [regex]::Escape("absent=package-v1")) "a new terminal did not read env_set: $terminalInstall"
+    Assert-True ($terminalInstall -match [regex]::Escape("restore=package-v1")) "a new terminal did not read env_set: $terminalInstall"
+    Assert-True ($terminalInstall -match [regex]::Escape("modified=package-v1")) "a new terminal did not read env_set: $terminalInstall"
+    Assert-True ($terminalInstall -match [regex]::Escape("\apps\$package\current\bin")) "a new terminal did not read the declared PATH entry: $terminalInstall"
 
     # A user change after installation must survive the next update and the uninstall.
     Set-UserRaw $modifiedName 'modified-by-user' 'String'
@@ -179,9 +179,9 @@ try {
     $path = (Get-UserRaw 'Path').value
     Assert-PathHas $path $coopPath 'update removed the declared PATH entry'
     Assert-PathHas $path $userPath 'update removed a user-added PATH entry'
-    $terminal = New-TerminalObservation 'update'
-    Assert-True ($terminal -match [regex]::Escape('absent=package-v2')) "a new terminal did not read the updated PATH/environment: $terminal"
-    Assert-True ($terminal -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminal"
+    $terminalUpdate = New-TerminalObservation 'update'
+    Assert-True ($terminalUpdate -match [regex]::Escape('absent=package-v2')) "a new terminal did not read the updated PATH/environment: $terminalUpdate"
+    Assert-True ($terminalUpdate -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminalUpdate"
 
     $uninstall = CoopJson 'uninstall' @('--root',$root,'uninstall',$package,'--json')
     Assert-True ($uninstall.status -eq 'success') "uninstall did not report success: $uninstall"
@@ -194,14 +194,16 @@ try {
     Assert-PathMissing $path $coopPath 'uninstall left the declared PATH entry behind'
     Assert-PathHas $path $userPath 'uninstall removed a user-added PATH entry'
     foreach ($entry in (Path-Entries $snapshots['Path'].value)) { Assert-PathHas $path $entry 'uninstall removed an existing user PATH entry' }
-    $terminal = New-TerminalObservation 'uninstall'
-    Assert-True ($terminal -match '(?m)^absent=\r?$') "a new terminal still saw the removed variable: $terminal"
-    Assert-True ($terminal -match [regex]::Escape('restore=restore-original')) "a new terminal did not see the restored value: $terminal"
-    Assert-True ($terminal -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminal"
-    Assert-True ($terminal -match [regex]::Escape($userPath)) "a new terminal did not see the user-added PATH entry: $terminal"
+    $terminalUninstall = New-TerminalObservation 'uninstall'
+    Assert-True ($terminalUninstall -match '(?m)^absent=\r?$') "a new terminal still saw the removed variable: $terminalUninstall"
+    Assert-True ($terminalUninstall -match [regex]::Escape('restore=restore-original')) "a new terminal did not see the restored value: $terminalUninstall"
+    Assert-True ($terminalUninstall -match [regex]::Escape('modified=modified-by-user')) "a new terminal did not see the preserved user value: $terminalUninstall"
+    Assert-True ($terminalUninstall -match [regex]::Escape($userPath)) "a new terminal did not see the user-added PATH entry: $terminalUninstall"
 
     @{package=$package;root=$root;coop_path=$coopPath;user_path=$userPath;snapshots=$snapshots;
-      install=$install;update=$update;uninstall=$uninstall;terminal_after_uninstall=$terminal} |
+      install=$install;update=$update;uninstall=$uninstall;
+      terminal_after_install=$terminalInstall;terminal_after_update=$terminalUpdate;
+      terminal_after_uninstall=$terminalUninstall} |
         ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $TestRoot 'user-environment-evidence.json') -Encoding utf8
     Write-Output "PASS current-user environment persistence, notification, protection and restoration: $root"
     exit 0
