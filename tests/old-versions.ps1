@@ -51,8 +51,8 @@ if ($preview.code -ne 0) { throw "reset preview failed without a bucket Manifest
 if ($preview.value.action -ne 'reset' -or $preview.value.package.version -ne '1' -or $preview.value.current_version -ne '2') {
     throw "reset preview did not identify the local target and current version: $($preview.text)"
 }
-if ($preview.value.execution_available -ne $true -or $preview.value.retained_versions -notcontains '1') {
-    throw "reset preview was not executable or omitted the retained version: $($preview.text)"
+if ($preview.value.execution_available -ne $true -or $preview.value.retained_versions -notcontains '2') {
+    throw "reset preview was not executable or omitted the version it will retain: $($preview.text)"
 }
 if ($preview.value.local_version_reference.network -ne 'none' -or $preview.value.local_version_reference.download_url_guessed -ne $false -or
     $preview.value.local_version_reference.lifecycle_hooks -ne 'not-run') {

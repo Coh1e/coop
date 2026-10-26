@@ -593,7 +593,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
     if (action == Action::reset) {
         result["current_version"] = plan.previous ? plan.previous->version : std::string{};
-        result["retained_versions"] = retained_versions(context,plan.package.name,plan.previous ? plan.previous->version : std::string{});
+        result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
         result["local_version_reference"] = {{"directory",path_text(persistence_directory)},
             {"manifest",path_text(plan.package.manifest_path)},{"network","none"},
             {"download_url_guessed",false},{"lifecycle_hooks","not-run"},{"declared_installer_program","not-run"},
