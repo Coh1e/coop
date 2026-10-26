@@ -15,9 +15,12 @@ namespace {
 class ConsoleOutputEncoding {
 public:
     ConsoleOutputEncoding() {
-        const auto handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        const auto standard = GetStdHandle(STD_OUTPUT_HANDLE);
+        const auto diagnostic = GetStdHandle(STD_ERROR_HANDLE);
         DWORD mode = 0;
-        if (handle == INVALID_HANDLE_VALUE || handle == nullptr || !GetConsoleMode(handle,&mode)) return;
+        const bool output_console = standard != INVALID_HANDLE_VALUE && standard != nullptr && GetConsoleMode(standard,&mode);
+        const bool error_console = diagnostic != INVALID_HANDLE_VALUE && diagnostic != nullptr && GetConsoleMode(diagnostic,&mode);
+        if (!output_console && !error_console) return;
         original_ = GetConsoleOutputCP();
         if (original_ != 0 && original_ != CP_UTF8) SetConsoleOutputCP(CP_UTF8);
     }
