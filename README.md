@@ -2,7 +2,7 @@
 
 Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Scoop 安装，复用其 bucket 与 Manifest 生态。
 
-首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/真实用户环境与 PATH、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。其余写入路径仍以项目内测试为主，尚不能用于完整真实用户 Scoop 迁移或正式发布。开发工具与生成数据遵循项目内存放约定，仓库中的 devkit 仅作场景参考，其用户级安装脚本不是本项目的环境准备入口。
+首版已具备原生 CLI、本地查询与 bucket 管理，以及项目内验证过的接管、安装、更新、卸载、入口/快捷方式/真实用户环境与 PATH、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。共享状态的双向流程、独立初始化、目标机制、失败恢复与性能已在最终构建上重新验收：本机实际安装的 15 个软件在同一真实 Scoop 根上逐项通过，结果、未运行项与人类验收步骤见[完整交付验收与人工验收说明](docs/final-acceptance.md)。当前仍未获得正式发布授权，日常使用请按该页的范围与证据判断。
 
 当前产品方向已由 [正式规格 #21](https://github.com/Coh1e/coop/issues/21) 更新为与 Scoop 共用安装与状态：查询、预览与实际写入使用同一条独立的包管理 IR、校验与计划路径，直接读取本机真实 Scoop 安装事实，无需先执行接管；旧预览操作列表、旧执行记录与私有接管路径已由 R22 移除。模块边界与证据见 [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)，本轮真实安装与只读核对见 [真实 Scoop 安装基线](docs/real-scoop-baseline.md)；本机实际安装的 15 个软件已在同一真实 Scoop 根上完成逐项交替验收，见 [逐项交替验收](docs/real-machine-acceptance.md)。
 
@@ -33,6 +33,8 @@ Coop 是 C++20 Windows 原生软件包管理器，优先接管现有用户级 Sc
 - [跨机制中断恢复与冲突诊断](docs/recovery-support.md)
 - [本地查询与 Git 刷新性能](docs/performance-support.md)
 - [首版真实样本兼容与整体验收报告](docs/compatibility-report.md)
+- [完整交付验收与人工验收说明](docs/final-acceptance.md)
+- [历史 verifier 发现清单（#22–#49）](docs/verifier-findings-inventory.md)
 - [本机 15 个安装软件的逐项交替验收](docs/real-machine-acceptance.md)
 - [Main／Extras 全量兼容盘点](docs/coverage-report.md)
 - [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
@@ -72,12 +74,12 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 
 ## 已知限制与恢复范围
 
-- 实测平台为 Windows x64；32bit 真实 air 包已执行，arm64 只有计划与静态检查，未执行。共享归档的实际 `update`/`uninstall` 走同一 IR 计划路径，已用 Scoop 安装的 air 包完成更新、reset 与失败保护验证。
+- 实测平台为 Windows x64；32bit 真实 air 包已执行。arm64 生命周期未执行：3 个只提供 arm64 产物的包（`main/gel-arm64`、`main/llvm-arm64`、`extras/cpu-z-arm64`）的生命周期是本轮人类明确批准的例外，保持“未运行/未验证”；x64 下的不适用与 `--arch arm64` 规划是分开的证据，不能算作 ARM64 安装、更新或运行已验证。共享归档的实际 `update`/`uninstall` 走同一 IR 计划路径，已用 Scoop 安装的 air 包完成更新、reset 与失败保护验证。
 - MSI 产物可实际安装、更新和卸载：从只读 Windows Installer 数据库与内嵌 cabinet 生成管理镜像，不启动 `msiexec`、不提权、不重启、不写 `%WINDIR%\Installer`；外部或多段 cabinet、WiX/Dark 等其他厂商 EXE 安装器结构仍明确拒绝。Inno Setup 的 `innosetup` 产物由 root 内声明的 innounp helper 提取（参数与 `-c` 选择按 Scoop，不执行厂商安装器、不下载 helper），真实 Main/units 更新与 rizin 子目录布局已验收。NSIS 安装器载荷在摘要校验后按内容签名识别，由 root 内声明的 7-Zip helper 提取（参数按 Scoop `Expand-7zipArchive`，不执行 `setup.exe`、不下载 helper，普通 7z/ZIP/tar 不受影响），真实 Main/apngasm 更新、截断失败与双向交替已验收。系统级服务/注册表/环境写入仍不在自动路径内。`installer.file/args` 安装器/卸载器程序由真实 PowerShell 调用上游 `Invoke-Installer` 执行：程序在版本目录运行、`keep` 与参数替换按 Scoop，非零程序退出使包操作失败并回滚已创建的包状态，程序的项目外副作用保留为未知且不自动重试。生命周期脚本同样由真实 PowerShell 与固定 Scoop 兼容库执行，文本不再按子集拒绝；缺少 PowerShell 或兼容库时在执行前诊断，脚本中的外部工具缺失以非零退出码失败。
-- 脚本宿主入口仍由 Coop 以 `.coop-shim.json` 加自带启动器发布；Scoop 安装的纯 `.cmd`/`.ps1`/sh 包装已可更新/卸载（隔离实际、真实 `clink` 预览），真实 Scoop `reset` 产生的包装只在 Coop 卸载时按内容归属清理；Coop 自身尚未直接生成这些 Scoop 原生包装。
+- 命令入口按宿主类型发布 Coop 启动器与 Scoop 同形的 `.cmd`/`.ps1`/sh 包装（`.py`/bash 只有包装）；真实 Scoop `reset` 产生的包装只在 Coop 卸载时按内容归属清理。Scoop 安装的纯包装包可从内容与命令名证据更新/卸载（真实 `clink` 已验证）；Coop 与 Scoop 都能识别同一套发布结果，但仍不承诺两者同时写入。
 - 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除声明的 store，`cleanup` 才删除已记录且摘要未变的旧版本。外部删除或修改入口、链接和 store 会被重新核对，不自动覆盖或猜测修复。`reset` 只回退程序，不重跑安装脚本或安装器程序，也不回退持久化数据；目标版本必须仍在本机且证据完整，远端历史版本查找仍不在范围。
 - 异常退出留下 pending 事务时阻止新的写入但仍允许查询；`coop list` 显示恢复方式，`coop recover [包名...] [--dry-run]` 只回滚可安全还原的 Coop 自有路径、恢复本事务写过的 HKCU 环境值，不重跑脚本或安装器程序，外部副作用标为未知。创建对象记录文件身份/摘要证据；被另一客户端替换、修改或重定向的对象以 `created-path-replaced`、`created-file-modified`、`created-link-repointed` 等稳定冲突码报告而不删除，后续 Scoop 操作安装的事实会重新识别。
-- 不自动同步 bucket、不自动发布；只有显式 `bucket update` 会刷新共用 bucket（真实 Scoop 根内已按 #23 验证），安装/更新/卸载等其余写入仍不在真实用户根内自动执行。Git 私有/SSH 来源与跨工具同时写入不在首版范围。`init` 只建立标准目录，不注册用户 PATH 或环境变量；无 Scoop 环境的真机验证使用项目内全新 root 与受限 `PATH`，没有卸载本机真实 Scoop/Git/7-Zip，详见[没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)；完整 Main／Extras 分母、机制缺口与真机验证数量见[Main／Extras 全量兼容盘点](docs/coverage-report.md)。
+- 不自动同步 bucket、不自动发布；只有显式 `bucket update` 会刷新共用 bucket。真实共用根上的查询、预览、安装、更新、卸载、reset、恢复、入口/环境与 psmodule 写入已在受权的本机环境中逐项运行（证据与未运行项见[完整交付验收与人工验收说明](docs/final-acceptance.md)），但这些操作不会由后台自动触发，也不承诺两个客户端同时写入。Git 私有/SSH 来源与跨工具同时写入不在首版范围。`init` 只建立标准目录，不注册用户 PATH 或环境变量；无 Scoop 环境的真机验证使用项目内全新 root 与受限 `PATH`，没有卸载本机真实 Scoop/Git/7-Zip，详见[没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)；完整 Main／Extras 分母、机制缺口与真机验证数量见[Main／Extras 全量兼容盘点](docs/coverage-report.md)。
 
 ## 测试范围
 

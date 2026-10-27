@@ -23,7 +23,7 @@
 | Main/thrift 0.25.0 | `#/thrift.exe` 改名、MD5 | 实际文件 MD5 与声明一致，`thrift --version` 输出 `Thrift version 0.25.0` |
 | 临时 `coop-r04-failure/pdfboxcopy` | 真实多产物安装后的真实下载/校验失败保护 | 安装 3.0.8 后，目标 3.0.9 的错误 SHA512 使更新退出 1，journal 在 `download,verify` 后回滚，当前程序仍为 3.0.8；目标 3.1.0 指向缺失文件时下载失败退出 1，当前仍为 3.0.8，目标版本目录未出现；随后正常卸载并删除临时 bucket |
 
-完整命令、退出码和原始日志位于本轮证据目录 `.local/pi/tasks/25/evidence/real-scoop-multi/`；汇总为 `real-scoop-multi-evidence.json`。运行前后 Coop 安装清单相同，新增的五个包均已卸载，未修改原 15 个安装。
+完整命令、退出码和原始日志位于本轮头部运行证据目录 `.local/pi/tasks/25/evidence/real-scoop-multi-head/`（较早的 `real-scoop-multi/` 为同一二进制的中间运行，不作为本轮头部证据）；汇总为 `real-scoop-multi-evidence.json`。运行前后 Coop 安装清单相同，新增的五个包均已卸载，未修改原 15 个安装。
 
 ## 测试
 

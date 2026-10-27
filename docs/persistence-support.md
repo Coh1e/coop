@@ -93,7 +93,7 @@
 - 数据迁移后整个事务失败时回滚 store 内容；当前明确不承诺该行为。
 - 多个写进程并发操作同一 store 的专项竞态；现有根目录写锁与通用并发测试提供边界，但未单独重复持久化场景。
 
-## 4. 真机验证（R09 / #30）
+## 真机验证（R09 / #30）
 
 `tests/real-scoop-persistence.ps1` 在人类选定的真实共用根（`C:\Users\Neo\scoop`）上顺序执行，只安装运行前不存在的包，结束后核对安装清单与本轮前一致并删除本轮创建的测试 store 与临时 bucket；既有 `persist/frp`、`persist/spotbugs`、`persist/uv` 数据不被改写。本轮实测 Windows 11 工作站、Scoop v0.6.0、main `a97619fec75f0c74bd74e73b0e9138df08687a50`、PowerShell 7.6.5；代码提交见本轮报告与 `versions-final-head.txt`，`coop.exe` 摘要见证据 JSON。
 
