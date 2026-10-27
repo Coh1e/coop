@@ -222,7 +222,14 @@ foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $upstream 'bucket') -F
     if ($file.BaseName -notlike 'pkg99*') { $unrelatedManifest = $file.FullName; break }
 }
 Assert ($null -ne $unrelatedManifest) 'real-scale fixture has no unrelated manifest to protect'
-$unrelatedHash = (Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash
+$unrelatedName = [IO.Path]::GetFileName($unrelatedManifest)
+$unrelatedSourceHash = (Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash
+# The property under test is the refreshed shared worktree, so the hash must come from
+# <root>/buckets/main/bucket, not from the file:// upstream copy that Coop only reads.
+$worktreeUnrelated = Join-Path $scaleRoot ('buckets/main/bucket/' + $unrelatedName)
+Assert (Test-Path -LiteralPath $worktreeUnrelated) "real-scale worktree is missing $unrelatedName after the first refresh"
+$unrelatedWorktreeHash = (Get-FileHash -LiteralPath $worktreeUnrelated -Algorithm SHA256).Hash
+Assert ($unrelatedWorktreeHash -eq $unrelatedSourceHash) 'first refresh did not materialize the unrelated manifest byte-identically'
 for ($index = 0; $index -lt $Runs; $index++) {
     $manifestName = 'pkg{0:d5}' -f (99000 + $index)
     $manifest = Join-Path $upstream ('bucket/' + $manifestName + '.json')
@@ -238,17 +245,22 @@ for ($index = 0; $index -lt $Runs; $index++) {
     $scaleIndex = Join-Path $scaleRoot '.coop/index/main.json'
     $indexHashBefore = File-HashOrNull $scaleIndex
     Assert ($null -ne $indexHashBefore) 'real-scale changed refresh started without a query index'
+    $worktreeHashBefore = (Get-FileHash -LiteralPath $worktreeUnrelated -Algorithm SHA256).Hash
+    Assert ($worktreeHashBefore -eq $unrelatedWorktreeHash) 'real-scale worktree unrelated manifest changed between rounds'
     $result = Invoke-Measured @('--root', $scaleRoot, 'bucket', 'update', 'main', '--json')
     Assert ($result.exit -eq 0) "real-scale changed refresh exited $($result.exit): $($result.error)"
     $record = $result.output | ConvertFrom-Json
     Assert ($record.changed -eq $true -and $record.refresh_kind -eq 'changed' -and $record.previous_revision -eq $baseRevision -and $record.revision -eq $target) 'real-scale changed refresh published the wrong transition'
     Assert ($record.changed_files -ge 1) 'real-scale changed refresh reported no changed file'
-    # The changed refresh must leave an unrelated manifest byte-identical and rebuild the query index.
-    Assert ((Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash -eq $unrelatedHash) 'real-scale changed refresh modified an unrelated manifest'
+    # The changed refresh must leave an unrelated manifest byte-identical in the refreshed shared
+    # worktree (and keep the upstream copy untouched) and must rebuild the query index.
+    $worktreeHashAfter = (Get-FileHash -LiteralPath $worktreeUnrelated -Algorithm SHA256).Hash
+    Assert ($worktreeHashAfter -eq $worktreeHashBefore) 'real-scale changed refresh modified an unrelated manifest in the refreshed worktree'
+    Assert ((Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash -eq $unrelatedSourceHash) 'real-scale changed refresh modified the upstream source manifest'
     Assert ((File-HashOrNull $scaleIndex) -ne $indexHashBefore) 'real-scale changed refresh did not rebuild the query index'
     $added = Invoke-Measured @('--root', $scaleRoot, 'info', "main/$manifestName", '--json')
     Assert ($added.exit -eq 0 -and @($added.output | ConvertFrom-Json)[0].version -eq ('9.0.' + $index)) 'real-scale changed refresh did not publish a queryable manifest'
-    $changedRuns.Add([pscustomobject]@{ run = $index + 1; ms = [math]::Round($result.ms, 1); received_bytes = $record.received_bytes; changed_files = $record.changed_files; previous_revision = $baseRevision; revision = $target; unrelated_manifest_unchanged = $true; index_rebuilt = $true; new_manifest_queryable = $true })
+    $changedRuns.Add([pscustomobject]@{ run = $index + 1; ms = [math]::Round($result.ms, 1); received_bytes = $record.received_bytes; changed_files = $record.changed_files; previous_revision = $baseRevision; revision = $target; unrelated_manifest = $unrelatedName; worktree_unrelated_manifest_sha256 = $worktreeHashAfter; worktree_unrelated_manifest_unchanged = $true; upstream_manifest_unchanged = $true; index_rebuilt = $true; new_manifest_queryable = $true })
     $baseRevision = $target
 }
 $scaleUnchangedSamples = [System.Collections.Generic.List[double]]::new()
