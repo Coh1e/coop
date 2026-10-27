@@ -210,5 +210,31 @@ if (-not $siblingEntry.execution_available) { throw "shared-sibling launcher pre
 $siblingUpdate = & $CoopExe --root $siblingRoot update shared --json
 if ($LASTEXITCODE -ne 0) { throw "shared-sibling launcher update failed: $siblingUpdate" }
 if ((Get-Content -LiteralPath "$siblingRoot/apps/shared/current/scoop-manifest.json" -Raw | ConvertFrom-Json).version -ne '2') { throw 'shared-sibling launcher update did not publish version 2' }
-@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_archive=$rootArchive;root_archive_broken=$brokenArchive;root_gui=$guiRoot;root_foreign=$foreignRoot;root_sibling=$siblingRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);archive_planned=$archivePlanned;archive_observed=@($archiveJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
-Write-Output "PASS shared Scoop/Coop single-file, multi-artifact, archive update, reset, GUI shim, shared-sibling launcher and foreign-launcher refusal: $session/evidence.json"
+# Scoop's uninstall removes only its own shim files, so Coop's .coop-shim.json (and a legacy
+# .coop-shim copy) can survive while the version directory and current link are gone. A fresh
+# Coop install must replace that stale evidence instead of failing to publish over it.
+$staleRoot = Join-Path $session 'stale-coop-metadata'
+New-Item -ItemType Directory -Path "$staleRoot/buckets/test/bucket","$staleRoot/shims" -Force | Out-Null
+$bat = Join-Path $session 'shared.bat'
+[IO.File]::WriteAllText($bat,"@echo off`r`necho stale-metadata-ok`r`n",[Text.UTF8Encoding]::new($false))
+$staleManifest = @{version='1';url=([Uri][IO.Path]::GetFullPath($bat)).AbsoluteUri;hash=(Get-FileHash -LiteralPath $bat -Algorithm SHA256).Hash.ToLower();bin='shared.bat'} | ConvertTo-Json -Depth 5
+[IO.File]::WriteAllText("$staleRoot/buckets/test/bucket/shared.json",$staleManifest)
+$staleInstall = & $CoopExe --root $staleRoot install shared --json
+if ($LASTEXITCODE -ne 0) { throw "stale-metadata seed install failed: $staleInstall" }
+if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json")) { throw 'seed install did not publish Coop metadata' }
+Copy-Item -LiteralPath "$staleRoot/shims/shared.coop-shim.json" -Destination "$staleRoot/shims/shared.coop-shim"
+# Simulate the Scoop-side removal: Scoop deletes apps/<name>/<version>, current and its own shims.
+Remove-Item -LiteralPath "$staleRoot/apps/shared/current" -Force
+Remove-Item -LiteralPath "$staleRoot/apps/shared/1" -Recurse -Force
+foreach ($left in @('shared.exe','shared.shim','shared.cmd','shared')) { Remove-Item -LiteralPath "$staleRoot/shims/$left" -Force -ErrorAction SilentlyContinue }
+if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json")) { throw 'the simulated Scoop removal also removed Coop metadata' }
+$staleReinstall = & $CoopExe --root $staleRoot install shared --json
+if ($LASTEXITCODE -ne 0) { throw "reinstall over stale Coop metadata failed: $staleReinstall" }
+if (Test-Path "$staleRoot/shims/shared.coop-shim") { throw 'the reinstall left the legacy .coop-shim metadata behind' }
+if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json") -or -not (Test-Path "$staleRoot/shims/shared.cmd") -or -not (Test-Path "$staleRoot/shims/shared.exe")) { throw 'the reinstall did not publish the complete entry set' }
+if ((& "$staleRoot/shims/shared.cmd") -notmatch 'stale-metadata-ok') { throw 'the reinstalled script entry did not run' }
+$staleRemove = & $CoopExe --root $staleRoot uninstall shared --json
+if ($LASTEXITCODE -ne 0) { throw "stale-metadata uninstall failed: $staleRemove" }
+if ((Test-Path "$staleRoot/apps/shared/current") -or (Get-ChildItem "$staleRoot/shims" -Filter 'shared*')) { throw 'stale-metadata uninstall left published state' }
+@{root_scoop=$rootA;root_coop=$rootB;root_multi=$rootMulti;root_archive=$rootArchive;root_archive_broken=$brokenArchive;root_gui=$guiRoot;root_foreign=$foreignRoot;root_sibling=$siblingRoot;root_stale=$staleRoot;planned=$planned;observed=$observed;multi_planned=$multiPlanned;multi_observed=@($multiJournal.observed_steps);archive_planned=$archivePlanned;archive_observed=@($archiveJournal.observed_steps);fixture_sha256=(Get-FileHash -LiteralPath $fixture2 -Algorithm SHA256).Hash.ToLower();timestamp=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$session/evidence.json" -Encoding utf8
+Write-Output "PASS shared Scoop/Coop single-file, multi-artifact, archive update, reset, GUI shim, shared-sibling launcher, stale Coop metadata reinstall and foreign-launcher refusal: $session/evidence.json"

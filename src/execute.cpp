@@ -1480,6 +1480,29 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     const auto target = version/wide(command.target);
                     ordinary_parents(version,target);
                     if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+command.target);
+                    // A package that Scoop removed can leave Coop's own metadata behind (Scoop's
+                    // rm_shim only removes its own files). On a fresh install, metadata that still
+                    // names this package and targets its current entry is the stale evidence of
+                    // that removal, so it is moved aside for the fresh publish; a foreign package
+                    // or an unexpected target stays a conflict.
+                    for (const auto& stale : {shims/(wide(command.alias)+L".coop-shim.json"),
+                                              shims/(wide(command.alias)+L".coop-shim")}) {
+                        std::error_code stale_error;
+                        if (!fs::exists(stale,stale_error) || stale_error) continue;
+                        bool ours = false;
+                        try {
+                            const auto metadata = read_json(stale);
+                            const auto recorded_target = fs::path(wide(metadata.value("target",std::string{}))).lexically_normal();
+                            const auto expected_root = (context.root/L"apps"/wide(package.name)/L"current").lexically_normal();
+                            const auto relative = recorded_target.lexically_relative(expected_root);
+                            ours = plan.action == ir::Action::install &&
+                                equal_name(metadata.value("package",std::string{}),package.name) &&
+                                !relative.empty() && !relative.is_absolute() && *relative.begin() != L"..";
+                        } catch (const std::exception&) { ours = false; }
+                        if (!ours)
+                            throw std::runtime_error("Command entry conflicts with existing Coop metadata: "+path_text(stale));
+                        move(stale,transaction/(stale.filename().wstring()+L".stale"));
+                    }
                     command_targets.push_back({{"path",command.target},{"sha256",sha256_file(target)}});
                     const auto exposed_target = app/L"current"/wide(command.target);
                     const auto cmd_wrapper = shims/(wide(command.alias)+L".cmd");
