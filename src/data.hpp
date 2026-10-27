@@ -8,7 +8,6 @@ using Json = nlohmann::json;
 Json read_json(const fs::path& path);
 fs::path installed_record(const fs::path& directory, const std::wstring& kind);
 Json installed_packages(const Context& context);
-Json catalog(const Context& context);
 // Typed catalogue entries for the planner: the package identity the adapter published, never a
 // raw Manifest field read by the planner itself.
 std::vector<ir::CatalogueEntry> catalogue(const Context& context);

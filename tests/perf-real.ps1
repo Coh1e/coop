@@ -217,22 +217,38 @@ for ($index = 0; $index -lt $FirstRefreshRuns; $index++) {
 $changedRuns = [System.Collections.Generic.List[object]]::new()
 $scaleRoot = $firstRoot
 $baseRevision = $upstreamRevision
+$unrelatedManifest = $null
+foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $upstream 'bucket') -File -Filter '*.json' | Sort-Object Name)) {
+    if ($file.BaseName -notlike 'pkg99*') { $unrelatedManifest = $file.FullName; break }
+}
+Assert ($null -ne $unrelatedManifest) 'real-scale fixture has no unrelated manifest to protect'
+$unrelatedHash = (Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash
 for ($index = 0; $index -lt $Runs; $index++) {
-    $manifest = Join-Path $upstream ('bucket/pkg{0:d5}.json' -f (99000 + $index))
+    $manifestName = 'pkg{0:d5}' -f (99000 + $index)
+    $manifest = Join-Path $upstream ('bucket/' + $manifestName + '.json')
     $json = [ordered]@{
         version = '9.0.{0}' -f $index
         description = 'Real-scale changed-refresh benchmark manifest'
         architecture = @{ '64bit' = @{ url = "https://example.invalid/pkg$index.zip"; hash = ('a' * 64) } }
     } | ConvertTo-Json -Depth 5
     [IO.File]::WriteAllText($manifest, $json)
-    Invoke-FixtureGit @('-C', $upstream, 'add', ('bucket/pkg{0:d5}.json' -f (99000 + $index))) | Out-Null
+    Invoke-FixtureGit @('-C', $upstream, 'add', ('bucket/' + $manifestName + '.json')) | Out-Null
     Invoke-FixtureGit @('-C', $upstream, '-c', 'user.name=CoopPerf', '-c', 'user.email=coop@example.invalid', 'commit', '-m', ("bench change " + $index)) | Out-Null
     $target = Invoke-FixtureGit @('-C', $upstream, 'rev-parse', 'HEAD')
+    $scaleIndex = Join-Path $scaleRoot '.coop/index/main.json'
+    $indexHashBefore = File-HashOrNull $scaleIndex
+    Assert ($null -ne $indexHashBefore) 'real-scale changed refresh started without a query index'
     $result = Invoke-Measured @('--root', $scaleRoot, 'bucket', 'update', 'main', '--json')
     Assert ($result.exit -eq 0) "real-scale changed refresh exited $($result.exit): $($result.error)"
     $record = $result.output | ConvertFrom-Json
     Assert ($record.changed -eq $true -and $record.refresh_kind -eq 'changed' -and $record.previous_revision -eq $baseRevision -and $record.revision -eq $target) 'real-scale changed refresh published the wrong transition'
-    $changedRuns.Add([pscustomobject]@{ run = $index + 1; ms = [math]::Round($result.ms, 1); received_bytes = $record.received_bytes; changed_files = $record.changed_files; previous_revision = $baseRevision; revision = $target })
+    Assert ($record.changed_files -ge 1) 'real-scale changed refresh reported no changed file'
+    # The changed refresh must leave an unrelated manifest byte-identical and rebuild the query index.
+    Assert ((Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash -eq $unrelatedHash) 'real-scale changed refresh modified an unrelated manifest'
+    Assert ((File-HashOrNull $scaleIndex) -ne $indexHashBefore) 'real-scale changed refresh did not rebuild the query index'
+    $added = Invoke-Measured @('--root', $scaleRoot, 'info', "main/$manifestName", '--json')
+    Assert ($added.exit -eq 0 -and @($added.output | ConvertFrom-Json)[0].version -eq ('9.0.' + $index)) 'real-scale changed refresh did not publish a queryable manifest'
+    $changedRuns.Add([pscustomobject]@{ run = $index + 1; ms = [math]::Round($result.ms, 1); received_bytes = $record.received_bytes; changed_files = $record.changed_files; previous_revision = $baseRevision; revision = $target; unrelated_manifest_unchanged = $true; index_rebuilt = $true; new_manifest_queryable = $true })
     $baseRevision = $target
 }
 $scaleUnchangedSamples = [System.Collections.Generic.List[double]]::new()

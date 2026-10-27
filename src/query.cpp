@@ -203,19 +203,6 @@ static void sort_catalog(Json& result) {
                b.at("bucket").get<std::string>()+"/"+b.at("name").get<std::string>();
     });
 }
-Json catalog(const Context& context) {
-    Json result = Json::array();
-    for (const auto& source : bucket_sources(context)) {
-        if (source.value("kind",std::string{}) == "removed") continue;
-        const fs::path location(wide(source.at("path").get<std::string>()));
-        if (!fs::is_directory(location)) continue;
-        const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
-        for (const auto& entry : catalog_entries(context,source))
-            result.push_back(catalog_item(source,entry,directory));
-    }
-    sort_catalog(result);
-    return result;
-}
 static std::string lowercase(std::string value) {
     for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     return value;
@@ -262,10 +249,11 @@ std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
     });
     return result;
 }
-// The architecture only selects the manifest variant for one package, so reading every installed
-// package's manifests and old-version inventories for it is unnecessary. A missing current link can
-// still be described by the last committed record of a pending transaction, which the full listing
-// supplies.
+// The architecture only selects the manifest variant for one package. Installed facts for the whole
+// root are still read (each package's current manifest and install record), but the old-version
+// inventories and repeated transaction-journal scans that `installed_packages` adds are not needed
+// here. A missing current link can still be described by the last committed record of a pending
+// transaction, which the full listing supplies.
 static std::string installed_architecture(const Context& context, const std::string& name) {
     bool pending_fact = false;
     for (const auto& fact : ir::read_installations(context.root)) {
