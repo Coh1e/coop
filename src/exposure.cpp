@@ -153,6 +153,26 @@ std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const s
     std::vector<std::string> lines;
     if (kind == LauncherKind::python) {
         lines = {"@rem "+path,"@python \""+path+"\" "+arguments+" %*"};
+    } else if (kind == LauncherKind::command_script) {
+        lines = {"@rem "+path,"@\""+path+"\" "+arguments+" %*"};
+    } else if (kind == LauncherKind::power_shell) {
+        lines = {
+            "@rem "+path,
+            "@echo off",
+            "where /q pwsh.exe",
+            "if %errorlevel% equ 0 (",
+            "    pwsh -noprofile -ex unrestricted -file \""+path+"\" "+arguments+" %*",
+            ") else (",
+            "    powershell -noprofile -ex unrestricted -file \""+path+"\" "+arguments+" %*",
+            ")"
+        };
+    } else if (kind == LauncherKind::java) {
+        lines = {
+            "@rem "+path,
+            "@pushd "+path_text(target.parent_path()),
+            "@java -jar \""+path+"\" "+arguments+" %*",
+            "@popd"
+        };
     } else {
         // Scoop quotes each declared argument element for the bash (else) branch.
         const auto quoted = arguments.empty() ? std::string{} : "\""+arguments+"\"";
@@ -182,6 +202,31 @@ std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const
     std::vector<std::string> lines;
     if (kind == LauncherKind::python) {
         lines = {"#!/bin/sh","# "+path,"python.exe \""+path+"\" "+arguments+" \"$@\""};
+    } else if (kind == LauncherKind::command_script) {
+        lines = {"#!/bin/sh","# "+path,"MSYS2_ARG_CONV_EXCL=/C cmd.exe /C \""+path+"\" "+arguments+" \"$@\""};
+    } else if (kind == LauncherKind::power_shell) {
+        lines = {
+            "#!/bin/sh",
+            "# "+path,
+            "if command -v pwsh.exe > /dev/null 2>&1; then",
+            "    pwsh.exe -noprofile -ex unrestricted -file \""+path+"\" "+arguments+" \"$@\"",
+            "else",
+            "    powershell.exe -noprofile -ex unrestricted -file \""+path+"\" "+arguments+" \"$@\"",
+            "fi"
+        };
+    } else if (kind == LauncherKind::java) {
+        const auto parent = path_text(target.parent_path());
+        lines = {
+            "#!/bin/sh",
+            "# "+path,
+            "if [ $WSL_INTEROP ]",
+            "then",
+            "  cd $(wslpath -u '"+parent+"')",
+            "else",
+            "  cd $(cygpath -u '"+parent+"')",
+            "fi",
+            "java.exe -jar \""+path+"\" "+arguments+" \"$@\""
+        };
     } else {
         lines = {
             "#!/bin/sh",
@@ -197,6 +242,24 @@ std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const
     std::string text;
     for (std::size_t index = 0; index < lines.size(); ++index) {
         if (index) text += "\n";
+        text += lines[index];
+    }
+    return text;
+}
+std::string scoop_command_ps1(const fs::path& target, const std::string& arguments) {
+    const auto path = path_text(target);
+    // Scoop writes the relative form when the target is on the shim's drive and the absolute form
+    // across drives. Coop always names the stable current path, so the absolute form is the exact
+    // equivalent Scoop branch.
+    const std::vector<std::string> lines = {
+        "# "+path,
+        "$path = \""+path+"\"",
+        "if ($MyInvocation.ExpectingInput) { $input | & $path "+arguments+" @args } else { & $path "+arguments+" @args }",
+        "exit $LASTEXITCODE"
+    };
+    std::string text;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        if (index) text += "\r\n";
         text += lines[index];
     }
     return text;

@@ -33,6 +33,14 @@ std::string lower(std::string text) {
 bool hexadecimal(const std::string& value) {
     return std::all_of(value.begin(),value.end(),[](unsigned char character) { return std::isxdigit(character) != 0; });
 }
+// Scoop's shim() has two file families: EXE/COM targets get a copied <name>.exe plus <name>.shim,
+// every other target gets <name>.cmd and an extensionless shell wrapper (PS1 also gets <name>.ps1).
+// Declarations in the same family overwrite the same files; declarations in different families do
+// not, so both sets stay on disk and Windows resolves the .exe first.
+bool direct_launcher_target(const std::string& target) {
+    const auto extension = lower(path_text(fs::path(wide(target)).extension()));
+    return extension == ".exe" || extension == ".com";
+}
 fs::path relative_path(const std::string& value, bool root_allowed = false, bool parent_allowed = false) {
     fs::path path(wide(value));
     if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
@@ -266,18 +274,29 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
                     if (index > 2) entry.arguments += ' ';
                     entry.arguments += parts[index];
                 }
-                // Scoop's create_shims publishes every declaration in order, so a repeated derived
-                // alias is overwritten and the last declaration wins. Coop keeps that outcome with a
-                // visible warning instead of failing the Manifest or silently dropping an entry.
+                // Scoop's create_shims publishes every declaration in order. Repeating an alias
+                // inside one file family rewrites the same shim files, so the last declaration wins.
+                // A different family writes different files (.exe/.shim versus .cmd/wrapper), so
+                // Scoop keeps both and the .exe is the command that Windows resolves. Coop models
+                // both outcomes with a visible warning instead of failing or silently dropping an
+                // entry.
                 const auto key = lower(entry.alias);
-                const auto existing = std::find_if(package.entries.begin(),package.entries.end(),
-                    [&](const Entry& candidate) { return lower(candidate.alias) == key; });
-                if (existing != package.entries.end()) {
+                const auto same_alias = [&](const Entry& candidate) { return lower(candidate.alias) == key; };
+                const bool direct = direct_launcher_target(entry.target);
+                const auto same_family = std::find_if(package.entries.begin(),package.entries.end(),
+                    [&](const Entry& candidate) { return same_alias(candidate) && direct_launcher_target(candidate.target) == direct; });
+                if (same_family != package.entries.end()) {
                     package.warnings.push_back({Layer::adapter,"duplicate-command-alias",
-                        "Command alias '"+entry.alias+"' is declared by both '"+existing->target+"' and '"+entry.target+
-                        "'; Scoop overwrites the earlier shim while publishing, so the last declaration wins"});
-                    *existing = std::move(entry);
+                        "Command alias '"+entry.alias+"' is declared twice in the same shim family ('"+same_family->target+"' and '"+entry.target+
+                        "'); Scoop rewrites the same shim files, so the last declaration wins"});
+                    *same_family = std::move(entry);
                     continue;
+                }
+                const auto other_family = std::find_if(package.entries.begin(),package.entries.end(),same_alias);
+                if (other_family != package.entries.end()) {
+                    package.warnings.push_back({Layer::adapter,"duplicate-command-alias",
+                        "Command alias '"+entry.alias+"' is declared by both an executable target ('"+other_family->target+"') and a script target ('"+entry.target+
+                        "'); Scoop's .exe/.shim and .cmd/wrapper branches write different files, so both remain and Windows resolves the .exe first"});
                 }
                 // Every target has a Scoop host: EXE/COM, BAT/CMD, PS1, JAR, PY, or bash for the
                 // remaining targets. The adapter keeps the declared target; the exposure layer

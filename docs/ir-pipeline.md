@@ -15,7 +15,7 @@
 | `src/query.cpp` | `list` 使用 IR 安装事实；`info` 附带 IR 校验结果与分层诊断 | 不因执行不兼容隐藏结果；私有记录只作管理元数据 |
 | `src/plan.cpp` | 预览与计划文档：操作列表与 IR 操作序列来自同一次 Planner 调用 | 计划前提仍由当前状态绑定并在执行前重查 |
 
-诊断分层固定在 IR 中：`syntax`（来源语法）、`adapter`（来源字段适配）、`ir`（归一化 IR 校验）、`environment`（当前环境前提）、`capability`（能力缺口）、`verification`（验证状态）。查询与预览同时报告各层结论，不用一层结论替代另一层。非阻断的来源观察（例如 Scoop 的重复派生别名 last-wins 覆盖）单独进入 `warnings`，与 `diagnostics`、退出码和 `execution_available` 分开，既不隐藏观察，也不把可执行包误报为阻塞；见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
+诊断分层固定在 IR 中：`syntax`（来源语法）、`adapter`（来源字段适配）、`ir`（归一化 IR 校验）、`environment`（当前环境前提）、`capability`（能力缺口）、`verification`（验证状态）。查询与预览同时报告各层结论，不用一层结论替代另一层。非阻断的来源观察（例如同一 shim 家族内的重复别名 last-wins、跨家族的 exe/脚本声明并存）单独进入 `warnings`，与 `diagnostics`、退出码和 `execution_available` 分开，既不隐藏观察，也不把可执行包误报为阻塞；家族规则与证据见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
 
 ## 本次权威边界
 

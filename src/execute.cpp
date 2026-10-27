@@ -404,6 +404,22 @@ bool prefer_scoop_shim(const Package& package) {
             return launcher_kind(command.target) == LauncherKind::direct;
         });
 }
+// A Manifest may declare the same alias for an executable and for a script target. Scoop keeps both
+// shim families on disk, so removal and preview associate each declaration with its own family
+// instead of assuming the alias maps to one copied launcher.
+bool has_direct_alias(const std::vector<CommandExposure>& commands, const std::string& name, const fs::path& target) {
+    return std::any_of(commands.begin(),commands.end(),[&](const CommandExposure& other) {
+        return equal_name(other.name,name) && !equal_name(path_text(other.target),path_text(target)) &&
+            launcher_kind(other.target) == LauncherKind::direct;
+    });
+}
+bool wrappers_match_target(const Context& context, const std::string& package, const std::string& name, const fs::path& target) {
+    const auto wrappers = scoop_entry_wrappers(context,package,{name});
+    if (wrappers.empty()) return false;
+    return std::any_of(wrappers.begin(),wrappers.end(),[&](const fs::path& wrapper) {
+        return scoop_wrapper_names_target(wrapper,path_text(target));
+    });
+}
 struct InstalledEntry {
     std::string name;
     std::string format;
@@ -448,7 +464,7 @@ bool coop_view_matches(const Package& installed, const fs::path& base, const Com
 // by Coop; a foreign replacement is still refused.
 bool trusted_shared_launcher(const Context& context, const Json& record, const std::string& name,
                              const fs::path& executable, const std::string& digest,
-                             const std::string& module_hash) {
+                             const std::string& module_hash, const std::string& target = {}) {
     if (digest == module_hash || looks_like_scoop_shim(executable) ||
         shared_scoop_launcher(context,name,digest)) return true;
     if (record.contains("legacy_shims") && record.at("legacy_shims").is_object() &&
@@ -457,6 +473,7 @@ bool trusted_shared_launcher(const Context& context, const Json& record, const s
     if (record.contains("commands") && record.at("commands").is_array())
         for (const auto& item : record.at("commands"))
             if (item.is_object() && equal_name(item.value("name",std::string{}),name) &&
+                (target.empty() || item.value("target",std::string{}).empty() || item.value("target",std::string{}) == target) &&
                 digest == item.value("launcher_sha256",std::string{})) return true;
     return false;
 }
@@ -478,6 +495,14 @@ std::string command_entry_blocker(const Context& context, const Package& install
         const auto exe = shims/(wide(command.name)+L".exe");
         const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
         const auto scoop_metadata = shims/(wide(command.name)+L".shim");
+        if (launcher_kind(command.target) != LauncherKind::direct &&
+            has_direct_alias(installed.commands,command.name,command.target)) {
+            // Scoop keeps the script family as wrappers beside an executable shim of the same
+            // alias; the .exe is the effective command, but the wrappers are still owned evidence.
+            if (!wrappers_match_target(context,installed.name,command.name,command.target))
+                return "Managed script wrapper is missing or points to a different target: "+command.name;
+            continue;
+        }
         if (!fs::is_regular_file(exe)) {
             if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) return "Managed command entry is missing: "+command.name;
             if (!scoop_entry_wrappers(context,installed.name,{command.name}).empty()) continue;
@@ -502,7 +527,7 @@ std::string command_entry_blocker(const Context& context, const Package& install
         } else if (!scoop_valid) {
             return "Scoop command entry points to a different package or arguments: "+command.name;
         }
-        if (!trusted_shared_launcher(context,record,command.name,exe,sha256_file(exe),module_hash))
+        if (!trusted_shared_launcher(context,record,command.name,exe,sha256_file(exe),module_hash,path_text(command.target)))
             return "Shared command launcher is not recognized and is not recorded by Coop: "+command.name;
     }
     return {};
@@ -771,12 +796,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (!stale_coop_metadata) throw std::runtime_error("Command entry conflicts with an existing file");
             }
             const auto kind = launcher_kind(command.target);
-            if (kind == LauncherKind::python || kind == LauncherKind::bash) {
+            if (kind != LauncherKind::direct) {
                 const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
                 const auto shell_wrapper = shims/wide(command.name);
-                if (fs::exists(cmd_wrapper) || fs::exists(shell_wrapper))
+                const auto ps1_wrapper = shims/(wide(command.name)+L".ps1");
+                if (fs::exists(cmd_wrapper) || fs::exists(shell_wrapper) || fs::exists(ps1_wrapper))
                     throw std::runtime_error("Command entry conflicts with an existing file");
             }
+            continue;
+        }
+        if (launcher_kind(command.target) != LauncherKind::direct &&
+            has_direct_alias(installed.commands,command.name,command.target)) {
+            // The executable family is the effective command; the script family is published as
+            // Scoop wrappers and is removed through plan.scoop_entry_wrappers after verification.
+            if (!wrappers_match_target(context,installed.name,command.name,command.target))
+                throw std::runtime_error("Managed script wrapper is missing or points to a different target: "+command.name);
             continue;
         }
         if (!fs::exists(exe)) {
@@ -803,7 +837,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             throw std::runtime_error("Scoop command entry points to a different package or arguments");
         }
         InstalledEntry entry{command.name,{},exe,{},sha256_file(exe),{}, {}, {}};
-        if (!trusted_shared_launcher(context,managed,command.name,entry.executable,entry.executable_hash,module_hash))
+        if (!trusted_shared_launcher(context,managed,command.name,entry.executable,entry.executable_hash,module_hash,path_text(command.target)))
             throw std::runtime_error("Shared command launcher changed");
         if (has_coop && coop_valid) {
             entry.format = "coop";
@@ -817,9 +851,14 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             }
             if (managed.contains("commands") && managed.at("commands").is_array()) {
                 const auto& entries = managed.at("commands");
-                const auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
-                    return item.is_object() && equal_name(item.value("name",std::string{}),command.name);
+                const auto same_command = [&](const Json& item) {
+                    return item.is_object() && equal_name(item.value("name",std::string{}),command.name) &&
+                        (item.value("target",std::string{}).empty() || item.value("target",std::string{}) == path_text(command.target));
+                };
+                auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
+                    return same_command(item) && item.contains("metadata_sha256");
                 });
+                if (found == entries.end()) found = std::find_if(entries.begin(),entries.end(),same_command);
                 if (found == entries.end()) throw std::runtime_error("Managed command record is missing");
                 if (entry.metadata_hash != found->at("metadata_sha256").get<std::string>())
                     throw std::runtime_error("Managed command metadata changed");
@@ -1450,24 +1489,47 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     ordinary_parents(version,target);
                     if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
                     command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
-                    if (kind == LauncherKind::python || kind == LauncherKind::bash) {
-                        // Scoop publishes these hosts as a .cmd plus an extensionless shell wrapper,
-                        // not as a copied launcher. The host was checked before the transaction; a
-                        // missing program here still fails before any wrapper is written.
-                        if (!command_host_path(kind))
-                            throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+")");
-                        const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
-                        const auto shell_wrapper = shims/wide(command.name);
-                        const auto exposed_target = app/L"current"/command.target;
+                    const auto exposed_target = app/L"current"/command.target;
+                    const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
+                    const auto shell_wrapper = shims/wide(command.name);
+                    const auto ps1_wrapper = shims/(wide(command.name)+L".ps1");
+                    const bool script_family = kind != LauncherKind::direct;
+                    // Scoop's script branches always publish .cmd plus an extensionless shell wrapper
+                    // (PS1 also gets .ps1). Coop publishes that view for every script family so a
+                    // Scoop shortcut target such as shims/mqtt-spy.cmd exists, and so an alias declared
+                    // for both the executable and the script family keeps both file sets like Scoop.
+                    Json wrapper_hashes = Json::object();
+                    if (script_family) {
+                        if (kind == LauncherKind::python || kind == LauncherKind::bash) {
+                            // The host was checked before the transaction; a missing program here
+                            // still fails before any wrapper is written.
+                            if (!command_host_path(kind))
+                                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+")");
+                        }
                         publish_text(cmd_wrapper,scoop_command_cmd(kind,exposed_target,command_arguments));
+                        if (kind == LauncherKind::power_shell)
+                            publish_text(ps1_wrapper,scoop_command_ps1(exposed_target,command_arguments));
                         publish_text(shell_wrapper,scoop_command_shell(kind,exposed_target,command_arguments));
-                        test_fault_point(context,"after-entry");
-                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
-                            {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",false},
-                            {"format","scoop-wrapper"},{"cmd_sha256",sha256_file(cmd_wrapper)},
-                            {"shell_sha256",sha256_file(shell_wrapper)}});
-                        continue;
+                        wrapper_hashes = {{"cmd_sha256",sha256_file(cmd_wrapper)},{"shell_sha256",sha256_file(shell_wrapper)}};
+                        if (kind == LauncherKind::power_shell) wrapper_hashes["ps1_sha256"] = sha256_file(ps1_wrapper);
+                        // .py and bash commands have no copied launcher; a script declaration whose
+                        // alias also has an executable declaration owns only the wrapper family.
+                        if (kind == LauncherKind::python || kind == LauncherKind::bash ||
+                            has_direct_alias(package.commands,command.name,command.target)) {
+                            Json record = {{"name",command.name},{"target",path_text(command.target)},
+                                {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",false},
+                                {"format","scoop-wrapper"}};
+                            for (auto item = wrapper_hashes.begin(); item != wrapper_hashes.end(); ++item)
+                                record[item.key()] = item.value();
+                            command_records.push_back(std::move(record));
+                            test_fault_point(context,"after-entry");
+                            continue;
+                        }
                     }
+                    const auto add_wrapper_hashes = [&](Json& record) {
+                        for (auto item = wrapper_hashes.begin(); item != wrapper_hashes.end(); ++item)
+                            record[item.key()] = item.value();
+                    };
                     const auto exe = shims/(wide(command.name)+L".exe");
                     const bool gui = kind == LauncherKind::direct && is_gui_executable(target);
                     const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
@@ -1482,9 +1544,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         create(exe,[&]() { publish_new(prepared,exe); });
                         test_fault_point(context,"after-entry");
                         legacy_shims[command.name] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
-                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                        Json record = {{"name",command.name},{"target",path_text(command.target)},
                             {"arguments",command_arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
-                            {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}});
+                            {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
+                        add_wrapper_hashes(record);
+                        command_records.push_back(std::move(record));
                     } else {
                         const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                         publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
@@ -1500,10 +1564,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         publish_text(scoop_view,scoop_text);
                         create(exe,[&]() { publish_new(prepared,exe); });
                         test_fault_point(context,"after-entry");
-                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                        Json record = {{"name",command.name},{"target",path_text(command.target)},
                             {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",gui},{"format","coop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)},
-                            {"scoop_metadata_sha256",sha256_file(scoop_view)}});
+                            {"scoop_metadata_sha256",sha256_file(scoop_view)}};
+                        add_wrapper_hashes(record);
+                        command_records.push_back(std::move(record));
                     }
                 }
                 break;

@@ -520,7 +520,8 @@ if ($unknownPreview.eligibility -ne 'untested' -or 'untested-shim-option' -notin
 if ((Test-Path "$changedRoot/.coop") -or (Test-Path "$changedRoot/shims/changed.coop-shim.json")) { throw 'shortcut adoption preview changed state' }
 
 # A Scoop-installed script-host package has only .cmd/sh wrappers, no .exe/.shim pair. Coop must
-# recognize that evidence, update it without requiring a private record, and remove the wrappers.
+# recognize that evidence, update it without requiring a private record, republish the Scoop wrapper
+# view beside its own launcher, and remove every entry on uninstall.
 $scriptRoot = New-TestRoot
 $env:COOP_PROGRAMS_DIR = Join-Path $scriptRoot 'programs'
 $scriptArchive = Join-Path $scriptRoot 'scopebat-v2.zip'
@@ -543,12 +544,16 @@ $scriptUpdate = & $CoopExe --root $scriptRoot update scopebat --json
 Assert-Exit "Scoop script-host update failed: $($scriptUpdate -join "`n")"
 $scriptOutput = ((& "$scriptRoot/shims/scopebat-run.exe" one) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $scriptOutput -notmatch 'wrapper-v2' -or $scriptOutput -notmatch 'one') { throw "updated Scoop script-host entry did not run: $scriptOutput" }
-if ((Test-Path "$scriptRoot/shims/scopebat-run.cmd") -or (Test-Path "$scriptRoot/shims/scopebat-run")) { throw 'update left the Scoop script-host wrappers behind' }
+if (-not (Test-Path "$scriptRoot/shims/scopebat-run.cmd") -or -not (Test-Path "$scriptRoot/shims/scopebat-run")) { throw 'update did not republish the Scoop script-host wrappers beside the launcher' }
+$scriptWrapperTarget = Join-Path $scriptRoot 'apps/scopebat/current/tool.bat'
+if (([IO.File]::ReadAllText("$scriptRoot/shims/scopebat-run.cmd")) -notmatch [regex]::Escape($scriptWrapperTarget)) { throw 'the republished .cmd wrapper does not target the current version' }
 $scriptRecord = Get-Content -LiteralPath "$scriptRoot/.coop/packages/scopebat.json" -Raw | ConvertFrom-Json
 if ($scriptRecord.origin -ne 'scoop') { throw 'updating a Scoop script-host installation did not preserve its origin' }
 $scriptUninstall = & $CoopExe --root $scriptRoot uninstall scopebat --json
 Assert-Exit "Scoop script-host uninstall failed: $($scriptUninstall -join "`n")"
-if ((Test-Path "$scriptRoot/apps/scopebat/current") -or (Test-Path "$scriptRoot/shims/scopebat-run.exe") -or (Test-Path "$scriptRoot/shims/scopebat-run.coop-shim.json")) { throw 'Scoop script-host uninstall left published state' }
+if ((Test-Path "$scriptRoot/apps/scopebat/current") -or (Test-Path "$scriptRoot/shims/scopebat-run.exe") -or
+    (Test-Path "$scriptRoot/shims/scopebat-run.coop-shim.json") -or (Test-Path "$scriptRoot/shims/scopebat-run.cmd") -or
+    (Test-Path "$scriptRoot/shims/scopebat-run")) { throw 'Scoop script-host uninstall left published state' }
 # A wrapper-only Scoop installation is also removable directly, without first being updated.
 $directRoot = New-TestRoot
 $env:COOP_PROGRAMS_DIR = Join-Path $directRoot 'programs'

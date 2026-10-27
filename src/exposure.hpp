@@ -16,10 +16,17 @@ std::string command_launcher_name(const fs::path& target);
 // copied launcher executable. These host programs must exist before any entry is published.
 std::optional<fs::path> command_host_path(LauncherKind kind);
 std::string command_host_problem(LauncherKind kind);
-// The exact file contents Scoop's shim() writes for the .py and bash branches. The .cmd uses
+// The exact file contents Scoop's shim() writes for each script branch. The .cmd/.ps1 files use
 // CRLF and the shell wrapper uses LF with no trailing newline, like Out-UTF8File in Scoop.
+// Coop always publishes these Scoop views beside its own launcher for BAT/CMD, PS1 and JAR targets,
+// because Scoop's shortcut declarations can target them (for example mqtt-spy points a shortcut at
+// shims/mqtt-spy.cmd) and because an alias declared for two shim families must keep both families
+// on disk exactly like Scoop.
 std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments);
 std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments);
+// The .ps1 file of Scoop's power-shell branch; the .cmd and shell wrappers come from the two
+// functions above.
+std::string scoop_command_ps1(const fs::path& target, const std::string& arguments);
 
 // Windows GUI targets are started without a console window by patching the copied
 // console launcher's PE subsystem, like Scoop does for GUI shims.

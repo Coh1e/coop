@@ -23,6 +23,9 @@ bool run_shim(int argc, wchar_t** argv, int& result);
 // wrapper belongs to a package only when its content points at apps/<package>/; otherwise it is
 // left for the client or user that created it.
 bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& package_name);
+// The wrapper also names the declared package-relative target. Two script declarations can share a
+// package and alias, so removal checks the target as well as the package identity.
+bool scoop_wrapper_names_target(const fs::path& path, const std::string& relative_target);
 std::vector<fs::path> scoop_entry_wrappers(const Context& context, const std::string& package_name,
     const std::vector<std::string>& command_names);
 }

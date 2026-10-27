@@ -159,7 +159,8 @@ bool looks_like_scoop_shim(const fs::path& path) {
     return false;
 }
 
-bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& package_name) {
+namespace {
+bool wrapper_text(const fs::path& path, std::string& text) {
     const auto attributes = GetFileAttributesW(path.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) ||
         (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
@@ -168,17 +169,35 @@ bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& p
     if (error || size == 0 || size > 1024*1024 || !fs::is_regular_file(path,error)) return false;
     std::ifstream input(path,std::ios::binary);
     if (!input) return false;
-    std::string text(static_cast<std::size_t>(size),'\0');
+    text.assign(static_cast<std::size_t>(size),'\0');
     input.read(text.data(),static_cast<std::streamsize>(text.size()));
     if (!input && !input.eof()) return false;
+    for (auto& character : text) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    return true;
+}
+}
+bool scoop_wrapper_belongs_to_package(const fs::path& path, const std::string& package_name) {
+    std::string text;
+    if (!wrapper_text(path,text)) return false;
     auto lower = [](std::string value) {
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
     };
-    text = lower(std::move(text));
     const auto name = lower(package_name);
     return text.find("apps\\"+name+"\\") != std::string::npos ||
         text.find("apps/"+name+"/") != std::string::npos;
+}
+bool scoop_wrapper_names_target(const fs::path& path, const std::string& relative_target) {
+    std::string text;
+    if (!wrapper_text(path,text)) return false;
+    auto lower = [](std::string value) {
+        for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        return value;
+    };
+    auto wanted = lower(relative_target);
+    if (text.find(wanted) != std::string::npos) return true;
+    for (auto& character : wanted) if (character == '\\') character = '/';
+    return text.find(wanted) != std::string::npos;
 }
 std::vector<fs::path> scoop_entry_wrappers(const Context& context, const std::string& package_name,
     const std::vector<std::string>& command_names) {

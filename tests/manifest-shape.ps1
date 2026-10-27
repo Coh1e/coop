@@ -164,34 +164,83 @@ Check ($shortcutIdentity.Arguments -eq '--flag') "the real shortcut arguments ar
 CoopJson @('--root',$root,'uninstall','shortcut-parent','--json') | Out-Null
 Check (-not (Test-Path -LiteralPath $link)) 'uninstall removed the parent-relative shortcut'
 
-# --- 4. Repeated derived alias: Scoop last-wins with a reported warning ------------------------
+# --- 4. Repeated derived alias: same family last-wins, different family coexist ------------------
+# Scoop's shim() writes <name>.exe+.shim for an executable target and <name>.cmd+shell for a script
+# target. Repeating an alias inside one family rewrites the same files; repeating it across families
+# leaves both sets on disk and Windows resolves the .exe first.
 $duplicateZip = Join-Path $session 'duplicate-alias.zip'
 New-ZipPackage $duplicateZip ([ordered]@{
-    'probe.exe'=$envFixtureBytes
-    'probe.py'="print('python-entry')`n"
+    'bin/probe.exe'=$envFixtureBytes
+    'bin/probe.py'="print('python-entry')`n"
 })
-Write-Manifest 'duplicate-alias' @{url=(File-Uri $duplicateZip);hash=(Get-FileHash -LiteralPath $duplicateZip -Algorithm SHA256).Hash.ToLower();bin=@('probe.exe','probe.py')}
+Write-Manifest 'duplicate-alias' @{url=(File-Uri $duplicateZip);hash=(Get-FileHash -LiteralPath $duplicateZip -Algorithm SHA256).Hash.ToLower();
+    bin=@(@('bin\probe.exe','probe'),@('bin\probe.py','probe'))}
 $duplicatePlan = CoopJson @('--root',$root,'install','test/duplicate-alias','--dry-run','--json')
 $duplicateCommands = @($duplicatePlan.package.commands)
-Check ($duplicateCommands.Count -eq 1) "the repeated alias produced $($duplicateCommands.Count) entries, expected 1"
-Check ($duplicateCommands[0].name -eq 'probe' -and $duplicateCommands[0].target -eq 'probe.py') "the last declaration did not win: $($duplicateCommands[0] | ConvertTo-Json -Compress)"
+Check ($duplicateCommands.Count -eq 2) "the cross-family alias produced $($duplicateCommands.Count) entries, expected 2"
+Check (@($duplicateCommands | Where-Object { $_.name -eq 'probe' -and $_.target -eq 'bin\probe.exe' -and $_.launcher -eq 'direct' }).Count -eq 1) 'the executable declaration was dropped'
+Check (@($duplicateCommands | Where-Object { $_.name -eq 'probe' -and $_.target -eq 'bin\probe.py' -and $_.launcher -eq 'python' }).Count -eq 1) 'the script declaration was dropped'
 $duplicateWarnings = @($duplicatePlan.warnings)
-Check ($duplicateWarnings.Count -eq 1) "the overwrite was not reported as a warning: $($duplicatePlan | ConvertTo-Json -Depth 6)"
+Check ($duplicateWarnings.Count -eq 1) "the cross-family alias was not reported once: $($duplicatePlan.warnings | ConvertTo-Json -Depth 6)"
 Check ($duplicateWarnings[0].category -eq 'adapter' -and $duplicateWarnings[0].code -eq 'duplicate-command-alias') "the warning code is '$($duplicateWarnings[0].category)/$($duplicateWarnings[0].code)'"
-Check (($duplicateWarnings[0].message -match 'probe\.exe') -and ($duplicateWarnings[0].message -match 'probe\.py')) 'the warning names both declarations'
+Check (($duplicateWarnings[0].message -match 'probe\.exe') -and ($duplicateWarnings[0].message -match 'probe\.py') -and
+    ($duplicateWarnings[0].message -match 'both remain') -and ($duplicateWarnings[0].message -match 'resolves the \.exe first')) 'the warning does not state the Scoop outcome'
 $duplicateInfo = CoopJson @('--root',$root,'info','test/duplicate-alias','--json')
 $infoWarnings = @(@($duplicateInfo)[0].validation.warnings)
-Check ($infoWarnings.Count -eq 1 -and $infoWarnings[0].code -eq 'duplicate-command-alias') 'info does not report the alias overwrite warning'
+Check ($infoWarnings.Count -eq 1 -and $infoWarnings[0].code -eq 'duplicate-command-alias') 'info does not report the alias warning'
 if ($hasPython) {
-    $duplicateInstall = CoopJson @('--root',$root,'install','test/duplicate-alias','--json') $pythonPath
-    Check ((Test-Path -LiteralPath "$root/shims/probe.cmd") -and -not (Test-Path -LiteralPath "$root/shims/probe.exe")) 'the last declaration published the python wrapper and no stale .exe shim'
-    $duplicateRun = Invoke-Program "$root/shims/probe.cmd" @() $pythonPath
-    Check ($duplicateRun.code -eq 0 -and $duplicateRun.text -match 'python-entry') "the surviving entry did not run: code=$($duplicateRun.code) output=$($duplicateRun.text)"
-    CoopJson @('--root',$root,'uninstall','duplicate-alias','--json') | Out-Null
-    Check (-not (Test-Path -LiteralPath "$root/shims/probe.cmd") -and -not (Test-Path -LiteralPath "$root/shims/probe")) 'uninstall removed the surviving wrapper'
+    $null = CoopJson @('--root',$root,'install','test/duplicate-alias','--json') $pythonPath
+    foreach ($entry in @('probe.exe','probe.shim','probe.coop-shim.json','probe.cmd','probe')) {
+        Check (Test-Path -LiteralPath "$root/shims/$entry") "the cross-family install is missing shims/$entry"
+    }
+    $byName = Invoke-Program $env:ComSpec @('/d','/c','probe','--via-name') "$root/shims;$pythonPath"
+    Check ($byName.code -eq 0 -and $byName.text -match 'env fixture' -and $byName.text -match '\[--via-name\]') "bare command resolution did not run the .exe entry: code=$($byName.code) output=$($byName.text)"
+    $byWrapper = Invoke-Program "$root/shims/probe.cmd" @() $pythonPath
+    Check ($byWrapper.code -eq 0 -and $byWrapper.text -match 'python-entry') "the retained .cmd wrapper did not run the python entry: code=$($byWrapper.code) output=$($byWrapper.text)"
+    $null = CoopJson @('--root',$root,'uninstall','duplicate-alias','--json')
+    foreach ($entry in @('probe.exe','probe.shim','probe.coop-shim.json','probe.cmd','probe')) {
+        Check (-not (Test-Path -LiteralPath "$root/shims/$entry")) "uninstall left shims/$entry"
+    }
 } else {
     Write-Output 'SKIP the duplicate-alias install case: no real Python 3 host was found'
 }
+
+# Same-family repetition overwrites the same shim files, so only the last declaration survives.
+$sameFamilyZip = Join-Path $session 'same-family.zip'
+New-ZipPackage $sameFamilyZip ([ordered]@{'probe.exe'=$envFixtureBytes;'other.exe'=$envFixtureBytes})
+Write-Manifest 'same-family-alias' @{url=(File-Uri $sameFamilyZip);hash=(Get-FileHash -LiteralPath $sameFamilyZip -Algorithm SHA256).Hash.ToLower();
+    bin=@(@('probe.exe','same'),@('other.exe','same'))}
+$sameFamilyPlan = CoopJson @('--root',$root,'install','test/same-family-alias','--dry-run','--json')
+$sameFamilyCommands = @($sameFamilyPlan.package.commands)
+Check ($sameFamilyCommands.Count -eq 1 -and $sameFamilyCommands[0].target -eq 'other.exe') "same-family repetition did not keep only the last declaration: $($sameFamilyCommands | ConvertTo-Json -Compress)"
+$sameFamilyWarnings = @($sameFamilyPlan.warnings)
+Check ($sameFamilyWarnings.Count -eq 1 -and ($sameFamilyWarnings[0].message -match 'same shim files') -and ($sameFamilyWarnings[0].message -match 'last declaration wins')) 'the same-family warning does not state the Scoop outcome'
+$null = CoopJson @('--root',$root,'install','test/same-family-alias','--json')
+$sameFamilyShim = [IO.File]::ReadAllText("$root/shims/same.shim")
+Check ($sameFamilyShim -match 'other\.exe' -and $sameFamilyShim -notmatch 'probe\.exe') "the published shim does not point at the last declaration: $sameFamilyShim"
+$null = CoopJson @('--root',$root,'uninstall','same-family-alias','--json')
+Check (-not (Test-Path -LiteralPath "$root/shims/same.exe")) 'uninstall left the same-family shim'
+
+# --- 4b. A JAR entry publishes Scoop's .cmd wrapper so a shortcut can target it -----------------
+$jarZip = Join-Path $session 'jar-shortcut.zip'
+New-ZipPackage $jarZip ([ordered]@{'mqtt-spy.jar'='placeholder jar'})
+Write-Manifest 'jar-shortcut' @{url=(File-Uri $jarZip);hash=(Get-FileHash -LiteralPath $jarZip -Algorithm SHA256).Hash.ToLower();
+    bin='mqtt-spy.jar';shortcuts=@(,@('..\..\..\shims\mqtt-spy.cmd','Jar Probe'))}
+$jarPlan = CoopJson @('--root',$root,'install','test/jar-shortcut','--dry-run','--json')
+Check ([bool]$jarPlan.execution_available) 'the JAR entry with a Scoop .cmd shortcut target is not executable'
+$jarShortcutTarget = [IO.Path]::GetFullPath([string]@($jarPlan.exposure.shortcuts)[0].target)
+Check ($jarShortcutTarget -eq [IO.Path]::GetFullPath("$root/shims/mqtt-spy.cmd")) "the planned shortcut target is '$jarShortcutTarget'"
+$null = CoopJson @('--root',$root,'install','test/jar-shortcut','--json')
+Check ((Test-Path -LiteralPath "$root/shims/mqtt-spy.cmd") -and (Test-Path -LiteralPath "$root/shims/mqtt-spy") -and (Test-Path -LiteralPath "$root/shims/mqtt-spy.exe")) 'the JAR install did not publish both Scoop wrappers and the Coop launcher'
+Check ([IO.File]::ReadAllText("$root/shims/mqtt-spy.cmd") -match '(?s)java -jar') 'the JAR .cmd wrapper does not use the Scoop java branch'
+$jarLink = Join-Path $programs 'Jar Probe.lnk'
+Check (Test-Path -LiteralPath $jarLink) 'the JAR shortcut was not created'
+Check (Test-Path -LiteralPath ([IO.Path]::GetFullPath((New-Object -ComObject WScript.Shell).CreateShortcut($jarLink).TargetPath))) 'the JAR shortcut target does not exist'
+$null = CoopJson @('--root',$root,'uninstall','jar-shortcut','--json')
+foreach ($entry in @('mqtt-spy.jar','mqtt-spy.cmd','mqtt-spy','mqtt-spy.exe','mqtt-spy.shim','mqtt-spy.coop-shim.json')) {
+    Check (-not (Test-Path -LiteralPath "$root/shims/$entry")) "JAR uninstall left shims/$entry"
+}
+Check (-not (Test-Path -LiteralPath $jarLink)) 'JAR uninstall left the shortcut'
 
 # --- 5. Safety boundary: absolute, drive-qualified and escaping write paths stay rejected ------
 $safetyZip = Join-Path $session 'safety.zip'
