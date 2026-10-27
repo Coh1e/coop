@@ -38,7 +38,8 @@ static Json previous_record(const Context& context, const std::string& name, con
     } catch (const std::exception&) { /* The current published record remains the fallback. */ }
     return Json();
 }
-static void list_scope(Json& result, const Context& context, const fs::path& root, const std::string& scope) {
+static void list_scope(Json& result, const Context& context, const fs::path& root, const std::string& scope,
+                       bool recovery_protected) {
     // Installation facts come from the shared Scoop layout through the IR adapter. Coop's private
     // records are optional management metadata read separately below, so they can never decide
     // whether an installed package is visible or block a query when they are missing or stale.
@@ -77,15 +78,20 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
         if (scope == "user") {
             const auto current_version = item.at("version").is_string() ? item.at("version").get<std::string>() : std::string{};
             item["older_versions"] = retained_versions(context,item.at("name").get<std::string>(),current_version);
-            item["old_versions"] = version_cleanup_inventory(context,item.at("name").get<std::string>(),current_version);
+            item["old_versions"] = version_cleanup_inventory(context,item.at("name").get<std::string>(),current_version,recovery_protected);
         }
         result.push_back(std::move(item));
     }
 }
 Json installed_packages(const Context& context) {
+    // One journal scan serves both the pending-recovery entries and the old-version inventory's
+    // recovery protection flag; re-reading the whole transaction history per package made a listing
+    // slower as settled journals accumulated.
+    const Json recovery_report = pending_recovery_report(context,false);
+    const bool recovery_protected = !recovery_report.empty();
     Json result = Json::array();
-    list_scope(result,context,context.root, "user");
-    if (context.global_root) list_scope(result,context,*context.global_root, "global");
+    list_scope(result,context,context.root, "user", recovery_protected);
+    if (context.global_root) list_scope(result,context,*context.global_root, "global", recovery_protected);
     std::map<std::string,std::pair<fs::file_time_type,Json>> operations;
     const auto transactions = context.root/L".coop"/L"transactions";
     if (fs::is_directory(transactions)) for (const auto& entry : fs::directory_iterator(transactions)) {
@@ -105,7 +111,7 @@ Json installed_packages(const Context& context) {
         } catch (const std::exception&) { /* A malformed journal does not hide queryable installations. */ }
     }
     std::map<std::string,Json> recoveries;
-    for (const auto& entry : pending_recovery_report(context,false))
+    for (const auto& entry : recovery_report)
         if (entry.is_object() && entry.contains("package") && entry.at("package").is_string()) {
             const auto name = entry.at("package").get<std::string>();
             if (!name.empty()) recoveries[lowercase(name)] = entry;
@@ -180,6 +186,23 @@ Json installed_packages(const Context& context) {
     });
     return result;
 }
+static Json catalog_item(const Json& source, const Json& entry, const fs::path& directory) {
+    const auto name = entry.at("name").get<std::string>();
+    Json item = {{"name",name}, {"bucket",source.at("name")},
+        {"path",path_text(directory/(wide(name)+L".json"))}, {"source",source.at("url")},
+        {"synced_at",source.value("synced_at",Json(nullptr))},
+        {"diagnostics",entry.value("diagnostics",Json::array())}};
+    if (entry.contains("version")) item["version"] = entry.at("version");
+    if (entry.contains("description")) item["description"] = entry.at("description");
+    if (entry.contains("homepage")) item["homepage"] = entry.at("homepage");
+    return item;
+}
+static void sort_catalog(Json& result) {
+    std::sort(result.begin(), result.end(), [](const Json& a, const Json& b) {
+        return a.at("bucket").get<std::string>()+"/"+a.at("name").get<std::string>() <
+               b.at("bucket").get<std::string>()+"/"+b.at("name").get<std::string>();
+    });
+}
 Json catalog(const Context& context) {
     Json result = Json::array();
     for (const auto& source : bucket_sources(context)) {
@@ -187,27 +210,38 @@ Json catalog(const Context& context) {
         const fs::path location(wide(source.at("path").get<std::string>()));
         if (!fs::is_directory(location)) continue;
         const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
-        for (const auto& entry : catalog_entries(context,source)) {
-            const auto name = entry.at("name").get<std::string>();
-            Json item = {{"name",name}, {"bucket",source.at("name")},
-                {"path",path_text(directory/(wide(name)+L".json"))}, {"source",source.at("url")},
-                {"synced_at",source.value("synced_at",Json(nullptr))},
-                {"diagnostics",entry.value("diagnostics",Json::array())}};
-            if (entry.contains("version")) item["version"] = entry.at("version");
-            if (entry.contains("description")) item["description"] = entry.at("description");
-            if (entry.contains("homepage")) item["homepage"] = entry.at("homepage");
-            result.push_back(std::move(item));
-        }
+        for (const auto& entry : catalog_entries(context,source))
+            result.push_back(catalog_item(source,entry,directory));
     }
-    std::sort(result.begin(), result.end(), [](const Json& a, const Json& b) {
-        return a.at("bucket").get<std::string>()+"/"+a.at("name").get<std::string>() <
-               b.at("bucket").get<std::string>()+"/"+b.at("name").get<std::string>();
-    });
+    sort_catalog(result);
     return result;
 }
 static std::string lowercase(std::string value) {
     for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     return value;
+}
+// `search`/`info` only need the entries that match, so the published bucket metadata is filtered
+// while it is read. Building and sorting the whole catalogue first made a single-package lookup
+// cost as much as listing every package in the bucket.
+static Json matching_catalog(const Context& context, const std::wstring& command, const std::string& needle) {
+    Json result = Json::array();
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        const fs::path location(wide(source.at("path").get<std::string>()));
+        if (!fs::is_directory(location)) continue;
+        const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
+        const auto bucket = source.at("name").get<std::string>();
+        for (const auto& entry : catalog_entries(context,source)) {
+            if (!entry.is_object() || !entry.contains("name") || !entry.at("name").is_string()) continue;
+            const auto name = entry.at("name").get<std::string>();
+            const auto qualified = bucket+"/"+name;
+            const bool match = command == L"info" ? lowercase(name) == needle || lowercase(qualified) == needle :
+                lowercase(qualified+" "+entry.value("description",std::string{})).find(needle) != std::string::npos;
+            if (match) result.push_back(catalog_item(source,entry,directory));
+        }
+    }
+    sort_catalog(result);
+    return result;
 }
 std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
     std::vector<ir::CatalogueEntry> result;
@@ -228,17 +262,33 @@ std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
     });
     return result;
 }
-// `info` reports the normalized IR and its layered diagnostics: a package that cannot currently be
-// executed still appears with the reason. The adapter and validator only read the manifest bytes.
-static Json validation_json(const Context& context, const Json& item) {
-    std::string architecture = "64bit";
-    for (const auto& installed : installed_packages(context)) {
-        if (installed.value("scope",std::string{}) == "global" ||
-            !equal_name(installed.value("name",std::string{}),item.at("name").get<std::string>())) continue;
-        const auto value = installed.value("architecture",std::string{});
-        if (!value.empty()) architecture = value;
+// The architecture only selects the manifest variant for one package, so reading every installed
+// package's manifests and old-version inventories for it is unnecessary. A missing current link can
+// still be described by the last committed record of a pending transaction, which the full listing
+// supplies.
+static std::string installed_architecture(const Context& context, const std::string& name) {
+    bool pending_fact = false;
+    for (const auto& fact : ir::read_installations(context.root)) {
+        if (!equal_name(fact.name,name)) continue;
+        if (fact.present) return fact.architecture.empty() ? std::string("64bit") : fact.architecture;
+        pending_fact = true;
         break;
     }
+    if (pending_fact) {
+        for (const auto& installed : installed_packages(context)) {
+            if (installed.value("scope",std::string{}) == "global" ||
+                !equal_name(installed.value("name",std::string{}),name)) continue;
+            const auto value = installed.value("architecture",std::string{});
+            if (!value.empty()) return value;
+            break;
+        }
+    }
+    return "64bit";
+}
+static Json validation_json(const Context& context, const Json& item) {
+    // `info` reports the normalized IR and its layered diagnostics: a package that cannot currently be
+    // executed still appears with the reason. The adapter and validator only read the manifest bytes.
+    const auto architecture = installed_architecture(context,item.at("name").get<std::string>());
     Json validation = {{"architecture",architecture},{"manifest_digest",nullptr},
         {"artifacts",Json::array()},{"diagnostics",Json::array()},{"warnings",Json::array()},{"capabilities",Json::array()}};
     try {
@@ -272,14 +322,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
         result = installed_packages(context);
     } else {
         if (args.size() != 1) throw UsageError("search/info requires exactly one package or query");
-        const auto needle = lowercase(utf8(args[0]));
-        for (const auto& item : catalog(context)) {
-            const auto name = item.at("name").get<std::string>();
-            const auto qualified = item.at("bucket").get<std::string>()+"/"+name;
-            const bool match = command == L"info" ? lowercase(name) == needle || lowercase(qualified) == needle :
-                lowercase(qualified+" "+item.value("description",std::string{})).find(needle) != std::string::npos;
-            if (match) result.push_back(item);
-        }
+        result = matching_catalog(context,command,lowercase(utf8(args[0])));
         if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
         if (command == L"info" && result.size() > 1)
             throw std::runtime_error("Ambiguous package; qualify it with its bucket");

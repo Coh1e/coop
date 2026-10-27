@@ -534,28 +534,35 @@ Json version_evidence(const fs::path& directory, const std::string& version) {
     return result;
 }
 void collect_tree_stamp(const fs::path& directory, const fs::path& base, std::vector<std::string>& entries) {
-    for (const auto& entry : fs::directory_iterator(directory)) {
-        const auto attributes = GetFileAttributesW(entry.path().c_str());
-        if (attributes == INVALID_FILE_ATTRIBUTES) throw std::runtime_error("Cannot read version entry attributes");
-        const auto relative = path_text(entry.path().lexically_relative(base));
-        if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+    // A single directory enumeration supplies the size and write time of every entry. The previous
+    // loop asked the filesystem for each entry's attributes again, which doubled the syscalls and
+    // made `list` spend seconds walking large recorded version trees (for example a Git install).
+    WIN32_FIND_DATAW data{};
+    const auto pattern = (directory/L"*").wstring();
+    const auto handle = FindFirstFileW(pattern.c_str(),&data);
+    if (handle == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot read version entry attributes");
+    struct Closer { HANDLE value; ~Closer() { if (value != INVALID_HANDLE_VALUE) FindClose(value); } } closer{handle};
+    do {
+        const std::wstring_view name(data.cFileName);
+        if (name == L"." || name == L"..") continue;
+        const auto child = directory/std::wstring(name);
+        const auto relative = path_text(child.lexically_relative(base));
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
             entries.push_back(relative+"|reparse");
             continue;
         }
-        if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+        if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             entries.push_back(relative+"|dir");
-            collect_tree_stamp(entry.path(),base,entries);
+            collect_tree_stamp(child,base,entries);
             continue;
         }
-        WIN32_FILE_ATTRIBUTE_DATA data{};
-        if (!GetFileAttributesExW(entry.path().c_str(),GetFileExInfoStandard,&data))
-            throw std::runtime_error("Cannot read version file attributes");
         ULARGE_INTEGER size{};
         size.LowPart = data.nFileSizeLow;
         size.HighPart = data.nFileSizeHigh;
         entries.push_back(relative+"|file|"+std::to_string(size.QuadPart)+"|"+
             std::to_string(data.ftLastWriteTime.dwHighDateTime)+":"+std::to_string(data.ftLastWriteTime.dwLowDateTime));
-    }
+    } while (FindNextFileW(handle,&data));
+    if (GetLastError() != ERROR_NO_MORE_FILES) throw std::runtime_error("Cannot read version entry attributes");
 }
 std::string version_tree_stamp(const fs::path& directory) {
     const auto attributes = GetFileAttributesW(directory.c_str());
@@ -613,6 +620,10 @@ Json recorded_version_evidence(const Context& context, const std::string& packag
 }
 Json version_cleanup_inventory(const Context& context, const std::string& package_name,
                                const std::string& current_version) {
+    return version_cleanup_inventory(context,package_name,current_version,!pending_transactions(context).empty());
+}
+Json version_cleanup_inventory(const Context& context, const std::string& package_name,
+                               const std::string& current_version, bool recovery_protected) {
     const auto app = context.root/L"apps"/wide(package_name);
     const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
     std::string managed_version;
@@ -631,8 +642,6 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
     }
     const bool has_managed_current = !managed_version.empty() || !managed_directory.empty();
     const auto recorded = recorded_version_evidence(context,package_name);
-    const auto pending = pending_transactions(context);
-    const bool recovery_protected = !pending.empty();
     const auto current = app/L"current";
     const bool current_exists = fs::is_directory(current);
     Json result = Json::array();
@@ -668,17 +677,13 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
             continue;
         }
         entry["recorded"] = false;
-        if (entry.at("status").get<std::string>() == "retained") {
-            try { entry["tree_stamp"] = version_tree_stamp(directory); }
-            catch (const std::exception& error) {
-                entry["status"] = "unmanageable";
-                entry["reason"] = std::string("Version contents cannot be inspected: ")+error.what();
-            }
-        }
         const auto record = std::find_if(recorded.begin(),recorded.end(),[&](const Json& item) {
             return equal_name(item.at("version").get<std::string>(),version);
         });
         if (record == recorded.end()) {
+            // A version Coop never recorded is not a cleanup candidate, so its whole tree does not
+            // need to be stamped. Stamping every unrecorded version made `list` walk complete
+            // installed programs (tens of thousands of files) to report evidence no decision uses.
             if (entry.at("status").get<std::string>() == "retained") entry["status"] = "no-coop-version-record";
             entry["reason"] = "No Coop version record exists for this local directory; ownership is unverified";
             result.push_back(std::move(entry));
@@ -694,6 +699,15 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
             continue;
         }
         if (entry.at("status").get<std::string>() != "retained") {
+            result.push_back(std::move(entry));
+            continue;
+        }
+        // Only recorded retained versions are compared against a recorded tree stamp, so only they
+        // need the (potentially expensive) walk. A stamp that cannot be read still blocks cleanup.
+        try { entry["tree_stamp"] = version_tree_stamp(directory); }
+        catch (const std::exception& error) {
+            entry["status"] = "unmanageable";
+            entry["reason"] = std::string("Version contents cannot be inspected: ")+error.what();
             result.push_back(std::move(entry));
             continue;
         }

@@ -58,6 +58,7 @@ function Measure-Coop([string]$Name, [string]$Target, [string[]]$Arguments) {
         first_ms = [math]::Round($first.ms, 1)
         p50_ms = [math]::Round($warm[[int][math]::Floor($warm.Count / 2)], 1)
         p90_ms = [math]::Round($warm[[math]::Min($warm.Count - 1, [int][math]::Floor($warm.Count * 0.9))], 1)
+        p95_ms = [math]::Round($warm[[math]::Min($warm.Count - 1, [int][math]::Ceiling($warm.Count * 0.95) - 1)], 1)
         min_ms = [math]::Round($warm[0], 1)
         max_ms = [math]::Round($warm[-1], 1)
         target_met = $warm[[int][math]::Floor($warm.Count / 2)] -le $targetMs
@@ -350,7 +351,7 @@ $report = [ordered]@{
     cold_cache = 'The first invocation after fixture creation is reported as first_ms. Dropping the Windows standby list requires administrator intervention outside this task, so a true cold-cache run is not claimed.'
 }
 $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $TestRoot 'perf-report.json') -Encoding utf8
-$measurements | Format-Table name, target_ms, first_ms, p50_ms, p90_ms, min_ms, max_ms, target_met -AutoSize | Out-String -Width 200 | Write-Output
+$measurements | Format-Table name, target_ms, first_ms, p50_ms, p90_ms, p95_ms, min_ms, max_ms, target_met -AutoSize | Out-String -Width 200 | Write-Output
 Write-Output ("process start floor: p50={0}ms; index report: {1}" -f $report.process_start_floor_ms.p50, (Join-Path $TestRoot 'perf-report.json'))
 foreach ($measurement in $measurements) {
     if (-not $measurement.target_met) {
