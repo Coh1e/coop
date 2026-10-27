@@ -130,6 +130,7 @@ ctest --test-dir .local/build --output-on-failure
 
 ## 5. 未运行与剩余限制
 
+- **各机制的真机脚本没有在最终构建上逐个重跑**：归档/多产物、MSI/Inno/NSIS、Hook/installer 程序、持久化、入口/环境/快捷方式和依赖的真实样本运行仍是各自票的历史证据（本页 §4.2 链接）；它们在最终构建的默认套件中有对应夹具，且本轮 15 包真实生命周期覆盖了入口/环境/持久化/版本的通用路径。不把这两类证据混为一谈，也不声称每个机制的每个真实样本都在本轮重新运行。
 - 4134 个 Main/Extras 包只有只读读取与规划，没有逐包生命周期；Extras 软件没有在本机真实根实际运行（本机 Scoop 根未注册 Extras）。
 - 2 个 32bit/arm64 以外的架构边界：32bit 只执行了真实 `air` 包；arm64 只有批准例外中的规划与静态证据，没有生命周期。
 - `psmodule`：Scoop 自己卸载 Coop 安装的模块包（`uninstall_psmodule` 会递归删除 junction 目标）仍未运行；系统级模块与机器级 `PSModulePath` 未实现；这些在[psmodule 支持](psmodule-support.md)中保持未运行。
