@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $baselinePath = Join-Path $PSScriptRoot 'coverage/baseline.json'
 $ledgerPath = Join-Path $PSScriptRoot 'coverage/gaps.json'
@@ -7,15 +7,16 @@ $ledgerPath = Join-Path $PSScriptRoot 'coverage/gaps.json'
 # one explicit disposition. The ledger is checked structurally here so a later inventory cannot drop
 # a gap, shrink scope or reroute a mechanism without an obvious failure.
 $expectedMapping = [ordered]@{
-    'capability:psmodule' = @{ ticket = 'R25'; count = 28 }
-    'dependency-unsupported' = @{ ticket = 'R25'; count = 2 }
-    'command-entry-host' = @{ ticket = 'R26'; count = 11 }
-    'manifest-shape' = @{ ticket = 'R27'; count = 6 }
-    'dependency-missing' = @{ ticket = 'R28'; count = 5 }
+    'capability:psmodule' = @{ ticket = 'R25'; issue = 46; count = 28 }
+    'dependency-unsupported' = @{ ticket = 'R25'; issue = 46; count = 2 }
+    'command-entry-host' = @{ ticket = 'R26'; issue = 47; count = 11 }
+    'manifest-shape' = @{ ticket = 'R27'; issue = 48; count = 6 }
+    'dependency-missing' = @{ ticket = 'R28'; issue = 49; count = 5 }
     'architecture-artifact' = @{ boundary = 'arm64-only'; count = 3 }
 }
 
 $failures = [System.Collections.Generic.List[string]]::new()
+$expectedIssue = @{ R25 = 46; R26 = 47; R27 = 48; R28 = 49 }
 function Fail([string]$message) { $script:failures.Add($message) }
 
 if (-not (Test-Path -LiteralPath $ledgerPath)) {
@@ -54,12 +55,12 @@ foreach ($key in 'denominator') {
 }
 if ($ledger.source.denominator.total -ne $baseline.denominator.total) { Fail 'ledger denominator total does not match the baseline' }
 
-# 2. Proposed tickets: complete, unique, acyclic and still open-ended for the orchestrator.
+# 2. Child tickets: complete, unique, acyclic and bound to the created, now closed issues.
 $tickets = @{}
 foreach ($ticket in $ledger.tickets) {
     if ($tickets.ContainsKey($ticket.id)) { Fail "duplicate proposed ticket $($ticket.id)"; continue }
     $tickets[$ticket.id] = $ticket
-    foreach ($field in 'id','title','scope','reason','verification') {
+    foreach ($field in 'id','title','scope','reason','verification','delivered') {
         if ([string]::IsNullOrWhiteSpace([string]$ticket[$field])) { Fail "$($ticket.id) is missing $field" }
     }
     if (@($ticket.acceptance).Count -lt 2) { Fail "$($ticket.id) needs at least two acceptance criteria" }
@@ -72,9 +73,11 @@ foreach ($ticket in $ledger.tickets) {
     }
     if (@($ticket.blocks) -notcontains '#42') { Fail "$($ticket.id) must block #42 (R21 stays open while the gap is unresolved)" }
     if (@($ticket.blocks) -notcontains '#45') { Fail "$($ticket.id) must block #45 (final acceptance needs the gap closed)" }
-    if ($ticket.issue -ne $null) { Fail "$($ticket.id) must not claim a created issue number; the orchestrator creates it" }
+    if ($ticket.issue -ne $expectedIssue[$ticket.id]) { Fail "$($ticket.id) must bind to issue #$($expectedIssue[$ticket.id])" }
+    if ($ticket.issue_state -ne 'closed') { Fail "$($ticket.id) must record the closed child issue" }
+    if (@($ticket.closure_evidence).Count -eq 0) { Fail "$($ticket.id) has no closure evidence" }
 }
-if ($tickets.Count -ne 4) { Fail "expected exactly four proposed tickets, found $($tickets.Count)" }
+if ($tickets.Count -ne 4) { Fail "expected exactly four child tickets, found $($tickets.Count)" }
 $order = @{}
 function Visit([string]$id) {
     if ($order[$id] -eq 1) { Fail "proposed ticket dependency cycle at $id"; return }
@@ -177,9 +180,86 @@ if (-not (Test-Path -LiteralPath $dependencySourcePath)) {
     if ($inventoryScript -notmatch 'coverage/dependency-sources\.json') { Fail 'the inventory script must read the pinned dependency source ledger' }
 }
 
+# 5. Closure: the four child tickets are closed and a fresh measurement of the same 53 baseline
+# packages classifies every row, leaving only the documented Python-host precondition and the
+# human-approved ARM64 lifecycle exception.
+if (-not $ledger.ContainsKey('closure')) {
+    Fail 'ledger needs a closure block'
+} else {
+    $closure = $ledger.closure
+    if ($closure.code_head -notmatch '^[0-9a-f]{40}$') { Fail 'closure.code_head must be a full commit' }
+    if ($closure.coop_sha256 -notmatch '^[0-9a-f]{64}$') { Fail 'closure.coop_sha256 must be a SHA256' }
+    if ([string]::IsNullOrWhiteSpace([string]$closure.verified_at)) { Fail 'closure.verified_at is empty' }
+    foreach ($revision in @($closure.inventory.measured.main, $closure.inventory.measured.extras, $closure.inventory.measured.versions)) {
+        if ([string]$revision -notmatch '^[0-9a-f]{40}$') { Fail "closure measured revision is not a full commit: $revision" }
+    }
+    if ($closure.inventory.measured.extras -ne $baseline.buckets[1].revision) { Fail 'closure measured Extras revision differs from the baseline' }
+    if ($closure.inventory.baseline.main -ne $baseline.buckets[0].revision) { Fail 'closure baseline Main revision differs from the baseline' }
+    if ($closure.inventory.baseline.total -ne $baseline.denominator.total) { Fail 'closure baseline total differs from the baseline' }
+    if ($closure.inventory.measured.denominator -ne 4149) { Fail 'closure measured denominator must stay 4149' }
+    if ($closure.inventory.measured.plan_executable -ne 4141) { Fail "closure plan_executable=$($closure.inventory.measured.plan_executable), expected 4141" }
+    if ($closure.inventory.measured.plan_blocked -ne 6) { Fail "closure plan_blocked=$($closure.inventory.measured.plan_blocked), expected 6" }
+    if ($dependencySources -and $closure.inventory.measured.versions -ne @($dependencySources.buckets | Where-Object { $_.name -eq 'versions' })[0].revision) { Fail 'closure versions revision differs from dependency-sources.json' }
+    foreach ($status in 'resolved','blocked-precondition','approved-exception') {
+        if ($null -eq $closure.row_status[$status]) { Fail "closure.row_status is missing $status" }
+    }
+    if ($closure.row_status.resolved -ne 49) { Fail "closure resolved rows=$($closure.row_status.resolved), expected 49" }
+    if ($closure.row_status['blocked-precondition'] -ne 3) { Fail "closure blocked-precondition rows=$($closure.row_status['blocked-precondition']), expected 3" }
+    if ($closure.row_status['approved-exception'] -ne 3) { Fail "closure approved-exception rows=$($closure.row_status['approved-exception']), expected 3" }
+    if (($closure.row_status.resolved + $closure.row_status['blocked-precondition'] + $closure.row_status['approved-exception']) -ne $entryRows) { Fail 'closure row_status does not cover every ledger entry' }
+    $expectedRemaining = @(
+        'extras/cpu-z-arm64|architecture-artifact|approved-exception'
+        'extras/pdd|command-entry-host|blocked-precondition'
+        'main/gel-arm64|architecture-artifact|approved-exception'
+        'main/llvm-arm64|architecture-artifact|approved-exception'
+        'main/retdec|command-entry-host|blocked-precondition'
+        'main/vapoursynth|command-entry-host|blocked-precondition'
+    )
+    $actualRemaining = @($closure.remaining | ForEach-Object { "$($_.id)|$($_.mechanism)|$($_.status)" } | Sort-Object)
+    if (($actualRemaining -join ',') -ne (($expectedRemaining | Sort-Object) -join ',')) { Fail "closure remaining set changed: $($actualRemaining -join ', ')" }
+    if (@($closure.remaining).Count -ne 6) { Fail "closure must list exactly six remaining rows, found $(@($closure.remaining).Count)" }
+    foreach ($row in @($closure.remaining)) {
+        if ([string]::IsNullOrWhiteSpace([string]$row.reason) -or ([string]$row.reason).Length -lt 20) { Fail "remaining row $($row.id) needs a substantive reason" }
+        if ([string]::IsNullOrWhiteSpace([string]$row.evidence)) { Fail "remaining row $($row.id) needs evidence" }
+        if ($row.status -notin @('blocked-precondition','approved-exception')) { Fail "remaining row $($row.id) has unexpected status $($row.status)" }
+        if ($row.status -eq 'approved-exception' -and $row.mechanism -ne 'architecture-artifact') { Fail "only arm64 rows may use approved-exception: $($row.id)" }
+    }
+    $expectedByKey = @{}
+    foreach ($item in $expectedRemaining) { $expectedByKey[$item] = $true }
+    $counts = @{ resolved = 0; 'blocked-precondition' = 0; 'approved-exception' = 0 }
+    foreach ($entry in $ledger.entries) {
+        $key = "$($entry.id)|$($entry.mechanism)|$($entry.closure)"
+        if ($entry.closure -notin @('resolved','blocked-precondition','approved-exception')) { Fail "entry $($entry.id)/$($entry.mechanism) has no valid closure status" ; continue }
+        $counts[$entry.closure]++
+        if ($expectedByKey.ContainsKey($key)) { Continue }
+        $stillRemaining = @($closure.remaining | Where-Object { $_.id -eq $entry.id -and $_.mechanism -eq $entry.mechanism })
+        if ($stillRemaining.Count -gt 0) { Fail "entry $($entry.id)/$($entry.mechanism) closure '$($entry.closure)' disagrees with the remaining list" }
+        if ($entry.closure -ne 'resolved') { Fail "entry $($entry.id)/$($entry.mechanism) must be resolved" }
+    }
+    foreach ($status in @('resolved','blocked-precondition','approved-exception')) {
+        if ($counts[$status] -ne $closure.row_status[$status]) { Fail "entry closure counts ($($counts[$status])) disagree with row_status.$status ($($closure.row_status[$status]))" }
+    }
+    $approval = @($closure.human_approvals)[0]
+    if ($approval.date -ne '2026-10-27') { Fail 'closure must record the 2026-10-27 human approval' }
+    if ([string]$approval.scope -notmatch 'ARM64') { Fail 'human approval scope must name the ARM64-only packages' }
+    if ([string]$approval.terms -notmatch 'not run|unverified') { Fail 'human approval terms must keep the ARM64 lifecycle unrun/unverified' }
+    if ($ledger.boundaries[0].approval_date -ne '2026-10-27') { Fail 'arm64 boundary must cite the human approval date' }
+    if ([string]$ledger.boundaries[0].approval_scope -notmatch 'ARM64') { Fail 'arm64 boundary must cite the approved scope' }
+    $correction = $closure.shape_fixture_correction
+    if ($correction.old_status -ne 'void') { Fail 'the old shape fixture must be marked void' }
+    if (@($correction.corrected_bin_four).Count -ne 4) { Fail 'the corrected bin fixture must be one 4-element tuple' }
+    if ([string]$correction.historical_observation -ne 'Invalid bin entry') { Fail 'the corrected fixture must record the Invalid bin entry observation' }
+    if ([string]::IsNullOrWhiteSpace([string]$correction.current_head_observation)) { Fail 'the corrected fixture must record the current-head observation' }
+    $evidence = @($closure.evidence)
+    foreach ($required in 'shape-fixture-summary.json','closure-verify-summary.json','coverage-20261027-054326/summary.json') {
+        if (-not ($evidence -match [regex]::Escape($required))) { Fail "closure evidence does not cite $required" }
+    }
+}
+
 if ($failures.Count) {
     $failures | ForEach-Object { Write-Output "FAIL $_" }
     exit 1
 }
-Write-Output ("PASS gap closure ledger: {0} entries over {1} unique blocked packages, {2} proposed tickets, {3} architecture boundary" -f $entryRows, $baselineIds.Count, $tickets.Count, @($ledger.boundaries).Count)
+Write-Output ("PASS gap closure ledger: {0} entries over {1} unique blocked packages, {2} closed child tickets, {3} resolved rows, {4} remaining rows" -f $entryRows, $baselineIds.Count, $tickets.Count, $ledger.closure.row_status.resolved, @($ledger.closure.remaining).Count)
 exit 0
+

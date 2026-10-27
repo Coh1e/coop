@@ -21,7 +21,7 @@
 
 ## 缺口去向与闭合
 
-53 个阻塞包已逐项归因并各有独立出口，见[全量盘点缺口闭合与子票](compatibility-gap-closure.md)；机器账本为 [`tests/coverage/gaps.json`](../tests/coverage/gaps.json)，由 CTest `coverage_gaps` 守卫，减少条目、改投子票或删掉验收条件都会失败。处置是 4 个提议子票：`psmodule` 与依赖级联 → R25，命令入口宿主 → R26，Manifest 形状/路径/重复别名 → R27，跨 bucket 依赖（`versions`）→ R28；3 个 arm64-only 包是架构边界（64bit 拒绝与 Scoop 一致，`--arch arm64` 计划已实测可执行）。没有任何包被移出分母，也没有把缺口改写为“不支持”；子票完成前 #42 不关闭，arm64 生命周期与 53 个包的真实安装仍为“未运行”。
+53 个阻塞包已逐项归因并各自绑定子票与闭合状态，见[全量盘点缺口闭合与子票](compatibility-gap-closure.md)；机器账本为 [`tests/coverage/gaps.json`](../tests/coverage/gaps.json)，由 CTest `coverage_gaps` 守卫，减少条目、改投子票、删掉验收条件、把剩余项标成已解决都会失败。R25–R28（[#46](https://github.com/Coh1e/coop/issues/46)–[#49](https://github.com/Coh1e/coop/issues/49)）已全部完成并关闭：**49/55 行已解决**，剩余 6 行为 3 个 `external-host:python` 环境前提（`main/retdec`、`main/vapoursynth`、`extras/pdd`，需要真实 `python.exe`）和 3 个 arm64-only 包（64bit 按设计与 Scoop 一致拒绝，ARM64 生命周期为人类 2026-10-27 批准的例外、仍未运行）。全量分母复测（R28，Main `eebcee22…` + Extras `0f8f4b5f…`）为读取 4149/4149、计划可执行 4141、阻塞 6；本页下表仍是 #41 当时的基线，不因复测而改写。
 
 ## 环境与修订
 

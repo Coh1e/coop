@@ -37,6 +37,12 @@
         "真实 CLI 安装/卸载 + 新 PowerShell 进程 Import-Module",
         "全量盘点 psmodule 缺口归零",
         "HKCU PSModulePath 原值/归属记录与撤销核对"
+      ],
+      "issue": 46,
+      "issue_state": "closed",
+      "delivered": "psmodule junction + owned PSModulePath entry; posh-git and gsudo real lifecycles, Scoop read-side recognition; psmodule 28 -> 0 and dependency-unsupported 2 -> 0",
+      "closure_evidence": [
+        "docs/psmodule-support.md"
       ]
     },
     {
@@ -60,6 +66,12 @@
         "真实 shim 执行输出/退出码",
         "全量盘点 command-entry-host 归零",
         "Scoop 后续使用同一入口"
+      ],
+      "issue": 47,
+      "issue_state": "closed",
+      "delivered": "PY and bash command hosts with Scoop-shaped shims; command-entry-host 11 -> 0; three .py packages keep external-host:python precondition because this machine has no python.exe",
+      "closure_evidence": [
+        "docs/command-entry-support.md"
       ]
     },
     {
@@ -83,6 +95,12 @@
         "真实 dry-run 计划对比 Scoop 解析结果",
         "两个样本真实安装/运行/卸载",
         "全量盘点 manifest-shape 归零"
+      ],
+      "issue": 48,
+      "issue_state": "closed",
+      "delivered": "Scoop bin tuples, relative env/shortcut paths and duplicate aliases (both shim families kept); manifest-shape 6 -> 0",
+      "closure_evidence": [
+        "docs/manifest-shape-support.md"
       ]
     },
     {
@@ -106,14 +124,23 @@
         "固定 versions bucket 修订的 dry-run 依赖顺序",
         "已安装依赖复用",
         "全量盘点 dependency-missing 归零或逐项环境前提"
+      ],
+      "issue": 49,
+      "issue_state": "closed",
+      "delivered": "pinned official versions bucket; five versions/* dependencies resolve first and execute; dependency-missing 5 -> 0; real install/reuse/uninstall and full restore on the shared root",
+      "closure_evidence": [
+        "docs/dependency-support.md",
+        "tests/coverage/dependency-sources.json"
       ]
     }
   ],
   "boundaries": [
     {
       "id": "arm64-only",
-      "reason": "These packages only publish arm64 artifacts. On this x64 host the 64bit plan must refuse them, exactly as Scoop does; planning with --arch arm64 succeeds. The arm64 lifecycle remains unrun because no arm64 host was used, so this stays visible as unrun work in the final acceptance instead of being declared out of scope.",
-      "evidence": "R21 evidence closure-20261026-221524/repro-summary.json: three packages exit 0 with execution_available=true and architecture=arm64; the 64bit runs exit 1 with ir/missing-artifact. Pinned Scoop manifest.ps1:156-181 provides the equivalent refusal."
+      "reason": "These three packages publish only arm64 artifacts. Under 64bit Coop refuses them exactly as Scoop Get-SupportedArchitecture does, and --arch arm64 planning succeeds. Their arm64 lifecycle real run is the human-approved exception recorded in #42/#45 on 2026-10-27, limited to these three packages; it stays unrun/unverified, so it is never counted as ARM64 runtime proof or as an excluded package.",
+      "evidence": "R21 closure-verify-20261027-060914/closure-verify-summary.json: three packages keep ir/missing-artifact under 64bit, exit 0 with execution_available=true under --arch arm64. Human approval (2026-10-27) is recorded in #42/#45 comments; pinned Scoop manifest.ps1:156-181 gives the equivalent 64bit refusal.",
+      "approval_date": "2026-10-27",
+      "approval_scope": "3 ARM64-only package lifecycles only"
     }
   ],
   "entries": [
@@ -127,7 +154,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/azure-ps",
@@ -139,7 +167,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/gsudo",
@@ -151,7 +180,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/importexcel",
@@ -163,7 +193,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/pester",
@@ -175,7 +206,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/powershell-beautifier",
@@ -187,7 +219,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/powershell-yaml",
@@ -199,7 +232,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/psake",
@@ -211,7 +245,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/pscompletions",
@@ -223,7 +258,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/psgithub",
@@ -235,7 +271,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/winget-ps",
@@ -247,7 +284,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/completionpredictor",
@@ -259,7 +297,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/dockercompletion",
@@ -271,7 +310,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/git-aliases",
@@ -283,7 +323,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/lazy-posh-git",
@@ -295,7 +336,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/leet",
@@ -307,7 +349,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/posh-docker",
@@ -319,7 +362,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/posh-git",
@@ -331,7 +375,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/powertab",
@@ -343,7 +388,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/pscolor",
@@ -355,7 +401,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/pseps",
@@ -367,7 +414,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/psfzf",
@@ -379,7 +427,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/pskubectlcompletion",
@@ -391,7 +440,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/psreadline",
@@ -403,7 +453,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/scoop-completion",
@@ -415,7 +466,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/terminal-icons",
@@ -427,7 +479,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/z",
@@ -439,7 +492,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/zlocation",
@@ -451,7 +505,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R25"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/buck",
@@ -464,7 +519,8 @@
         "kind": "ticket",
         "ticket": "R28"
       },
-      "dependency": "versions/python27"
+      "dependency": "versions/python27",
+      "closure": "resolved"
     },
     {
       "id": "main/glslviewer",
@@ -477,7 +533,8 @@
         "kind": "ticket",
         "ticket": "R28"
       },
-      "dependency": "versions/ffmpeg-shared-4.4.1"
+      "dependency": "versions/ffmpeg-shared-4.4.1",
+      "closure": "resolved"
     },
     {
       "id": "main/terraform-provider-ibm",
@@ -490,7 +547,8 @@
         "kind": "ticket",
         "ticket": "R28"
       },
-      "dependency": "versions/terraform011"
+      "dependency": "versions/terraform011",
+      "closure": "resolved"
     },
     {
       "id": "extras/node-compiler",
@@ -503,7 +561,8 @@
         "kind": "ticket",
         "ticket": "R28"
       },
-      "dependency": "versions/python27"
+      "dependency": "versions/python27",
+      "closure": "resolved"
     },
     {
       "id": "extras/rabbitmqadmin",
@@ -516,7 +575,8 @@
         "kind": "ticket",
         "ticket": "R28"
       },
-      "dependency": "python27"
+      "dependency": "python27",
+      "closure": "resolved"
     },
     {
       "id": "main/dcmtk",
@@ -528,7 +588,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/retdec",
@@ -540,7 +601,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/stdiscosrv",
@@ -552,7 +614,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/wgcf",
@@ -564,7 +627,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/zigup",
@@ -576,7 +640,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "extras/mqtt-spy",
@@ -588,7 +653,8 @@
       "resolution": {
         "kind": "ticket",
         "ticket": "R27"
-      }
+      },
+      "closure": "resolved"
     },
     {
       "id": "main/gel-arm64",
@@ -600,7 +666,8 @@
       "resolution": {
         "kind": "architecture-scope",
         "boundary": "arm64-only"
-      }
+      },
+      "closure": "approved-exception"
     },
     {
       "id": "main/llvm-arm64",
@@ -612,7 +679,8 @@
       "resolution": {
         "kind": "architecture-scope",
         "boundary": "arm64-only"
-      }
+      },
+      "closure": "approved-exception"
     },
     {
       "id": "extras/cpu-z-arm64",
@@ -624,7 +692,8 @@
       "resolution": {
         "kind": "architecture-scope",
         "boundary": "arm64-only"
-      }
+      },
+      "closure": "approved-exception"
     },
     {
       "id": "main/git-filter-repo",
@@ -639,7 +708,8 @@
       },
       "targets": [
         "git-filter-repo (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "main/git-quick-stats",
@@ -654,7 +724,8 @@
       },
       "targets": [
         "git-quick-stats (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "main/lsix",
@@ -669,7 +740,8 @@
       },
       "targets": [
         "lsix (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "main/neofetch",
@@ -684,7 +756,8 @@
       },
       "targets": [
         "neofetch (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "main/pulumi",
@@ -699,7 +772,8 @@
       },
       "targets": [
         "pulumi-language-python-exec (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "main/retdec",
@@ -716,7 +790,8 @@
         "retdec-archive-decompiler.py",
         "retdec-signature-from-library-creator.py",
         "retdec-tests-runner.py"
-      ]
+      ],
+      "closure": "blocked-precondition"
     },
     {
       "id": "main/vapoursynth",
@@ -731,7 +806,8 @@
       },
       "targets": [
         "vsrepo.py (.py)"
-      ]
+      ],
+      "closure": "blocked-precondition"
     },
     {
       "id": "main/xtensa-esp32-elf",
@@ -746,7 +822,8 @@
       },
       "targets": [
         "xtensa-esp32-elf-ct-ng.config (.config)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "extras/ani-cli",
@@ -761,7 +838,8 @@
       },
       "targets": [
         "ani-cli (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "extras/controlprinters",
@@ -776,7 +854,8 @@
       },
       "targets": [
         "explorer (no extension)"
-      ]
+      ],
+      "closure": "resolved"
     },
     {
       "id": "extras/pdd",
@@ -791,7 +870,8 @@
       },
       "targets": [
         "pdd.py (.py)"
-      ]
+      ],
+      "closure": "blocked-precondition"
     },
     {
       "id": "main/inadyn-mt",
@@ -804,7 +884,8 @@
         "kind": "ticket",
         "ticket": "R25"
       },
-      "dependency": "gsudo"
+      "dependency": "gsudo",
+      "closure": "resolved"
     },
     {
       "id": "extras/lazy-posh-git",
@@ -817,7 +898,159 @@
         "kind": "ticket",
         "ticket": "R25"
       },
-      "dependency": "posh-git"
+      "dependency": "posh-git",
+      "closure": "resolved"
     }
-  ]
+  ],
+  "closure": {
+    "verified_at": "2026-10-27T06:14:31.9817738Z",
+    "code_head": "991e67544b319f9bc65f8276f5349d5bd5c14fcf",
+    "base_head": "62c4057a5be69e76c2f46147d76d2ecea5c3b3b5",
+    "coop_sha256": "20e8fdbc3514f2d142a510c49ea5510a995fd62513840073039c1e3bae19ddbf",
+    "inventory": {
+      "baseline": {
+        "project_head": "8283e6a062f5044f8a180ede05634c0efca619c7",
+        "main": "5be7f8c702856c72800a0a4945b88fe6ea2bd52f",
+        "extras": "0f8f4b5fd43bedccc7b233b77f4605bddba8085b",
+        "total": 4149,
+        "blocked_rows": 55,
+        "blocked_unique": 53
+      },
+      "measured": {
+        "project_head": "ce49eff51aeadb8cc96443b14aa26ab67d78ccc2",
+        "main": "eebcee222adc3c30dc8f724c231626f6bf72959d",
+        "extras": "0f8f4b5fd43bedccc7b233b77f4605bddba8085b",
+        "versions": "8050ef41c72c2124b864692665ca62d34659b8bc",
+        "denominator": 4149,
+        "plan_executable": 4141,
+        "plan_blocked": 6
+      },
+      "full_inventory_evidence": "D:\\Projects\\coop\\.local\\pi\\tasks\\49\\evidence\\coverage-versions-final\\coverage-20261027-054326\\summary.json",
+      "reused_because": "current head differs from the measurement head only in documentation; coop.exe sha256 is identical"
+    },
+    "row_status": {
+      "resolved": 49,
+      "blocked-precondition": 3,
+      "approved-exception": 3
+    },
+    "remaining": [
+      {
+        "id": "main/gel-arm64",
+        "mechanism": "architecture-artifact",
+        "status": "approved-exception",
+        "reason": "arm64-only Manifest; 64bit refusal equals Scoop and arm64 lifecycle is a human-approved exception, unrun",
+        "evidence": "main_gel-arm64.json"
+      },
+      {
+        "id": "main/llvm-arm64",
+        "mechanism": "architecture-artifact",
+        "status": "approved-exception",
+        "reason": "arm64-only Manifest; 64bit refusal equals Scoop and arm64 lifecycle is a human-approved exception, unrun",
+        "evidence": "main_llvm-arm64.json"
+      },
+      {
+        "id": "extras/cpu-z-arm64",
+        "mechanism": "architecture-artifact",
+        "status": "approved-exception",
+        "reason": "arm64-only Manifest; 64bit refusal equals Scoop and arm64 lifecycle is a human-approved exception, unrun",
+        "evidence": "extras_cpu-z-arm64.json"
+      },
+      {
+        "id": "main/retdec",
+        "mechanism": "command-entry-host",
+        "status": "blocked-precondition",
+        "reason": "Python interpreter not found for the .py command entry; install Python 3 or add python.exe to PATH before installing this package, because Scoop runs .py entries through python",
+        "evidence": "main_retdec.json"
+      },
+      {
+        "id": "main/vapoursynth",
+        "mechanism": "command-entry-host",
+        "status": "blocked-precondition",
+        "reason": "Python interpreter not found for the .py command entry; install Python 3 or add python.exe to PATH before installing this package, because Scoop runs .py entries through python",
+        "evidence": "main_vapoursynth.json"
+      },
+      {
+        "id": "extras/pdd",
+        "mechanism": "command-entry-host",
+        "status": "blocked-precondition",
+        "reason": "Python interpreter not found for the .py command entry; install Python 3 or add python.exe to PATH before installing this package, because Scoop runs .py entries through python",
+        "evidence": "extras_pdd.json"
+      }
+    ],
+    "groups": [
+      {
+        "mechanism": "capability:psmodule",
+        "status": "resolved",
+        "issue": 46,
+        "rows": 28
+      },
+      {
+        "mechanism": "dependency-unsupported",
+        "status": "resolved",
+        "issue": 46,
+        "rows": 2
+      },
+      {
+        "mechanism": "command-entry-host",
+        "status": "resolved",
+        "issue": 47,
+        "rows": 8
+      },
+      {
+        "mechanism": "command-entry-host",
+        "status": "blocked-precondition",
+        "issue": 47,
+        "rows": 3
+      },
+      {
+        "mechanism": "manifest-shape",
+        "status": "resolved",
+        "issue": 48,
+        "rows": 6
+      },
+      {
+        "mechanism": "dependency-missing",
+        "status": "resolved",
+        "issue": 49,
+        "rows": 5
+      },
+      {
+        "mechanism": "architecture-artifact",
+        "status": "approved-exception",
+        "issue": null,
+        "rows": 3
+      }
+    ],
+    "evidence": [
+      ".local/pi/tasks/42/evidence/closure-verify-20261027-060914/closure-verify-summary.json",
+      ".local/pi/tasks/42/evidence/closure-verify-20261027-060914/closure-verify.log",
+      ".local/pi/tasks/42/evidence/closure-verify-20261027-060914/shape-fixture-summary.json",
+      ".local/pi/tasks/42/evidence/closure-verify-20261027-060914/shape-fixture.log",
+      ".local/pi/tasks/49/evidence/coverage-versions-final/coverage-20261027-054326/summary.json",
+      "docs/compatibility-gap-closure.md"
+    ],
+    "human_approvals": [
+      {
+        "date": "2026-10-27",
+        "scope": "lifecycle real-run exception for the 3 ARM64-only packages (main/gel-arm64, main/llvm-arm64, extras/cpu-z-arm64)",
+        "recorded_in": "#42 and #45 comments",
+        "terms": "keep them in the full Main/Extras denominator; mark their ARM64 lifecycle not run/unverified; x64 inapplicability and --arch arm64 planning are separate evidence and never count as ARM64 runtime proof; approval limited to these 3 cases"
+      }
+    ],
+    "shape_fixture_correction": {
+      "old_evidence": ".local/pi/tasks/42/evidence/closure-20261026-221524/shape-fixture-summary.json",
+      "old_status": "void",
+      "old_problem": "the old bin-four manifest was written as four flat bin entries, so it reproduced Duplicate command alias instead of Invalid bin entry; the old files are kept unchanged and must not be cited as tuple evidence",
+      "corrected_evidence": ".local/pi/tasks/42/evidence/closure-verify-20261027-060914/shape-fixture-summary.json",
+      "corrected_bin_four": [
+        "probe.exe",
+        "probe",
+        "-cert",
+        "-key"
+      ],
+      "historical_binary": "b23b411c8958ea1bd6a963122c9639cca4823102501ffe6ce6d87d50b2e9cc87",
+      "historical_observation": "Invalid bin entry",
+      "current_head_observation": "accepted after R27"
+    }
+  }
 }
