@@ -39,7 +39,18 @@ public:
     }
     DependencyResolution resolve() {
         for (const auto& dependency : root_.dependencies) resolve_one(dependency,root_.name);
-        return {std::move(order_),std::move(diagnostics_)};
+        // A Manifest may repeat the same dependency declaration. Scoop resolves the declaration
+        // list once per package name, so the identical diagnostic is reported once instead of
+        // multiplying download attempts or failure text. Diagnostics that differ in layer, code or
+        // message (source identity, required-by package, cycle chain) stay separate.
+        std::vector<Diagnostic> unique;
+        for (auto& diagnostic : diagnostics_) {
+            const bool duplicate = std::any_of(unique.begin(),unique.end(),[&](const Diagnostic& seen) {
+                return seen.layer == diagnostic.layer && seen.code == diagnostic.code && seen.message == diagnostic.message;
+            });
+            if (!duplicate) unique.push_back(std::move(diagnostic));
+        }
+        return {std::move(order_),std::move(unique)};
     }
 private:
     void diagnostic(Layer layer, const std::string& code, const std::string& message) {

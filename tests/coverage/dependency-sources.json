@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "description": "Official buckets that the Main/Extras inventory registers read-only as cross-bucket dependency sources. They are not part of the compatibility denominator: only Main and Extras Manifests are measured and counted, and these buckets exist so a declared dependency such as versions/python27 resolves exactly as it does for a user who registered the same official bucket. The 40-hex revision below is the fixed input for every measurement and real-root check; changing it changes the dependency evidence.",
+  "recorded_at": "2026-10-27T05:15:46Z",
+  "source_revision_check": "git ls-remote https://github.com/ScoopInstaller/Versions HEAD reported 8050ef41c72c2124b864692665ca62d34659b8bc before the bucket was cloned at that revision",
+  "buckets": [
+    {
+      "name": "versions",
+      "url": "https://github.com/ScoopInstaller/Versions",
+      "revision": "8050ef41c72c2124b864692665ca62d34659b8bc",
+      "role": "dependency-source",
+      "denominator": false,
+      "manifests": 629,
+      "reason": "Five Main/Extras packages declare dependencies that live only in the official Versions bucket, so a root without that bucket can only report a missing source.",
+      "consumers": [
+        {
+          "package": "main/buck",
+          "declared": "versions/python27",
+          "resolved": "versions/python27@2.7.18"
+        },
+        {
+          "package": "main/glslviewer",
+          "declared": "versions/ffmpeg-shared-4.4.1",
+          "resolved": "versions/ffmpeg-shared-4.4.1@4.4.1"
+        },
+        {
+          "package": "main/terraform-provider-ibm",
+          "declared": "versions/terraform011",
+          "resolved": "versions/terraform011@0.11.15"
+        },
+        {
+          "package": "extras/node-compiler",
+          "declared": "versions/python27",
+          "resolved": "versions/python27@2.7.18"
+        },
+        {
+          "package": "extras/rabbitmqadmin",
+          "declared": "python27",
+          "resolved": "versions/python27@2.7.18"
+        }
+      ]
+    }
+  ]
+}

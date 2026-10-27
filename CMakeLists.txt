@@ -244,6 +244,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/persist 中文 space")
   add_test(NAME dependencies COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/dependencies.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/dependencies 中文 space")
+  add_test(NAME versions_bucket COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/versions-bucket.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/versions-bucket ")
   add_test(NAME update_input_change COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update-input-change.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-input-change 中文")
   add_test(NAME scoop_interop COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/scoop-interop.ps1"

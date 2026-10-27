@@ -139,6 +139,44 @@ foreach ($entry in $ledger.entries) {
 }
 if (@($ledger.entries | Where-Object { $_.resolution.kind -eq 'architecture-scope' }).Count -ne 3) { Fail 'the three arm64-only packages must be the only architecture-scoped entries' }
 
+# 4. Dependency-source ledger: the official buckets that make cross-bucket dependencies
+# resolvable must stay outside the compatibility denominator and pinned to a full revision, and
+# the packages it documents must be the same ones the gap ledger attributes to R28.
+$dependencySourcePath = Join-Path $PSScriptRoot 'coverage/dependency-sources.json'
+if (-not (Test-Path -LiteralPath $dependencySourcePath)) {
+    Fail 'missing tests/coverage/dependency-sources.json'
+} else {
+    $dependencySources = Get-Content -LiteralPath $dependencySourcePath -Raw | ConvertFrom-Json
+    if ($dependencySources.schema -ne 1) { Fail 'dependency source ledger schema must be 1' }
+    $sourceNames = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($source in @($dependencySources.buckets)) {
+        $name = [string]$source.name
+        if (-not $sourceNames.Add($name)) { Fail "duplicate dependency source $name"; continue }
+        if ($name -notmatch '^[A-Za-z0-9._-]+$') { Fail "invalid dependency source name: $name" }
+        if ([string]$source.url -notmatch '^https://') { Fail "dependency source $name needs an https url" }
+        if ([string]$source.revision -notmatch '^[0-9a-f]{40}$') { Fail "dependency source $name is not pinned to a 40-hex revision" }
+        if ([string]$source.role -ne 'dependency-source') { Fail "dependency source $name must declare role=dependency-source" }
+        if ($source.denominator -ne $false) { Fail "dependency source $name must stay outside the Main/Extras denominator" }
+        if (@($source.consumers).Count -eq 0) { Fail "dependency source $name documents no consuming package" }
+        foreach ($consumer in @($source.consumers)) {
+            foreach ($field in 'package','declared','resolved') {
+                if ([string]::IsNullOrWhiteSpace([string]$consumer.$field)) { Fail "dependency source $name has a consumer without $field" }
+            }
+        }
+    }
+    $versionsSources = @($dependencySources.buckets | Where-Object { $_.name -eq 'versions' })
+    if ($versionsSources.Count -ne 1) { Fail 'the dependency source ledger must define the official versions bucket exactly once' }
+    else {
+        foreach ($entry in @($ledger.entries | Where-Object { $_.mechanism -eq 'dependency-missing' })) {
+            $consumer = @($versionsSources[0].consumers | Where-Object { $_.package -eq $entry.id })
+            if ($consumer.Count -ne 1) { Fail "dependency source ledger does not document $($entry.id)" }
+            elseif ($consumer[0].declared -ne $entry.dependency) { Fail "$($entry.id) declares $($entry.dependency) but the dependency source ledger records $($consumer[0].declared)" }
+        }
+    }
+    $inventoryScript = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'real-scoop-coverage.ps1') -Raw
+    if ($inventoryScript -notmatch 'coverage/dependency-sources\.json') { Fail 'the inventory script must read the pinned dependency source ledger' }
+}
+
 if ($failures.Count) {
     $failures | ForEach-Object { Write-Output "FAIL $_" }
     exit 1

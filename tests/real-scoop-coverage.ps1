@@ -9,7 +9,9 @@ param(
     [string]$VerifiedFacts = '',
     [string]$VerifiedLifecycle = '',
     [int]$ThrottleLimit = 8,
-    [switch]$SkipRealRootSnapshot
+    [switch]$SkipRealRootSnapshot,
+    [string]$VersionsRevision = '',
+    [switch]$SkipDependencySources
 )
 # Full-denominator Main/Extras compatibility inventory (R20 / #41).
 #
@@ -51,6 +53,35 @@ if ($InventoryRoot.TrimEnd('\') + '\' -like ($ScoopRoot.TrimEnd('\') + '\*')) {
 $mainUrl = 'https://github.com/ScoopInstaller/Main'
 $extrasUrl = 'https://github.com/ScoopInstaller/Extras'
 if ($ExtrasRevision) { $ExtrasRevision = $ExtrasRevision.ToLower() }
+# Cross-bucket dependency sources are official buckets that are not part of the Main/Extras
+# denominator but are required for declared dependencies such as versions/python27. Their fixed
+# URL and 40-hex revision live in tests/coverage/dependency-sources.json so every measurement and
+# real-root check uses the same input.
+$dependencySourceLedgerPath = Join-Path $PSScriptRoot 'coverage/dependency-sources.json'
+$dependencySources = @()
+$dependencySourceProblems = [System.Collections.Generic.List[string]]::new()
+if (Test-Path -LiteralPath $dependencySourceLedgerPath) {
+    $dependencyLedger = Get-Content -LiteralPath $dependencySourceLedgerPath -Raw | ConvertFrom-Json
+    if ($dependencyLedger.schema -ne 1) { $dependencySourceProblems.Add('dependency source ledger schema must be 1') }
+    foreach ($source in @($dependencyLedger.buckets)) {
+        if ([string]$source.name -notmatch '^[A-Za-z0-9._-]+$') { $dependencySourceProblems.Add("invalid dependency source name: $($source.name)"); continue }
+        if ([string]$source.url -notmatch '^https://') { $dependencySourceProblems.Add("dependency source $($source.name) needs an https url") }
+        if ([string]$source.revision -notmatch '^[0-9a-f]{40}$') { $dependencySourceProblems.Add("dependency source $($source.name) needs a 40-hex revision") }
+        if ([string]$source.role -ne 'dependency-source') { $dependencySourceProblems.Add("dependency source $($source.name) must declare role=dependency-source") }
+        if ($source.denominator -ne $false) { $dependencySourceProblems.Add("dependency source $($source.name) must not be part of the denominator") }
+        $dependencySources += $source
+    }
+    if (-not $dependencySources.Count) { $dependencySourceProblems.Add('dependency source ledger lists no buckets') }
+} else {
+    $dependencySourceProblems.Add("missing dependency source ledger: $dependencySourceLedgerPath")
+}
+if ($dependencySourceProblems.Count) { throw ('Dependency source ledger is unusable: ' + ($dependencySourceProblems -join '; ')) }
+$versionsSource = @($dependencySources | Where-Object { $_.name -eq 'versions' }) | Select-Object -First 1
+if (-not $versionsSource) { throw 'The dependency source ledger does not define the official versions bucket' }
+$versionsUrl = [string]$versionsSource.url
+if (-not $VersionsRevision) { $VersionsRevision = [string]$versionsSource.revision }
+$VersionsRevision = $VersionsRevision.ToLower()
+if ($VersionsRevision -notmatch '^[0-9a-f]{40}$') { throw "Invalid Versions revision: $VersionsRevision" }
 $script:CommandLines = [System.Collections.Generic.List[string]]::new()
 
 . (Join-Path $PSScriptRoot 'coverage-manifest-features.ps1')
@@ -253,6 +284,30 @@ if (-not (Test-Path -LiteralPath (Join-Path (Get-InventoryBucket 'extras') '.git
 }
 $inventoryExtrasHead = Get-WorktreeRevision (Get-InventoryBucket 'extras')
 $extrasRevision = $inventoryExtrasHead.revision
+$versionsHead = $null
+$bundledDependencySources = @()
+if (-not $SkipDependencySources) {
+    foreach ($source in $dependencySources) {
+        $name = [string]$source.name
+        $revision = [string]$source.revision
+        if (-not (Test-Path -LiteralPath (Join-Path (Get-InventoryBucket $name) '.git'))) {
+            Add-InventoryBucket $name ([string]$source.url) $revision
+        } else {
+            $existing = Get-WorktreeRevision (Get-InventoryBucket $name)
+            if ($existing.revision -ne $revision) {
+                throw "Inventory $name is at $($existing.revision), the pinned dependency source revision is $revision; rerun with -ResetInventory"
+            }
+        }
+        $head = Assert-InventoryRevision $name $revision
+        if ($name -eq 'versions') { $versionsHead = $head }
+        $bundledDependencySources += [ordered]@{
+            name = $name; url = [string]$source.url; role = 'dependency-source'; denominator = $false
+            revision = $head.revision; branch = if ($head.reference) { $head.reference -replace '^refs/heads/','' } else { $null }
+            path = (Get-ProjectPath (Get-InventoryBucket $name))
+            manifests = @(Get-ChildItem -LiteralPath (Join-Path (Get-InventoryBucket $name) 'bucket') -Filter '*.json' -File).Count
+        }
+    }
+}
 $inventoryRecords = @(Get-BucketRecords $InventoryRoot)
 function Get-InventoryRecord([string]$Name) { @($inventoryRecords | Where-Object { $_.name -eq $Name }) | Select-Object -First 1 }
 $mainRecord = Get-InventoryRecord 'main'
@@ -262,16 +317,24 @@ $baseline.buckets = @(
         name = 'main'; url = $mainUrl; source = 'shared-scoop-worktree'; path = (Get-ProjectPath (Get-InventoryBucket 'main'))
         branch = if ($inventoryMainHead.reference) { $inventoryMainHead.reference -replace '^refs/heads/','' } else { $null }
         revision = $mainRevision; files_count = if ($mainRecord) { $mainRecord.files_count } else { $null }
+        denominator = $true
     },
     [ordered]@{
         name = 'extras'; url = $extrasUrl; source = 'official-git-clone-fetched-for-this-inventory'; path = (Get-ProjectPath (Get-InventoryBucket 'extras'))
         branch = if ($inventoryExtrasHead.reference) { $inventoryExtrasHead.reference -replace '^refs/heads/','' } else { $null }
         revision = $extrasRevision; files_count = if ($extrasRecord) { $extrasRecord.files_count } else { $null }
+        denominator = $true
     }
-)
+) + @($bundledDependencySources | ForEach-Object { [ordered]@{
+    name = $_.name; url = $_.url; source = 'official-git-clone-fetched-for-this-inventory'; path = $_.path
+    branch = $_.branch; revision = $_.revision; files_count = $_.manifests; role = $_.role; denominator = $_.denominator
+} })
 $baseline.scope = [ordered]@{
     architecture = '64bit'
-    denominator = 'every *.json manifest in buckets/<name>/bucket'
+    denominator = 'every *.json manifest in buckets/<name>/bucket for the Main and Extras buckets only'
+    denominator_buckets = @('main','extras')
+    dependency_source_buckets = @($bundledDependencySources | ForEach-Object { $_.name })
+    dependency_source_ledger = (Get-ProjectPath $dependencySourceLedgerPath)
     mechanism_scan = 'manifest root plus every architecture section; checkver/autoupdate excluded'
     runtime_verification = 'only packages present in the supplied cohort facts with an identical manifest SHA256 and a successful program run'
 }
@@ -451,6 +514,21 @@ foreach ($bucket in @('main','extras')) {
                   elseif (@($planDiagnostics | Where-Object { $_.category -eq 'capability' -and $_.code -eq 'execution-blocked' -and $_.message -match 'Package already exists' }).Count) { 'already-installed-inventory-helper' }
                   elseif (@($planDiagnostics | Where-Object { $_.category -ne 'verification' }).Count) { 'mechanism-or-dependency-gap' }
                   else { 'unspecified' }
+        # Declared dependency identities and the order the plan resolved them into, so a
+        # cross-bucket finding can be replayed without re-parsing the Manifest or the plan text.
+        $declaredDependencies = @()
+        if ($manifest -and $manifest.depends) { $declaredDependencies = @($manifest.depends) }
+        $dependencyDetails = @()
+        if ($plan) {
+            foreach ($dependency in @($plan.dependency_order)) {
+                if (-not $dependency -or -not $dependency.package) { continue }
+                $dependencyDetails += [ordered]@{
+                    package = [string]$dependency.package; request = [string]$dependency.request
+                    bucket = [string]$dependency.bucket; version = [string]$dependency.version
+                    installed = [bool]$dependency.installed; status = [string]$dependency.status
+                }
+            }
+        }
         [ordered]@{
             id = $id; bucket = $parts[0]; name = $parts[1]
             manifest_path = $manifestPath
@@ -462,7 +540,8 @@ foreach ($bucket in @('main','extras')) {
                 exit = $planExit; built = [bool]$plan; execution_available = [bool]($plan -and $plan.execution_available)
                 reason = $reason; diagnostics = $planDiagnostics; capabilities = $capabilities
                 external_tools = $tools; artifacts = $artifacts; operations = $operations
-                dependencies = $dependencies; command_launchers = $launchers
+                dependencies = $dependencies; declared_dependencies = $declaredDependencies
+                dependency_details = $dependencyDetails; command_launchers = $launchers
             }
         }
     } -ThrottleLimit $ThrottleLimit
@@ -523,6 +602,53 @@ foreach ($record in $allRecords) {
     }
     $record['gap_mechanisms'] = @(Get-GapMechanism $record)
 }
+
+# Cross-bucket dependency sources: when the pinned dependency-source buckets are registered, every
+# declared versions/* dependency must resolve into the plan, before the requesting package, instead
+# of turning into a missing-source gap. A regression fails the measurement instead of silently
+# dropping back to the environment precondition recorded before this ticket.
+$declaredVersionsRecords = @($allRecords | Where-Object {
+    @($_.plan.declared_dependencies | Where-Object { [string]$_ -match '^versions/' }).Count -gt 0
+})
+$crossBucketRecords = @($allRecords | Where-Object {
+    @($_.plan.dependency_details | Where-Object { $_.bucket -eq 'versions' }).Count -gt 0
+})
+if (-not $SkipDependencySources) {
+    foreach ($record in $declaredVersionsRecords) {
+        if (-not $record.plan.execution_available) {
+            throw "$($record.id) declares a versions/* dependency but its plan is not executable with the pinned versions bucket registered"
+        }
+        $details = @($record.plan.dependency_details)
+        $versionsDetails = @($details | Where-Object { $_.bucket -eq 'versions' })
+        if (-not $versionsDetails.Count) {
+            throw "$($record.id) declares a versions/* dependency but the plan has no versions bucket dependency"
+        }
+        if (@($record.plan.diagnostics | Where-Object { $_.code -eq 'dependency-missing' }).Count) {
+            throw "$($record.id) still reports dependency-missing with the pinned versions bucket registered"
+        }
+        $requestedIndex = $details.Count - 1
+        if ($requestedIndex -lt 0 -or $details[$requestedIndex].package -ne $record.name) {
+            throw "$($record.id) does not list the requested package last in dependency_order"
+        }
+        foreach ($versionsDetail in $versionsDetails) {
+            if (-not $versionsDetail.version) { throw "$($record.id) resolved $($versionsDetail.package) from versions without a version" }
+            $versionsIndex = [array]::IndexOf(@($details | ForEach-Object package),$versionsDetail.package)
+            if ($versionsIndex -lt 0 -or $versionsIndex -ge $requestedIndex) { throw "$($record.id) does not plan $($versionsDetail.package) before the requested package" }
+        }
+    }
+    if (-not $declaredVersionsRecords.Count) {
+        throw 'No Main/Extras package declared a versions/* dependency in this measurement; the cross-bucket finding cannot be replayed'
+    }
+}
+$crossBucketReport = @($crossBucketRecords | Sort-Object { $_.id } | ForEach-Object {
+    [ordered]@{
+        id = $_.id; version = $_.version; manifest_sha256 = $_.manifest_sha256
+        declared_dependencies = @($_.plan.declared_dependencies)
+        execution_available = $_.plan.execution_available
+        dependency_order = @($_.plan.dependency_details)
+        diagnostic_codes = @($_.plan.diagnostics | Where-Object { $_.category -ne 'verification' } | ForEach-Object { $_.category + '/' + $_.code } | Sort-Object -Unique)
+    }
+})
 
 $planStatusCounts = [ordered]@{ executable = 0; 'mechanism-or-dependency-gap' = 0; 'already-installed-inventory-helper' = 0; unspecified = 0; 'plan-unavailable' = 0 }
 foreach ($record in $allRecords) { $planStatusCounts[$record.plan.reason]++ }
@@ -673,6 +799,7 @@ $summary = [ordered]@{
     hash_algorithms = @($algorithmStats.Values | Sort-Object algorithm)
     verified = @($verifiedRecords | ForEach-Object { $_.verified } | Sort-Object package)
     verified_source = $baseline.verified_source
+    cross_bucket_dependencies = $crossBucketReport
     manifest_verification = $mainVerification
     shared_root = $baseline.shared_root
     external_helper_links = $helperTargets
@@ -683,6 +810,7 @@ foreach ($record in $allRecords) {
 }
 $summary | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runDir 'summary.json') -Encoding utf8
 $allRecords | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runDir 'manifests.json') -Encoding utf8
+$crossBucketReport | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runDir 'cross-bucket-dependencies.json') -Encoding utf8
 $script:CommandLines | Set-Content -LiteralPath (Join-Path $runDir 'commands.log') -Encoding utf8
 $baseline | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runDir 'run-baseline.json') -Encoding utf8
 
@@ -703,6 +831,7 @@ $baselineProjection = [ordered]@{
     hash_algorithms = @($summary.hash_algorithms | ForEach-Object { [ordered]@{ algorithm = $_.algorithm; artifacts = $_.artifacts; manifests = $_.manifests } })
     verified_source = $baseline.verified_source
     verified = @($summary.verified)
+    cross_bucket_dependencies = $summary.cross_bucket_dependencies
     shared_root = $baseline.shared_root
     manifest_verification = $mainVerification
     external_helper_links = $helperTargets
@@ -727,5 +856,8 @@ Write-Output ('Runtime verified at this denominator revision: {0} (historical co
     $summary.totals.verified_real_cohort,$summary.totals.verified_historical_cohort,$summary.totals.not_run)
 foreach ($gap in $gapList) {
     Write-Output ('Gap {0}: {1} package(s); {2}' -f $gap.mechanism,$gap.count,($gap.codes -join ', '))
+}
+foreach ($record in $crossBucketReport) {
+    Write-Output ('Cross-bucket dependency {0}: {1}' -f $record.id,(@($record.dependency_order | Where-Object { $_.bucket -eq 'versions' } | ForEach-Object { $_.request + '@' + $_.version }) -join ', '))
 }
 Write-Output ("Evidence: {0}" -f $runDir)
