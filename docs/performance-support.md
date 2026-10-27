@@ -20,7 +20,7 @@
 - 同一机器上同时运行其他应用（浏览器、代理等）时，同一二进制、同一场景的 p50 可出现约 30–70% 波动。本页每个结论都绑定具体构建、运行次数和证据文件；不拿跨运行的最小值替换另一次运行的实测值，也不把单次低值当作稳定达成。
 - 环境：Windows 11 专业工作站版 N 10.0.26300 build 26300；AMD Ryzen 7 8845HS（16 逻辑处理器）；64GiB 内存；KIOXIA-EXCERIA G2 NVMe SSD；PowerShell 7.6.5；CMake 4.4.4；Ninja 1.13.2；git 2.56.0.windows.4；Scoop v0.6.0（2026-09-30）；`coop 0.1.0` Release（MSVC `/W4 /WX`）。
 - 本页的代码版本绑定：
-  - **被测构建**：源码修订 `d1f80298d43a1d57d0ef9736860a7c3821ce2974`（`refactor(query): drop the unused catalogue entry point and assert real-scale refresh invariants (#44)`），`coop.exe` SHA256 `f9c0fff9…`，链接时间 2026-10-27T08:29:54Z；下方图表的查询/刷新数值来自这次构建的运行（`perf-report-measured-d1f8029.json`、`perf-real-head-d1f8029/perf-real-report.json`）。该提交之后只有文档提交，没有源码变化。
+  - **被测构建**：源码修订 `d1f80298d43a1d57d0ef9736860a7c3821ce2974`（`refactor(query): drop the unused catalogue entry point and assert real-scale refresh invariants (#44)`），`coop.exe` SHA256 `f9c0fff9…`，链接时间 2026-10-27T08:29:54Z；下方图表的查询/刷新数值来自这次构建的运行（`perf-report-measured-d1f8029.json`、`perf-real-head-d1f8029/perf-real-report.json`）。该提交之后只有测试与文档提交（测试修正提交 `29c5ea7f46baef253b6ffad3d36a75998830196a`），产品源码与 `coop.exe` `f9c0fff9…` 不变；最终完整测量运行 `perf-real-head-29c5ea7/perf-real-report.json` 记录 `git_head=29c5ea7`、`coop_sha256=f9c0fff9…`。
   - **同一查询/列表实现的上一构建**：`fb34d338e461cfe66b9388e7171d967a5868bb98`，`coop.exe` SHA256 `1ec35fa5…`，链接时间 2026-10-27T08:02:19Z；`d1f8029` 相对它只删除了无调用者的 `catalog()` 入口和修正注释，查询/列表/刷新行为不变，因此用于展示同机波动范围。
   - **基线**：`7a42d604f7c21684676797b389040d442479bff3`（本票起点，不含本票优化），`coop.exe` SHA256 `e03020f0…`；所以“优化前”一行对应 `7a42d60`，优化后数值不能绑定到该修订复现。
 
@@ -56,7 +56,7 @@
 
 ### 真实根查询（`tests/perf-real.ps1`，7 次）
 
-被测构建 `d1f8029`（`coop.exe` `f9c0fff9…`）。同一二进制在提交前工作树上的另一次运行写在括号中，用于显示同机波动。
+被测构建 `d1f8029`（`coop.exe` `f9c0fff9…`）。同一二进制在提交前工作树上的另一次运行写在“重复运行 p50”列，用于显示同机波动；最终完整测量运行（`29c5ea7`）为 `list` 371.7/402.9ms、`info main/git` 53.7/55.3ms、`search git` 47.3/53.0ms、`info nerd-fonts` 54.9/68.1ms（p50/p95），同样处于上表的波动范围。
 
 | 场景 | 目标 | 首跑 ms | p50 ms | p95 ms | 重复运行 p50 | 达成 |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
@@ -86,14 +86,15 @@
 | 首次刷新（真实 `main` 副本，`file://`） | 1,783 文件 / 全历史 | n=3 | 88,108.5 | 88,108.5 | 88,479.3 | `received_bytes` 64,628,141–64,743,415；全新根（上一轮 52,936.2/56,528.1） |
 | 有变化刷新（真实 `main` 副本） | 每次新增 1 个 Manifest | n=7 | 192.1 | 186.4 | 205.5 | `changed_files=1`，`received_bytes` 46,926–47,077；无关 Manifest SHA256 不变、索引重建、新增 Manifest 可查询（每轮均断言） |
 | 无变化刷新（真实 `main` 副本） | 无上游变化 | n=7 | — | 67.6 | 86.9 | `changed=false`、`received_bytes=0`；上一轮 62.4/90.4 |
-| 无变化刷新（真实根，`https://github.com/ScoopInstaller/Main`） | 1,701 个 Manifest，rev `3f71320…` | n=7 | 2,035.6 | 2,035.6 | 2,212.9 | `received_bytes=0`；耗时主要是真实 HTTPS 取 ref 的往返，不是对象传输（上一轮 2,096.0/2,362.5） |
-| 首次刷新（真实 HTTPS，固定 `89b4cf80…`） | 1,782 文件 / 全历史 | **单次** | 29,297.8 | — | — | `received_bytes=54,381,675`（真实网络；上一轮单次 25,921.4ms / 54,371,379 字节） |
+| 无变化刷新（真实根，`https://github.com/ScoopInstaller/Main`） | 1,701 个 Manifest，rev `3f71320…` | n=7 | 2,035.6 | 2,035.6 | 2,212.9 | `received_bytes=0`；耗时主要是真实 HTTPS 取 ref 的往返，不是对象传输（上一轮 2,096.0/2,362.5；最终运行 1,769.6/…） |
+| 有变化刷新（真实根，真实 HTTPS，上游自然前进） | `3f71320…` → `dcb231e7…`，1,701 个 Manifest | **单次**（本轮探测运行中自然发生） | 2,804.5 | — | — | `changed_files=9`、`received_bytes=6,128`；随后同运行无变化刷新 1,999.4ms/0 字节，工作树无本地修改 |
+| 首次刷新（真实 HTTPS，固定 `89b4cf80…`） | 1,782 文件 / 全历史 | **单次** | 29,297.8 | — | — | `received_bytes=54,381,675`（真实网络；上一轮单次 25,921.4ms / 54,371,379 字节；最终运行 25,841.0ms / 54,380,648 字节） |
 | 固定 revision 后的刷新（真实 HTTPS） | 同一 revision | 单次 | — | 71.6 | — | `unchanged`、`received_bytes=0`（上一轮 61.8ms） |
 
-- 有变化刷新在真实规模工作树上保持原地更新，并且这些不再是夹具级推断：`tests/perf-real.ps1` 在每轮真实规模刷新前后断言无关 Manifest 的 SHA256 不变、查询索引 SHA256 改变（重建）、新 Manifest 能由 `info` 查到，三者均记录在该轮 JSON 中。
+- 有变化刷新在真实规模工作树上保持原地更新，且这些不再是夹具级推断：`tests/perf-real.ps1` 在每轮真实规模刷新前后对刷新后的共用工作树文件 `<root>/buckets/main/bucket/1password-cli.json` 做 SHA256 对比（同一值同时核对上游副本未被写入），并断言查询索引 SHA256 改变、新 Manifest 能由 `info` 查到；最终运行的 7 轮均记录 `worktree_unrelated_manifest_sha256` 一致、`index_rebuilt=true`、`new_manifest_queryable=true`（`perf-real-head-29c5ea7/perf-real-report.json`）。
 - 首次刷新的耗时构成（克隆取对象、目标树校验、1,783 文件检出）**没有分阶段计时**，表中 `received_bytes`/`files_count` 只能说明传输量，不能证明各阶段占比；把“大头是全历史克隆与检出”作为推断而不是测量结论。`file://` 副本的首次刷新（本轮 85–88s，上一轮 52–56s）比真实 HTTPS（29.3s/25.9s）更慢，这一“反转”没有用分阶段数据解释；可见的是两条路径都包含全历史获取与 1,783 文件检出，而 `file://` 传输的对象字节更多（约 64.7MB vs 54.4MB），且本轮同机负载明显更高。不能据此推断本地传输或网络路径谁更优。
 - 无变化刷新在本地副本上零对象传输、不重建索引；真实根上的约 2s 包含真实 HTTPS 往返，不能与本地传输直接比较。
-- 未运行：真实 HTTPS 的**有变化**刷新。本轮公共上游 `ScoopInstaller/Main` 的 `master` 仍是本机已同步的 `3f71320…`，没有上游前进可触发变化；本票用真实 `main` 副本的有变化刷新证明代码路径与工作树行为，用真实 HTTPS 首次/无变化刷新证明真实网络载荷，不把二者合并成“真实 HTTPS 有变化刷新已达成”。#23 的历史真实网络变化刷新见下文，并按其实际构建标注。
+- 真实 HTTPS 的**有变化**刷新已在本轮实际发生：公共上游 `ScoopInstaller/Main` 的 `master` 从 `3f71320…` 前进到 `dcb231e7…`，真实根上的 `bucket update` 报告 `changed_files=9`、`received_bytes=6,128`（2,804.5ms），随后同运行的无变化刷新 `received_bytes=0`；该样本来自本轮的探测运行（`.local/pi/tasks/44/evidence/perf-real-probe3/`），后续完整运行记录到同一工作树的无变化刷新（`perf-real-head-29c5ea7/`），证明变更已发布且不重复传输。真实 HTTPS 首次刷新的固定 revision 样本见上表，不把固定 revision 刷新当作上游变化。
 
 ## 已实施的优化
 
@@ -143,7 +144,7 @@
 ## 验证状态
 
 - 本轮运行（#44，被测构建 `d1f8029` = `f9c0fff9…`）：`tests/perf.ps1` 两次通过（含索引命中/失效回退/损坏回退/重建、无变化刷新不重建、变化刷新原地更新共用工作树、查询不修改 bucket 源或注册表），报告 `.local/pi/tasks/44/evidence/perf-report-measured-d1f8029.json` 与 `perf-report-measured2-d1f8029.json`。
-- 本轮运行（#44）：`tests/perf-real.ps1` 通过，真实根查询前后注册表/索引/revision/工作树未变；真实根刷新为 `unchanged` 且零对象传输；真实规模副本的有变化刷新每轮断言 `changed_files>=1`、无关 Manifest SHA256 不变、查询索引 SHA256 改变（重建）、新 Manifest 可由 `info` 查到。报告 `.local/pi/tasks/44/evidence/perf-real-head-d1f8029/perf-real-report.json`。
+- 本轮运行（#44）：`tests/perf-real.ps1` 通过，真实根查询前后注册表/索引/revision/工作树未变；真实根刷新在本轮先是 `changed`（真实 HTTPS，`3f71320…`→`dcb231e7…`，9 个文件/6,128 字节），随后全部为 `unchanged` 且零对象传输（真实根现为 `dcb231e7…`、`git status` 为空、registry 与索引同步，见 `real-root-after-change.log`）；真实规模副本的有变化刷新每轮断言刷新后工作树内无关 Manifest 的 SHA256 不变（并核对上游副本未被写入）、查询索引重建、新 Manifest 可由 `info` 查到。报告 `.local/pi/tasks/44/evidence/perf-real-head-29c5ea7/perf-real-report.json`（7 轮断言）与 `.local/pi/tasks/44/evidence/perf-real-probe3/perf-real-report.json`（真实 HTTPS `changed` 样本）。
 - 本轮运行（#44）：完整 CTest 45/45 通过（`.local/pi/tasks/44/evidence/ctest-full-d1f8029.log`，216.65s），含 `query`、`plan`、`ir_pipeline`、`cleanup`、`old_versions`、`recovery`、`recovery_matrix`、`lifecycle`、`update`、`versions_bucket` 等受影响路径；针对性套件 9/9 见 `ctest-targeted-2.log`。
 - 静态：Release 构建通过（MSVC `/W4 /WX`）；`catalog()` 及其头文件声明在 `d1f8029` 中删除，查询路径只保留有调用者的 `catalog_item`/`sort_catalog` 辅助。命令与退出码见任务证据。
-- 未运行：真实 HTTPS 的有变化刷新（上游未前进）；管理员清理 Windows 待机列表后的系统级冷缓存；其它机器/规模上的外推。扫描路径（未注册 bucket）在 1500/3000 规模仍超标，尚未优化；真实根 `list` 仍因累计事务历史超标。
+- 未运行：管理员清理 Windows 待机列表后的系统级冷缓存；其它机器/规模上的外推。扫描路径（未注册 bucket）在 1500/3000 规模仍超标，尚未优化；真实根 `list` 仍因累计事务历史超标。真实 HTTPS 有变化刷新已本轮实测（见上），固定 revision 刷新与上游前进两种场景分别标注。
