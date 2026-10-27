@@ -926,7 +926,7 @@
         "plan_blocked": 6
       },
       "full_inventory_evidence": "D:\\Projects\\coop\\.local\\pi\\tasks\\49\\evidence\\coverage-versions-final\\coverage-20261027-054326\\summary.json",
-      "reused_because": "current head differs from the measurement head only in documentation; coop.exe sha256 is identical"
+      "reused_because": "current head differs from the measurement head only in documentation, guard tests and the coverage ledger; no product code or measurement input changed; coop.exe sha256 is identical"
     },
     "row_status": {
       "resolved": 49,

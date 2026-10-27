@@ -19,7 +19,7 @@
 | 格式 | 原生读取 | 安装/更新/卸载 | 本轮样本与证据 |
 | --- | --- | --- | --- |
 | ZIP | 已运行 | 已验证 | Main/ripgrep 14.1.1 → 15.2.0；`extract_dir`、`extract_to`、真实 `rg.exe` 入口、更新保留旧版本、普通卸载；Main/tidy 5.8.0 的嵌套 `extract_dir` 实际运行 |
-| tar / tar.gz / tgz | 已运行 | 已验证 | Main/air 1.67.3 → 1.67.4；真实 `air.exe -v`、64bit 与 32bit、arm64 计划选择、Scoop reset |
+| tar / tar.gz / tgz | 已运行 | tar.gz 已验证 | 真实 Main/air 1.67.3 → 1.67.4 是 tar.gz；真实 `air.exe -v`、64bit 与 32bit、arm64 计划选择、Scoop reset。无单独安装/更新的 plain `.tar` 真实样本，仅由归档安全读取与压缩流夹具覆盖 |
 | tar.xz / txz | 已运行 | 已验证 | Main/curl 8.23.0_5 的官方 release tar.xz；`extract_dir` 版本目录、真实 `curl --version`、Scoop reset；项目内 tar.xz 更新用例 |
 | tar.zst / tzst | 已运行 | 已验证 | Main/luajit 2.1.1791988261-1 的 Arch/MSYS2 `.pkg.tar.zst`；嵌套 `extract_dir=mingw64`、真实 `luajit -v`、Scoop reset；坏 tar.zst 更新保留当前版本 |
 | tar.bz2 / tbz / tbz2 / tar.lzma / tlz | 已运行 | 路径已验证 | 项目内真实压缩流夹具：嵌套同名目录、`extract_dir` 提升内容、程序运行与卸载；没有挑选 Main/Extras 中同时满足本票边界的真实包，因此不写成真实生态样本 |
@@ -40,7 +40,7 @@
 3. `extract_to` 只改变该归档产物的目标子目录；多产物按顺序合并，重名文件冲突失败，不覆盖其他包或用户数据。
 4. `extract_dir`/`extract_to` 只由归档类下载项按 Manifest 顺序消费，直接文件产物不消费这些字段。
 
-真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录。
+真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录；`tests/archive-lifecycle.ps1` 用真实 ripgrep 归档的缺失 `extract_dir` 断言安装非零退出且不发布 `current`。
 
 ## 执行与安全边界
 

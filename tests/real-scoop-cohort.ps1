@@ -671,8 +671,12 @@ if ($Lifecycle) {
         $update = Scoop 'scoop-update' @('update', 'git') $logDir
         Add-Check 'lifecycle/git/scoop-update' 'scoop-update-applied' ($update.exit -eq 0 -and $latest -and $latest -ne $facts.coop_version) "exit=$($update.exit) target=$latest"
         if ($update.exit -eq 0) {
-            $verify = Test-PackageAfterChange $facts $descriptor 'scoop-update' $latest
             $coopReset = Coop 'coop-reset-git' @('reset', ('git@' + $latest), '--json') $logDir
+            # Scoop has already published $latest, so Coop's reset is expected to report that nothing
+            # would change. Record that outcome explicitly; any other refusal is a failure.
+            $resetAlreadyCurrent = $coopReset.exit -ne 0 -and $coopReset.output -match 'already current'
+            Add-Check 'lifecycle/git/scoop-update' 'coop-reset-outcome' ($coopReset.exit -eq 0 -or $resetAlreadyCurrent) "exit=$($coopReset.exit) already_current=$resetAlreadyCurrent"
+            $verify = Test-PackageAfterChange $facts $descriptor 'scoop-update' $latest
             Add-Check 'lifecycle/git/scoop-update' 'coop-reads-updated-install' ($verify.coop_version -eq $latest) "coop=$($verify.coop_version) expected=$latest"
             $lifecycleRecords += [pscustomobject]@{
                 package = 'git'
@@ -682,6 +686,7 @@ if ($Lifecycle) {
                         from        = $facts.coop_version
                         to          = $latest
                         scoop_exit  = $update.exit
+                        coop_reset  = [pscustomobject]@{ exit = $coopReset.exit; already_current = $resetAlreadyCurrent }
                         coop_verify = $verify
                     })
             }

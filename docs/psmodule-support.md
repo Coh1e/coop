@@ -47,7 +47,7 @@ Coop 的顺序与之一致：`publish-current → entries → shortcuts → ps-m
 3. 卸载（或更新为新版本不再声明 `psmodule`）时：
    - 当前值仍等于 Coop 写入值时，恢复安装前的原始值（原本不存在则删除该用户变量）；
    - 用户后来改动过（新增、删除或重排条目）时，只删除 Coop 记录为新增的 `<root>/modules` 条目，其余条目与顺序保持，并在 `preserved` 中报告该差异；
-   - `<root>/modules` 还有其他模块链接时保留条目，避免卸载一个模块破坏其他模块；
+   - `<root>/modules` 还有其他模块链接（目录 reparse point）时保留条目，避免卸载一个模块破坏其他模块；普通文件或空目录不算模块链接，不会让 Coop 自己写入的条目永久保留；
    - 由 Scoop 安装、没有 Coop 归属记录的包只移除 junction，`PSModulePath` 条目按 Scoop 自身行为保留（Scoop 的 `uninstall_psmodule` 也不删除该条目）。
 4. `journal.json` 记录 `ps_module`（junction 动作、链接、目标、`PSModulePath` 写入与广播结果）与 `environment_undo`，支持进程内回滚和 `recover` 预览。
 
@@ -90,7 +90,7 @@ Coop 的顺序与之一致：`publish-current → entries → shortcuts → ps-m
 | 依赖级联 | `extras/lazy-posh-git` 预览 `execution_available=true`，无 `dependency-unsupported`/`unsupported-capability`，依赖 `posh-git` 以 `installed` 复用 |
 | 卸载 | 退出 0；junction 消失；`PSModulePath` 恢复为安装前状态（本机运行前该用户值不存在，因此恢复为不存在），`Path` 未变 |
 
-用户“安装后改 `PSModulePath`”的场景由项目内用例 [`tests/psmodule.ps1`](../tests/psmodule.ps1)（CTest `psmodule`）在真实 HKCU 上覆盖，因为需要可控的基线条目：安装前设置两条基线条目 → 安装 → 更新（条目仍只出现一次，模块内容切到 2.0.0）→ 用户追加一条条目 → 卸载后只删除 Coop 新增的 `<root>\modules`，基线条目、用户追加条目与顺序保持；另一次未修改的安装/卸载恢复原始值与类型。该用例同时覆盖预览无副作用、计划与 `observed_steps` 一致、无 `psmodule` 的包不改 `PSModulePath`、以及 `psmodule` + `bin` + `post_install` 组合的计划可执行。
+用户“安装后改 `PSModulePath`”的场景由项目内用例 [`tests/psmodule.ps1`](../tests/psmodule.ps1)（CTest `psmodule`）在真实 HKCU 上覆盖，因为需要可控的基线条目：安装前设置两条基线条目 → 安装 → 更新（条目仍只出现一次，模块内容切到 2.0.0）→ 用户追加一条条目 → 卸载后只删除 Coop 新增的 `<root>\modules`，基线条目、用户追加条目与顺序保持；另一次未修改的安装/卸载恢复原始值与类型。该用例同时覆盖预览无副作用、计划与 `observed_steps` 一致、无 `psmodule` 的包不改 `PSModulePath`、`<root>/modules` 下残留普通文件时仍撤销 Coop 条目但保留该文件、非对象 `psmodule` 声明以 `adapter/manifest-shape` 阻断且不写 junction/`PSModulePath`，以及 `psmodule` + `bin` + `post_install` 组合的计划可执行。
 
 ### 真实共用根：main/gsudo
 

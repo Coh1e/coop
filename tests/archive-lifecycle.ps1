@@ -154,6 +154,13 @@ if ($LASTEXITCODE -ne 0 -or $tidyOutput -notmatch '5\.8\.0') { throw "nested ZIP
 $tidyUninstall = & $CoopExe --root $root uninstall tidy --json
 Assert-Exit 'nested ZIP uninstall failed'
 
+# A declared extract_dir that the archive does not contain fails explicitly and publishes nothing.
+$root = New-TestRoot
+Write-Manifest $root 'missing-extract' @{version='1.0.0';architecture=@{'64bit'=@{url=(File-Uri $rg15);hash='71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5';extract_dir='missing-dir'}};bin='rg.exe'}
+$missingExtract = & $CoopExe --root $root install test/missing-extract --json 2>&1
+if ($LASTEXITCODE -eq 0) { throw "a missing extract_dir unexpectedly installed: $($missingExtract -join "`n")" }
+if (Test-Path "$root/apps/missing-extract/current") { throw 'a missing extract_dir published a current link' }
+
 # tar.zst with a nested extract_dir: the real Main/luajit package is an Arch package whose
 # mingw64 tree is selected before publishing.
 $root = New-TestRoot

@@ -228,6 +228,43 @@ try {
     Assert-True ($restored.present -eq $true -and $restored.value -eq "$baseEntry;$keepEntry" -and $restored.kind -eq 'String') `
         "the uninstall did not restore the recorded PSModulePath value: present=$($restored.present) kind=$($restored.kind) value=$($restored.value)"
 
+    # --- A stray non-link entry under modules does not keep Coop's PSModulePath entry -----------
+    New-Item -ItemType Directory -Path $modulesDirectory -Force | Out-Null
+    $stray = Join-Path $modulesDirectory 'stray.txt'
+    [IO.File]::WriteAllText($stray,'not a module link',[Text.UTF8Encoding]::new($false))
+    Write-Manifest $package '4.0.0' $moduleName
+    $strayInstall = CoopJson @('--root',$root,'install',"test/$package",'--json')
+    Assert-True ($strayInstall.status -eq 'success') 'the stray-entry install did not succeed'
+    $strayUninstall = CoopJson @('--root',$root,'uninstall',$package,'--json')
+    Assert-True ($strayUninstall.status -eq 'success') 'the stray-entry uninstall did not succeed'
+    $strayPath = (Get-UserRaw 'PSModulePath').value
+    Assert-PathMissing $strayPath $modulesDirectory 'a stray file under modules kept the PSModulePath entry'
+    Assert-PathHas $strayPath $baseEntry 'the stray-entry uninstall removed an existing entry'
+    Assert-True (Test-Path -LiteralPath $stray) 'the uninstall removed a stray file under modules'
+
+    # --- An invalid psmodule declaration is a blocking adapter diagnostic -----------------------
+    $invalidPackage = 'coop-r25-invalid-'+$tag
+    $invalidArchive = Join-Path $session "$package-1.0.0.zip"
+    $invalidManifest = [ordered]@{
+        version='1.0.0'
+        url=(File-Uri $invalidArchive)
+        hash=(Get-FileHash -LiteralPath $invalidArchive -Algorithm SHA256).Hash.ToLower()
+        psmodule=$true
+    }
+    [IO.File]::WriteAllText("$root/buckets/test/bucket/$invalidPackage.json",($invalidManifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    $environmentBeforeInvalid = Get-UserRaw 'PSModulePath'
+    $invalidPreview = Invoke-Coop @('--root',$root,'install',"test/$invalidPackage",'--dry-run','--json')
+    $invalidDocument = $invalidPreview.text | ConvertFrom-Json
+    $invalidCodes = @($invalidDocument.diagnostics | ForEach-Object { "$($_.category)/$($_.code)" })
+    Assert-True ($invalidDocument.execution_available -eq $false) 'an invalid psmodule declaration was planned as executable'
+    Assert-True ($invalidCodes -contains 'adapter/manifest-shape') "the invalid psmodule declaration did not report adapter/manifest-shape: $($invalidCodes -join ',')"
+    $invalidInstall = Invoke-Coop @('--root',$root,'install',"test/$invalidPackage",'--json')
+    Assert-True ($invalidInstall.code -ne 0) 'an invalid psmodule declaration was executed'
+    Assert-True (-not (Test-Path -LiteralPath "$root/apps/$invalidPackage")) 'an invalid psmodule declaration created a package directory'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $modulesDirectory 'true'))) 'an invalid psmodule declaration created a module link'
+    $environmentAfterInvalid = Get-UserRaw 'PSModulePath'
+    Assert-True ($environmentAfterInvalid.value -eq $environmentBeforeInvalid.value) 'an invalid psmodule declaration changed PSModulePath'
+
     # --- A package without psmodule leaves PSModulePath alone ------------------------------------
     $environmentBeforePlain = Get-UserRaw 'PSModulePath'
     $plain = CoopJson @('--root',$root,'install',"test/$plainPackage",'--json')

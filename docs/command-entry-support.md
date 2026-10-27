@@ -31,7 +31,7 @@ Coop 与 Scoop 的差异只在入口目标：Scoop 写具体版本目录，Coop 
   - 先核对宿主存在，再写任何入口；缺失宿主在事务写入前失败。
   - `.py`/bash 入口写 Scoop 形状的 `.cmd` 与 sh 包装，并在管理记录的 `commands` 中保存 `format=scoop-wrapper`、`launcher` 及文件摘要；不写 `.exe`、`.shim`、`.coop-shim.json`。
   - 自 R27/#48 起，`BAT/CMD`、`PS1`、`JAR` 入口除 Coop 启动器外也写 Scoop 同形的 `.cmd`（PS1 另写 `.ps1`）与 sh 包装：Manifest 快捷方式可以直接指向 `shims\<别名>.cmd`（`extras/mqtt-spy`），跨 `.exe`/脚本家族的同名别名也能像 Scoop 一样保留两套文件。包装摘要并入同一 `commands` 记录，卸载通过计划的 `scoop_entry_wrappers` 撤销；见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
-  - `.cmd` 使用 CRLF，sh 使用 LF 且无尾随换行，与 Scoop 的 `Out-UTF8File` 一致。
+  - `.cmd` 使用 CRLF 且带尾随换行（Scoop `Out-UTF8File` 的 `WriteAllLines` 行为），sh 使用 LF 且无尾随换行；Coop 的 `.cmd` 省略了这个尾随换行，对 `cmd.exe` 行为无影响，但不是逐字节相同。
   - 更新先按内容与命令名移除旧包装，再发布新版本包装；卸载同样只移除内容仍指向 `apps/<包>/` 的包装（包含真实 `scoop reset` 重建的包装），并保留其他包或用户文件。
 - 卸载已有入口不再要求 python/bash 宿主存在；否则宿主被卸载后连合法的 Coop 卸载都会被错误拒绝。更新仍要求新入口所需宿主存在。
 - 带 `env_set`/`env_add_path` 的包继续由环境操作写入当前用户环境并广播；Scoop 形状的包装不会像 Coop 启动器那样向自身子进程注入未广播的环境值。这是与 Scoop 包装一致的边界，见文末限制。

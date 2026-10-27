@@ -6,7 +6,7 @@
 
 > **复测（2026-10-27，R26/#47）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，使用正常用户 PATH：读取 4149/4149、计划可执行 **4131**、阻塞 **16**、盘根内已安装 helper 2。`adapter/unsupported-command-host` 诊断 13 → **0**，`command-entry-host` 机制缺口 11 → **0**；无扩展名计划可执行 1/8 → **8/8**、`.config` 0/1 → **1/1**。本机默认 PATH 没有真实 `python.exe`（Store 零长度别名被拒绝），`main/vapoursynth`、`extras/pdd` 计划按 `external-host:python` 阻塞并逐项列出，不是入口机制不支持；其余阻塞仍是 Manifest 形状 6、依赖缺失 5、arm64 产物 3。细则、真实运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
 
-> **复测（2026-10-27，R25/#46）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，结果为读取 4149/4149、计划可执行 **4123**、阻塞 **24**（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3）、盘根内已安装 helper 2。`capability:psmodule` 与 `dependency-unsupported` 缺口归零；真机验证集合仍为历史 15 个包且本页不将其重算为本轮运行。细则与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)。本页其余数字是 #41 当时的基线，不因复测而改写。
+> **复测（2026-10-27，R25/#46）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，结果为读取 4149/4149、计划可执行 **4123**、阻塞 **24**（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3）、盘根内已安装 helper 2。`capability:psmodule` 与 `dependency-unsupported` 缺口归零；本次重测自身的真机验证数为 `verified_real_cohort=0`、未运行 4149，历史 15 个包只在 #41 基线 `tests/coverage/baseline.json` 中计数，本页不把它重算为本轮运行。细则与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)。本页其余数字是 #41 当时的基线，不因复测而改写。
 
 > 本页记录 2026-10-27 对官方 Main、Extras **完整分母**的一次盘点：固定实际 bucket 修订，逐份 Manifest 记录机制声明、读取状态、规划状态和真机验证状态。命令、逐包记录与缺口清单在 `.local/pi/tasks/41/evidence/coverage-fix2/coverage-20261026-220311/`；本页与 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 只做汇总与索引。**读取或规划成功不等于运行验证**：本轮只有 15 个包在同一修订上具有真机运行事实，其余保持“未运行”。
 
@@ -214,7 +214,7 @@ pwsh -NoProfile -File tests/real-scoop-coverage.ps1 -CoopExe .local/build/coop.e
 | 每条真实命令与退出码 | `commands.log` |
 | Main 与共用工作树逐份 Manifest 的比对结果 | `shared-main-manifest-verification.json` |
 | 共用根前后快照（递归路径/长度/修改时间，两次快照相同，运行日志报告变化数 0） | `shared-root-before.txt`、`shared-root-after.txt` |
-| 所有阻塞包与验证包的完整 `info`/`plan` 原文（68 个包） | `samples/` |
+| 所有阻塞包与验证包的完整 `info`/`plan` 原文（#41 证据目录 68 个包；R28 运行目录 19 个样本包） | 该运行目录的 `samples/` |
 | 跨 bucket 依赖来源的逐包结果（声明、`dependency_order`、版本、是否可执行） | `cross-bucket-dependencies.json` |
 
 R28/#49 的本轮重跑运行目录为 `.local/pi/tasks/49/evidence/coverage-versions-final/coverage-20261027-054326/`（代码提交 `ce49eff`，`coop.exe` SHA256 `20e8fdb…`，退出 0），其中 `summary.json.cross_bucket_dependencies` 与 `cross-bucket-dependencies.json` 记录 5 个包的 `versions/*` 解析结果，`gaps` 不再包含 `dependency-missing`，共用根快照仍为 0 变化。

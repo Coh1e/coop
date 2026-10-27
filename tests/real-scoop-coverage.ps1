@@ -658,6 +658,10 @@ $blocked = @($allRecords | Where-Object { -not $_.plan.execution_available -and 
 $envInstalled = @($allRecords | Where-Object { $_.plan.reason -eq 'already-installed-inventory-helper' })
 $verifiedRecords = @($allRecords | Where-Object { $_.verified.status -eq 'real-cohort' })
 $historicalRecords = @($allRecords | Where-Object { $_.verified.status -eq 'historical-cohort' })
+# Every package that is not verified at this denominator revision is reported as not run, including
+# a cohort fact that no longer binds to the current manifest (cohort-run-not-bound /
+# cohort-manifest-mismatch). Otherwise a failed binding would silently leave the total unclosed.
+$notRunRecords = @($allRecords | Where-Object { $_.verified.status -ne 'real-cohort' -and $_.verified.status -ne 'historical-cohort' })
 foreach ($record in $allRecords) {
     if ($record.verified.status -eq 'real-cohort') {
         if ($record.manifest_sha256 -ne $verified[$record.id].installed_manifest_sha256) { throw "Internal verification binding failed for $($record.id)" }
@@ -668,6 +672,7 @@ foreach ($record in $allRecords) {
 }
 if (($planStatusCounts.Values | Measure-Object -Sum).Sum -ne $allRecords.Count) { throw 'Plan status accounting does not cover every manifest' }
 if (($readFailures.Count + @($allRecords | Where-Object { $_.read.ok }).Count) -ne $allRecords.Count) { throw 'Read status accounting does not cover every manifest' }
+if (($verifiedRecords.Count + $historicalRecords.Count + $notRunRecords.Count) -ne $allRecords.Count) { throw 'Verification status accounting does not cover every manifest' }
 if ($verifiedRecords.Count -gt $verified.Count) { throw 'Verified accounting exceeds the supplied cohort facts' }
 
 $featureStats = [ordered]@{}
@@ -787,7 +792,7 @@ $summary = [ordered]@{
         plan_unavailable = $planStatusCounts['plan-unavailable']
         verified_real_cohort = $verifiedRecords.Count
         verified_historical_cohort = $historicalRecords.Count
-        not_run = @($allRecords | Where-Object { $_.verified.status -eq 'not-run' }).Count
+        not_run = $notRunRecords.Count
     }
     plan_status = $planStatusCounts
     mechanisms = $mechanisms
@@ -852,8 +857,8 @@ Write-Output ('Denominator: Main {0} + Extras {1} = {2} manifests' -f $denominat
 Write-Output ('Read: {0} ok, {1} failed; plan: {2} executable, {3} blocked, {4} helper-installed in the inventory root, {5} unavailable' -f `
     $summary.totals.read_ok,$summary.totals.read_failed,$summary.totals.plan_executable,$summary.totals.plan_blocked,
     $summary.totals.environment_installed_helper,$summary.totals.plan_unavailable)
-Write-Output ('Runtime verified at this denominator revision: {0} (historical cohort: {1}, not run: {2})' -f `
-    $summary.totals.verified_real_cohort,$summary.totals.verified_historical_cohort,$summary.totals.not_run)
+Write-Output ('Runtime verified at this denominator revision: {0} (historical cohort: {1}, not run: {2}, reported total: {3})' -f `
+    $summary.totals.verified_real_cohort,$summary.totals.verified_historical_cohort,$summary.totals.not_run,($summary.totals.verified_real_cohort+$summary.totals.verified_historical_cohort+$summary.totals.not_run))
 foreach ($gap in $gapList) {
     Write-Output ('Gap {0}: {1} package(s); {2}' -f $gap.mechanism,$gap.count,($gap.codes -join ', '))
 }

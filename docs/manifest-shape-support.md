@@ -9,7 +9,7 @@
   - `env_add_path` 的 `"."`、`"./"`、`"./bin/"` 和尾分隔符：每个非空元素与 `$dir` 组合后再解析为绝对路径（`install.ps1:309-318` 的 `env_add_path`）。
   - `shortcuts` 目标与图标的 `..` 相对路径：与 `$dir` 组合后按 `FileInfo` 解析，因此可以指向包目录之外（例如共用 `shims` 目录），计划与真实快捷方式都记录折叠后的路径（`shortcuts.ps1:1-22`）。
   - 重复派生别名：Scoop 的 `shim()` 有两个文件家族：`.exe/.com` 目标写 `<别名>.exe` + `<别名>.shim`，其余目标写 `<别名>.cmd` + 无扩展名 sh 包装（PS1 另写 `.ps1`）。同一家族内重复声明会重写同一批文件，最后一个生效；跨家族声明写入不同文件，两套都保留，Windows 按 PATHEXT 先解析 `.exe`（`core.ps1:949-1130` 的各 `shim()` 分支）。Coop 按同一结果保留同一家族的最后一个声明、跨家族同时保留，并在计划与 `info` 的 `warnings` 中说明实际后果，而不是丢入口或让整份 Manifest 失败。
-- `BAT/CMD`、`PS1`、`JAR` 入口现在除 Coop 启动器外，也发布 Scoop 同形的 `.cmd`（PS1 还有 `.ps1`）与 sh 包装视图；这既是 `extras/mqtt-spy` 声明的 `shims/mqtt-spy.cmd` 快捷方式目标，也让跨家族同名别名在磁盘上与 Scoop 一致。卸载从计划列出的包装证据中撤销它们。
+- `BAT/CMD`、`PS1`、`JAR` 入口现在除 Coop 启动器外，也发布 Scoop 同形的 `.cmd`（PS1 还有 `.ps1`）与 sh 包装视图；这既是 `extras/mqtt-spy` 声明的 `shims/mqtt-spy.cmd` 快捷方式目标，也让跨家族同名别名在磁盘上与 Scoop 一致。卸载从计划列出的包装证据中撤销它们。`.ps1` 视图使用绝对 `$path`（Scoop 对同一盘的 shim 目录写 `Join-Path $PSScriptRoot` 相对形式）；两者在 root 不移动时等价，当前真实对比样本没有 `.ps1` bin 条目，因此这一分支只有夹具验证。
 - 安全边界未放宽：`bin`/`persist`/`extract_dir`/`extract_to`/installer 程序的绝对路径、盘符和 `..` 仍以稳定诊断拒绝；`shortcuts` 的目标与图标仍是相对路径（绝对路径/盘符拒绝），只是允许 Scoop 本身的 `..` 解析；没有新增包外写入路径。
 - 六个原先被形状阻塞的包（`main/dcmtk`、`main/stdiscosrv`、`main/wgcf`、`main/zigup`、`main/retdec`、`extras/mqtt-spy`）在真实盘点根 `install --dry-run` 均为 `execution_available=true`，计划的 bin 参数、`env_add_path` 解析值、快捷方式目标/参数/图标与同一 Manifest 的 Scoop 函数语义逐项相等。
 - 全量盘点复测的 `manifest-shape` 缺口为 **0**。`main/retdec` 的重复别名不再阻塞解析，但它的 `.py` 入口在默认用户 PATH 下缺少 `python.exe`，因此计入 `external-host:python` 环境前提，而不是形状或宿主机制缺口。

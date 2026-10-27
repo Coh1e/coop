@@ -1389,8 +1389,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 bool other_links = false;
                 std::error_code error;
                 if (fs::is_directory(modules,error) && !error) {
-                    const auto remaining = fs::directory_iterator(modules,error);
-                    other_links = !error && remaining != fs::directory_iterator();
+                    // Only another module junction keeps the entry; a stray file or empty directory
+                    // (Scoop leftovers, editor metadata) is not a module link and must not turn a
+                    // Coop-owned PSModulePath entry into a permanent one.
+                    for (fs::directory_iterator entry(modules,error), end; !error && entry != end; entry.increment(error)) {
+                        const auto entry_attributes = GetFileAttributesW(entry->path().c_str());
+                        if (entry_attributes != INVALID_FILE_ATTRIBUTES && (entry_attributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+                            (entry_attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                            other_links = true;
+                            break;
+                        }
+                    }
                 }
                 const bool replacement_keeps_module = (updating || resetting) && package.psmodule.has_value();
                 const Json prior = has_managed_record && managed.contains("psmodule") && managed.at("psmodule").is_object()
