@@ -179,20 +179,19 @@ fi
     Assert-Content (Join-Path $shims $name) $shellExpected "Scoop $kind shell wrapper"
 }
 
-# --- Preview: the host is disclosed, .py/bash files are the Scoop shapes, nothing is written -----
-Write-Manifest 'pyhost' '1.0.0' 'tool.py' '--default'
-$pyRootBefore = Get-Snapshot $root
-$pyPreview = CoopJson @('--root',$root,'install','test/pyhost','--dry-run','--json') $pyPath
-Assert-True ($pyPreview.execution_available -eq $true) "py preview was blocked: $($pyPreview.diagnostics | ConvertTo-Json -Compress)"
-Assert-True ((@($pyPreview.package.commands | ForEach-Object launcher) -contains 'python')) 'py preview did not disclose the python host'
-$pythonTool = @($pyPreview.external_tools | Where-Object { $_.name -like 'Python*' })
-Assert-True ($pythonTool.Count -eq 1 -and $pythonTool[0].available -eq $true) 'py preview did not disclose the Python host as available'
-Assert-True (-not (Test-Path -LiteralPath (Join-Path $root 'shims'))) 'py preview created shims'
-Assert-True (-not (Test-Path -LiteralPath (Join-Path $root 'apps/pyhost'))) 'py preview created the package'
-Assert-True (($pyRootBefore -join '|') -eq ((Get-Snapshot $root) -join '|')) 'py preview changed the root'
-
 if ($python) {
-    # --- .py: real Python host through the generated Scoop .cmd and shell wrapper -----------------
+    # --- .py: preview and real Python host through the generated Scoop .cmd and shell wrapper -----
+    Write-Manifest 'pyhost' '1.0.0' 'tool.py' '--default'
+    $pyRootBefore = Get-Snapshot $root
+    $pyPreview = CoopJson @('--root',$root,'install','test/pyhost','--dry-run','--json') $pyPath
+    Assert-True ($pyPreview.execution_available -eq $true) "py preview was blocked: $($pyPreview.diagnostics | ConvertTo-Json -Compress)"
+    Assert-True ((@($pyPreview.package.commands | ForEach-Object launcher) -contains 'python')) 'py preview did not disclose the python host'
+    $pythonTool = @($pyPreview.external_tools | Where-Object { $_.name -like 'Python*' })
+    Assert-True ($pythonTool.Count -eq 1 -and $pythonTool[0].available -eq $true) 'py preview did not disclose the Python host as available'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $root 'shims'))) 'py preview created shims'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $root 'apps/pyhost'))) 'py preview created the package'
+    Assert-True (($pyRootBefore -join '|') -eq ((Get-Snapshot $root) -join '|')) 'py preview changed the root'
+
     $pyInstall = CoopJson @('--root',$root,'install','test/pyhost','--json') $pyPath
     Assert-True ($pyInstall.status -eq 'success') "py install failed: $($pyInstall | ConvertTo-Json -Depth 4)"
     $journal = Get-Content -LiteralPath $pyInstall.journal -Raw | ConvertFrom-Json
