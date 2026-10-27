@@ -97,13 +97,13 @@ CTest `command_entry_host`（[`tests/command-entry-host.ps1`](../tests/command-e
 
 | 内容 | 位置（`.local/pi/tasks/47/evidence/` 下） |
 | --- | --- |
-| 项目内三类入口、更新/卸载、缺失宿主（最终 head） | `entry-test-final-20261027-110332/run.log` |
-| `main/neofetch` 真机顺序 | `real-neofetch-final2-20261027-110338/`（`summary.json`、`preview.log`、`install.log`、`run-before-reset.log`、`run-after-reset.log`、`scoop-reset.log`、`uninstall.log`、`scoop-list*.log`） |
-| `main/git-quick-stats` 真机顺序 | `real-gitquick-final2-20261027-110355/` |
-| `main/vapoursynth` 真机顺序 | `real-vapoursynth-final3-20261027-110412/` |
-| 全量盘点复测 | `coverage-20261027-104804/coverage-20261027-024805/`（`summary.json`、`manifests.json`、`commands.log`、共享根前后快照） |
-| 完整 CTest（44/44 通过，最终 head） | `ctest-full-final-20261027-110441/ctest-full.log` |
-| 构建日志 | `build-1.log` … `build-4.log`、`cmake` 配置输出；最终二进制 SHA256 见上 |
+| 项目内三类入口、更新/卸载、缺失宿主（代码 head `bd8a99b`） | `h2-entry-20261027-110949/run.log` |
+| `main/neofetch` 真机顺序 | `h2-neofetch-20261027-110955/`（`summary.json`、`preview.log`、`install.log`、`run-before-reset.log`、`run-after-reset.log`、`scoop-reset.log`、`uninstall.log`、`scoop-list*.log`） |
+| `main/git-quick-stats` 真机顺序 | `h2-gitquick-20261027-111013/` |
+| `main/vapoursynth` 真机顺序 | `h2-vapoursynth-20261027-111033/` |
+| 全量盘点复测（`project_head=bd8a99b`） | `h2-coverage-20261027-111059/coverage-20261027-031100/`（`summary.json`、`manifests.json`、`commands.log`、共享根前后快照） |
+| 完整 CTest（44/44 通过，代码 head `bd8a99b`） | `h2-ctest-full-20261027-111748/ctest-full.log` |
+| 基线构建日志 | `build-1.log` … `build-4.log`、CMake 配置输出；最终二进制 SHA256 见上 |
 
 ## 未运行与限制
 
