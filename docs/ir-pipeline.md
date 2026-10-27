@@ -1,6 +1,6 @@
-# 包管理 IR、校验与计划路径
+# 包管理 IR、校验、计划与执行路径
 
-本文件记录 #22（R01）建立的只读 IR 路径：查询与预览从真实 Scoop 安装事实出发，经 Adapter → Package IR → Validator → Planner 输出结果，不需要先执行接管，也不读写 Coop 私有安装记录来判定管理资格。正式行为规格见 [Issue #21](https://github.com/Coh1e/coop/issues/21)，模块边界与后续任务见 [已确认范围](design-scope.md)。
+本文件记录从 #22（R01）建立的 IR 路径到 #43（R22）完成的单一执行契约：查询、预览与写入都从真实 Scoop 安装事实出发，经 Adapter → Package IR → Validator → Planner → Plan → 执行后端，不需要先执行接管，也不读写 Coop 私有安装记录来判定管理资格。正式行为规格见 [Issue #21](https://github.com/Coh1e/coop/issues/21)，模块边界与后续任务见 [已确认范围](design-scope.md)。
 
 ## 模块与单向依赖
 
@@ -11,21 +11,20 @@
 | `src/ir_validate.cpp` | 归一化 IR 契约校验：身份、摘要算法支持、URL 方案、持久化映射重复、依赖版本约束、能力需求（Windows Installer、Inno Setup、NSIS 安装器载荷、安装器进程、生命周期阶段、入口宿主、用户环境） | 不重新解释 Scoop 字段；不读取文件或安装状态 |
 | `src/ir_plan.cpp` | Plan Builder：把已校验 IR 与当前安装事实变成一条带效果说明的操作序列 | 不绑定具体路径摘要（由调用方在执行前绑定并重查）；不执行 |
 | `src/ir_dependencies.cpp` | 依赖 Planner：用归一化依赖身份和共享安装事实完成拓扑排序、已安装复用及缺失/循环/歧义/来源冲突诊断，生成每包的独立 IR 操作序列 | 不读取 Scoop JSON、不重新解析来源字符串、不执行或写状态 |
-| `src/scoop_adapter.cpp` | IR → 现有执行后端使用的旧记录投影，并把 IR 挂在记录上供 Planner 直接消费 | 只做字段投影，不承载来源格式知识 |
 | `src/query.cpp` | `list` 使用 IR 安装事实；`info` 附带 IR 校验结果与分层诊断 | 不因执行不兼容隐藏结果；私有记录只作管理元数据 |
-| `src/plan.cpp` | 预览与计划文档：操作列表与 IR 操作序列来自同一次 Planner 调用 | 计划前提仍由当前状态绑定并在执行前重查 |
+| `src/plan.cpp` | 计划构建：把 IR 与本地事实绑定为一个 `Plan`（包 IR、唯一操作序列、依赖顺序、前提与一次计算的可执行结论） | 预览和执行读同一 `Plan`，不维护第二份包记录或操作列表 |
 
 诊断分层固定在 IR 中：`syntax`（来源语法）、`adapter`（来源字段适配）、`ir`（归一化 IR 校验）、`environment`（当前环境前提）、`capability`（能力缺口）、`verification`（验证状态）。查询与预览同时报告各层结论，不用一层结论替代另一层。非阻断的来源观察（例如同一 shim 家族内的重复别名 last-wins、跨家族的 exe/脚本声明并存）单独进入 `warnings`，与 `diagnostics`、退出码和 `execution_available` 分开，既不隐藏观察，也不把可执行包误报为阻塞；家族规则与证据见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
 
-## 本次权威边界
+## 单一 IR → Plan → 执行契约
 
-- 查询（`list`、`info`）与预览（`install|update|uninstall --dry-run`）的安装事实、诊断与操作序列来自 IR 路径。
-- 预览文档同时给出旧 `operations`（`download`/`verify`/…，`detail` 保留来源与声明算法）与新 `ir_operations`（`operation`、`index`、`previous_package`、`effect`）。两者由同一次 Planner 结果投影，数量与顺序一一对应。`artifacts[]` 保留 URL、实际文件名、`#/` 改名标志、算法、摘要以及 `extract_dir`/`extract_to` 布局；`sha256` 兼容键只用于真实 SHA256 产物。
-- R03 起，实际写入由执行器逐条消费 `plan.ir_steps`：每种 IR 操作对应执行后端中的一个处理器，日志记录 `observed_steps`，因此预览顺序、事务日志与真实改动可相互核对；空计划会在执行前被拒绝。
+- 查询（`list`、`info`）与预览（`install|update|uninstall|reset --dry-run`）的安装事实、诊断与操作序列全部来自 IR 路径。
+- `ir::plan` 为一次包操作生成唯一操作序列；`Plan` 携带归一化包 IR、该序列、拓扑排序后的依赖、绑定好的前提与一次计算的可执行结论。预览文档的 `ir_operations`（`operation`、`index`、`previous_package`、`effect`）就是这些步骤，执行器逐条消费同一 `plan.steps` 并记录 `observed_steps`；不存在第二份预览操作列表或第二份包记录。空计划由计划构建阶段标记为诊断并拒绝执行，不会被当成可执行的成功空操作。
+- `artifacts[]` 保留 URL、实际文件名、`#/` 改名标志、算法、摘要以及 `extract_dir`/`extract_to` 布局；`sha256` 兼容键只用于真实 SHA256 产物。
 - 依赖顺序也来自 IR Planner：根 `Plan` 携带拓扑排序后的 `dependencies`，每个未安装依赖保存自己的 Package IR 和 `ir_operations`；已安装依赖复用共享事实且没有安装操作。执行器按该顺序逐包执行并各自记录事务，不在执行期重新解析依赖图。
-- 共用 Scoop 安装不再要求先执行 `adopt` 或存在 `.coop/packages` 私有记录。直接文件产物（单文件或多产物）的更新/卸载直接从 `apps/<包>/current`、标准安装记录、真实 `.shim`/启动入口和实际产物核对事实：每个文件都按声明的算法与摘要验证。归档安装使用标准版本树、保存的 Manifest/安装记录和每个声明入口/快捷方式目标作为共享事实；Scoop 不保存解压树摘要，所以不冒充逐文件摘要核对。私有记录只在存在时作为附加事实证据，缺失或过期时重新读取共享状态。
-- 执行仍保留旧 `Package` 记录作为迁移期投影，`adopt` 路径也仍然存在；移除这些旧路径属于后续任务（见 #43）。
-- Scoop 状态格式知识的执行核心已不再读取 Scoop 字段；Planner 仍从安装记录读取 `bucket`/`architecture`，catalog 索引也仍读取 Manifest 字段，这两处归入后续统一（见 #43）。
+- 计划的可执行性是单一判断：`Plan::blocker` 由计划构建调用 `execution_blocker` 一次得出，预览和执行读取同一结论；入口、快捷方式、持久化与共享产物核对都调用执行器使用的同一组验证函数，不维护另一套复制判断。
+- 共用 Scoop 安装不要求先执行接管或存在 `.coop/packages` 私有记录。直接文件产物（单文件或多产物）的更新/卸载直接从 `apps/<包>/current`、标准安装记录、真实 `.shim`/启动入口和实际产物核对事实：每个文件都按声明的算法与摘要验证。归档安装使用标准版本树、保存的 Manifest/安装记录和每个声明入口/快捷方式目标作为共享事实；Scoop 不保存解压树摘要，所以不冒充逐文件摘要核对。私有记录只在存在时作为附加事实证据，缺失或过期时重新读取共享状态；`--purge` 的范围也来自安装自身声明与已核对链接，不再以私有记录为前提。
+- Scoop 状态格式的读取只发生在兼容模块：`src/ir_adapter.cpp` 负责 Manifest 与共享安装记录（包括安装记录的 `bucket`/`architecture`），`src/catalog_index.cpp` 负责 bucket 目录的元数据扫描。Planner 只消费 `ir::CatalogueEntry` 与 `ir::InstalledFact`，执行核心（`src/execute.cpp`）只消费 `Plan` 与 IR，不读取任意 Scoop 字段作决定。
 
 ## 只读保证
 
@@ -40,6 +39,7 @@ IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例�
 ## 验证与证据
 
 - `tests/ir-pipeline.ps1`（CTest 名称 `ir_pipeline`）：无私有记录的安装事实、过期/损坏私有记录、IR 操作与效果、摘要算法支持与缺口、`windows-installer` 与 `inno-setup` 能力及其边界、查询/预览无副作用与无子进程。
+- `tests/ir_reuse_fixture.cpp`（CTest 名称 `ir_reuse`）：一个不是 Scoop Manifest 的假想来源适配器直接构造归一化 IR，经 Validator、Planner 与 Dependency Resolver 得到能力、安装/卸载序列与已安装依赖复用；链接只包含 IR 核心、Validator、Planner 与 Dependency Resolver，不包含 Scoop JSON 适配器、Windows 后端或执行器。
 - `tests/scoop-interop.ps1`（CTest 名称 `scoop_interop`）：无私有记录的单文件与多产物直接文件安装更新/卸载、Scoop reset、GUI/外来启动器判断。
 - `tests/multi-artifact.ps1`（CTest 名称 `multi_artifact`）：多下载项、改名、架构选择、SHA512/SHA1/MD5、预览/日志对应与下载/校验失败保护。
 - `tests/real-scoop-readonly.ps1`：对本机真实 Scoop 根执行 `list`、`info`、`update --dry-run`、`uninstall --dry-run`，核对安装清单与预览结论，并证明根内文件未改变、未创建 `.coop`。
@@ -52,4 +52,4 @@ IR 的 `capabilities` 记录包所需的产品能力与当前是否可用，例�
 
 ## 尚未完成
 
-R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）；R11 已把 `installer.file/args` 与 `uninstaller.file/args` 接入同一个真实宿主（上游 `Invoke-Installer`，参数替换、`keep`、退出码与执行时序按 Scoop），并记录程序自身的未知外部副作用（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)）；R12 已把 MSI 产物的管理镜像提取接入 IR 计划与执行引擎（只读数据库 + cabinet 解压 API，真实双向交替与镜像一致性验收）；R13 已把 Inno Setup `innosetup` 声明接入 IR 计划与执行引擎（root 内声明的 innounp helper、Scoop 参数与 `-c` 选择、真实双向交替与逐文件镜像一致），helper 缺失在执行前阻塞且从不下载；R14 已把声明为归档产物的 NSIS 安装器载荷接入同一 IR 计划与执行引擎（内容签名检测 + root 内声明的 7-Zip helper、Scoop 参数、真实双向交替与逐文件镜像一致），普通 7z/ZIP/tar 仍走原生路径。WiX/Dark 等其余厂商安装器结构、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧执行/接管路径清理与完整交付验收仍分别由后续任务跟踪。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。
+R08 已交付用户级环境与 PATH 的真实写入、通知、用户修改保护和卸载恢复（见[命令入口、快捷方式与环境暴露](exposure-support.md)），快捷方式真实效果已在 R07 验证；R10 已交付真实 PowerShell 生命周期：六个阶段、固定 Scoop 兼容库与本机 v0.6.0 上下文/helper、合法脚本修改仍执行、输出与退出码传播，以及预览中的宿主机能力诊断（见[生命周期 Hook 与真实 PowerShell](script-support.md)）；R11 已把 `installer.file/args` 与 `uninstaller.file/args` 接入同一个真实宿主（上游 `Invoke-Installer`，参数替换、`keep`、退出码与执行时序按 Scoop），并记录程序自身的未知外部副作用（见[Installer/Uninstaller 与特殊安装机制](installer-support.md)）；R12 已把 MSI 产物的管理镜像提取接入 IR 计划与执行引擎（只读数据库 + cabinet 解压 API，真实双向交替与镜像一致性验收）；R13 已把 Inno Setup `innosetup` 声明接入 IR 计划与执行引擎（root 内声明的 innounp helper、Scoop 参数与 `-c` 选择、真实双向交替与逐文件镜像一致），helper 缺失在执行前阻塞且从不下载；R14 已把声明为归档产物的 NSIS 安装器载荷接入同一 IR 计划与执行引擎（内容签名检测 + root 内声明的 7-Zip helper、Scoop 参数、真实双向交替与逐文件镜像一致），普通 7z/ZIP/tar 仍走原生路径。WiX/Dark 等其余厂商安装器结构、Main/Extras 全量覆盖、双向交替管理的全部软件类别、旧版本与并发边界之外的长尾场景及完整交付验收仍分别由后续任务跟踪；R22 已移除旧预览操作列表、旧 `Package` 执行记录、重复可执行性判断与私有接管准入路径（`adopt`），执行只消费单一 `Plan`。R03 已交付单文件包的真实双向交替路径，R04 已交付多产物、改名、架构与摘要算法的真实安装及失败保护，R05 已交付 ZIP、7z、tar 系列、嵌套布局及共享归档更新的真实样本，R06 已交付依赖复用、缺失/循环/歧义/来源冲突诊断和反向依赖保护；这些样本不构成整个生态的完成证明。归档证据见[普通归档的原生生命周期覆盖](archive-support.md)，依赖证据见[依赖安装与反向依赖保护](dependency-support.md)。

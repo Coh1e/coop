@@ -85,11 +85,11 @@ std::string ps_literal(const std::string& value) {
 // $cmd is deliberately not defined: Scoop 0.6.0 never sets it either (verified by running its own
 // Invoke-HookScript), so `if ($cmd -eq 'uninstall')` blocks in Manifests evaluate the same way.
 // $purge exists only for uninstall, also matching scoop-uninstall.ps1's scope.
-std::string context_prelude(const Context& context, const Package& package,
+std::string context_prelude(const Context& context, const ir::Package& package,
                             const fs::path& directory, const fs::path& original_directory,
                             const fs::path& persist_directory, const fs::path& library,
                             const std::string& command_name, bool purge, const fs::path& manifest_path) {
-    const auto fname = package.artifacts.empty() ? std::string{} : package.artifacts.front().filename;
+    const auto fname = package.downloads.empty() ? std::string{} : package.downloads.front().filename;
     std::string text =
         "$ErrorActionPreference = 'Stop'\n"
         "$ProgressPreference = 'SilentlyContinue'\n"
@@ -125,7 +125,7 @@ std::string context_prelude(const Context& context, const Package& package,
     }
     return text;
 }
-std::string host_script(const Context& context, const Package& package, const fs::path& hook_path,
+std::string host_script(const Context& context, const ir::Package& package, const fs::path& hook_path,
                         const fs::path& directory, const fs::path& original_directory,
                         const fs::path& persist_directory, const fs::path& library,
                         const std::string& command_name, bool purge, const fs::path& manifest_path) {
@@ -145,7 +145,7 @@ std::string host_script(const Context& context, const Package& package, const fs
 // the upstream helper own the rest: the is_in_dir/Test-Path aborts, $dir/$global/$version argument
 // substitution, direct `& $progName` invocation for .ps1 programs, non-zero propagation through
 // `abort`, and the keep=false removal of the program file. No behavior is reimplemented here.
-std::string installer_host_script(const Context& context, const Package& package,
+std::string installer_host_script(const Context& context, const ir::Package& package,
                                   const fs::path& directory, const fs::path& original_directory,
                                   const fs::path& persist_directory, const fs::path& library,
                                   const std::string& command_name, bool purge,
@@ -221,17 +221,6 @@ ScriptHostInfo script_host() {
         info.problem = "The pinned Scoop compatibility library (scoop-lib/core.ps1) was not found beside coop.exe and COOP_SCOOP_LIB is not set, so hook scripts cannot get the Scoop context and helpers";
     return info;
 }
-const char* script_phase_name(ScriptPhase phase) {
-    switch (phase) {
-    case ScriptPhase::before_install: return "pre_install";
-    case ScriptPhase::installer: return "installer";
-    case ScriptPhase::after_install: return "post_install";
-    case ScriptPhase::before_uninstall: return "pre_uninstall";
-    case ScriptPhase::uninstaller: return "uninstaller";
-    case ScriptPhase::after_uninstall: return "post_uninstall";
-    }
-    return "unknown";
-}
 std::string script_json_text(const std::string& value) {
     std::string result;
     result.reserve(value.size());
@@ -258,7 +247,7 @@ std::string script_json_text(const std::string& value) {
     }
     return result;
 }
-ScriptRun run_package_script(const Context& context, const Package& package, std::size_t index,
+ScriptRun run_package_script(const Context& context, const ir::Package& package, std::size_t index,
                              const fs::path& directory, const fs::path& original_directory,
                              const fs::path& persist_directory, const fs::path& transaction,
                              const std::string& command_name, bool purge, const fs::path& manifest_path) {
@@ -267,8 +256,8 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
         throw std::runtime_error(host.problem.empty() ?
             "A real PowerShell hook host and the pinned Scoop compatibility library are required for lifecycle hook scripts" :
             host.problem);
-    const auto script = package.scripts.at(index);
-    const auto phase = std::string(script_phase_name(script.phase));
+    const auto script = package.hooks.at(index);
+    const auto phase = std::string(ir::hook_stage_name(script.stage));
     const auto scripts = transaction/L"scripts";
     std::error_code error;
     fs::create_directories(scripts,error);
@@ -294,7 +283,7 @@ ScriptRun run_package_script(const Context& context, const Package& package, std
     result.stderr_tail = captured.stderr_tail;
     return result;
 }
-InstallerRun run_installer_program(const Context& context, const Package& package, bool uninstall,
+InstallerRun run_installer_program(const Context& context, const ir::Package& package, bool uninstall,
                                    std::size_t index, const fs::path& directory,
                                    const fs::path& original_directory, const fs::path& persist_directory,
                                    const fs::path& transaction, const std::string& command_name,

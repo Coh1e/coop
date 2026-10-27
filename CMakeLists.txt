@@ -123,7 +123,7 @@ set(ENABLE_TEST OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7" "${PROJECT_BINARY_DIR}/archive" EXCLUDE_FROM_ALL)
 add_dependencies(archive_static coop_bzip2 libzstd_static)
-add_executable(coop src/main.cpp src/init.cpp src/data.cpp src/query.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp src/scoop_adapter.cpp src/plan.cpp src/native.cpp src/archive.cpp src/msi.cpp src/inno.cpp src/nsis.cpp src/persist.cpp src/execute.cpp src/adoption.cpp src/exposure.cpp src/user_environment.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp src/faults.cpp)
+add_executable(coop src/main.cpp src/init.cpp src/data.cpp src/query.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp src/plan.cpp src/native.cpp src/archive.cpp src/msi.cpp src/inno.cpp src/nsis.cpp src/persist.cpp src/execute.cpp src/exposure.cpp src/user_environment.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp src/faults.cpp)
 # Lifecycle hook hosts load the pinned Scoop compatibility library from disk. It is shipped beside
 # the executable so its provenance, version and license stay inspectable instead of being compiled
 # into an opaque blob. The copy runs on every build because the library is data, not a compiled
@@ -282,8 +282,10 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inno-lifecycle 中文 space")
   add_test(NAME nsis_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/nsis-lifecycle.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/nsis-lifecycle 中文 space")
-  foreach(scenario IN ITEMS adopt adopt-interrupt)
-    add_test(NAME ${scenario} COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/${scenario}.ps1"
-      -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/${scenario} 中文")
-  endforeach()
+  add_executable(ir_reuse tests/ir_reuse_fixture.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp)
+  target_include_directories(ir_reuse PRIVATE "${PROJECT_SOURCE_DIR}/src")
+  target_compile_features(ir_reuse PRIVATE cxx_std_20)
+  target_compile_options(ir_reuse PRIVATE /W4 /WX /utf-8 /permissive-)
+  set_property(TARGET ir_reuse PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  add_test(NAME ir_reuse COMMAND ir_reuse)
 endif()

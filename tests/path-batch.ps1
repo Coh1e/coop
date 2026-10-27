@@ -195,12 +195,11 @@ $globalBefore = Get-TreeSnapshot $globalRoot
 $globalList = Read-CoopJson @('--root',$userRoot,'--global-root',$globalRoot,'list','--json')
 Assert (@($globalList).Count -eq 1 -and $globalList[0].scope -eq 'global' -and $globalList[0].read_only -eq $true) "the global installation is not identified as read-only: $($globalList | ConvertTo-Json -Compress)"
 
-# update/uninstall/reset/adopt may not be reinterpreted as user-scope writes.
+# update/uninstall/reset may not be reinterpreted as user-scope writes.
 foreach ($arguments in @(
     @('uninstall','globaltool'),
     @('update','globaltool','--dry-run'),
-    @('reset','globaltool@0.0.0','--dry-run'),
-    @('adopt','globaltool','--dry-run'))) {
+    @('reset','globaltool@0.0.0','--dry-run'))) {
     $refused = Invoke-CoopRaw (@('--root',$userRoot,'--global-root',$globalRoot)+$arguments)
     Assert ($refused.code -eq 1 -and ($refused.err+$refused.out) -match 'global-scope-readonly') "a global-only package was not refused for $($arguments -join ' '): $($refused.code) $($refused.err)$($refused.out)"
     Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n")) "a refused global operation changed the global root: $($arguments -join ' ')"

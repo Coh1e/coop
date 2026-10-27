@@ -6,6 +6,50 @@
 // Preview output and every execution backend consume this one sequence, and each step states the
 // effect it has, so what a user reviews is what will be attempted.
 namespace coop::ir {
+const char* layer_name(Layer layer) {
+    switch (layer) {
+    case Layer::syntax: return "syntax";
+    case Layer::adapter: return "adapter";
+    case Layer::validation: return "ir";
+    case Layer::environment: return "environment";
+    case Layer::capability: return "capability";
+    case Layer::verification: return "verification";
+    }
+    return "unknown";
+}
+const char* digest_algorithm_name(DigestAlgorithm algorithm) {
+    switch (algorithm) {
+    case DigestAlgorithm::missing: return "missing";
+    case DigestAlgorithm::sha256: return "sha256";
+    case DigestAlgorithm::sha512: return "sha512";
+    case DigestAlgorithm::sha1: return "sha1";
+    case DigestAlgorithm::md5: return "md5";
+    case DigestAlgorithm::other: return "other";
+    }
+    return "unknown";
+}
+const char* archive_format_name(ArchiveFormat format) {
+    switch (format) {
+    case ArchiveFormat::file: return "none";
+    case ArchiveFormat::zip: return "zip";
+    case ArchiveFormat::seven_zip: return "7z";
+    case ArchiveFormat::tar: return "tar";
+    case ArchiveFormat::msi: return "msi";
+    case ArchiveFormat::inno_setup: return "inno-setup";
+    }
+    return "unknown";
+}
+const char* hook_stage_name(HookStage stage) {
+    switch (stage) {
+    case HookStage::pre_install: return "pre_install";
+    case HookStage::installer: return "installer";
+    case HookStage::post_install: return "post_install";
+    case HookStage::pre_uninstall: return "pre_uninstall";
+    case HookStage::uninstaller: return "uninstaller";
+    case HookStage::post_uninstall: return "post_uninstall";
+    }
+    return "unknown";
+}
 const char* operation_name(Operation operation) {
     switch (operation) {
     case Operation::download: return "download";
@@ -27,7 +71,6 @@ const char* operation_name(Operation operation) {
     case Operation::unlink_persistence: return "unlink-persistence";
     case Operation::unlink_current: return "unlink-current";
     case Operation::remove_version: return "remove-version";
-    case Operation::adopt_state: return "adopt-state";
     }
     return "unknown";
 }
@@ -143,10 +186,6 @@ Plan plan(Action action, const Package& package, const Package* previous, bool r
         break;
     case Action::uninstall:
         add_removal(result,package,false,retain_previous_version);
-        result.steps.push_back({Operation::commit_state,0,false,"commit installation records"});
-        break;
-    case Action::adopt:
-        result.steps.push_back({Operation::adopt_state,0,false,"record the existing installation as shared management state"});
         result.steps.push_back({Operation::commit_state,0,false,"commit installation records"});
         break;
     case Action::reset:

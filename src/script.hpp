@@ -23,7 +23,6 @@ struct ScriptHostInfo {
 };
 // Resolves the hook host without starting a process: never downloads, installs or writes anything.
 ScriptHostInfo script_host();
-const char* script_phase_name(ScriptPhase phase);
 // Captured script output is arbitrary bytes. JSON records keep a UTF-8 safe representation of
 // the tails while the raw bytes stay in the per-hook log files.
 std::string script_json_text(const std::string& value);
@@ -52,7 +51,7 @@ struct ScriptRun {
 // into per-hook log files (every byte) while a bounded tail is kept for JSON records. A non-zero
 // exit code is reported to the caller; the script is never retried and its external effects are
 // never claimed as reversible.
-ScriptRun run_package_script(const Context& context, const Package& package, std::size_t index,
+ScriptRun run_package_script(const Context& context, const ir::Package& package, std::size_t index,
     const fs::path& directory, const fs::path& original_directory, const fs::path& persist_directory,
     const fs::path& transaction, const std::string& command_name, bool purge,
     const fs::path& manifest_path);
@@ -81,7 +80,7 @@ struct InstallerRun {
     std::string stdout_tail;
     std::string stderr_tail;
 };
-InstallerRun run_installer_program(const Context& context, const Package& package, bool uninstall,
+InstallerRun run_installer_program(const Context& context, const ir::Package& package, bool uninstall,
     std::size_t index, const fs::path& directory, const fs::path& original_directory,
     const fs::path& persist_directory, const fs::path& transaction, const std::string& command_name,
     bool purge, const fs::path& manifest_path);

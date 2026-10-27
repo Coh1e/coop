@@ -94,13 +94,13 @@ function Get-WindowsInstallerCacheState {
         ForEach-Object { "$($_.Name)|$($_.LastWriteTimeUtc.ToString('o'))|$($_.Length)" })
 }
 function Operations-After([object]$plan,[string]$kind,[object[]]$scriptPhases) {
-    $operations = @($plan.operations)
+    $operations = @($plan.ir_operations)
     $publish = -1
-    for ($index = 0; $index -lt $operations.Count; ++$index) { if ($operations[$index].kind -eq $kind) { $publish = $index; break } }
+    for ($index = 0; $index -lt $operations.Count; ++$index) { if ($operations[$index].operation -eq $kind) { $publish = $index; break } }
     $positions = @{}
     for ($index = 0; $index -lt $operations.Count; ++$index) {
         $operation = $operations[$index]
-        if ($operation.kind -ne 'script') { continue }
+        if ($operation.operation -ne 'hook') { continue }
         $phase = $plan.package.scripts[$operation.index].phase
         $positions[$phase] = $index
     }

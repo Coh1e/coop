@@ -16,23 +16,26 @@ $plan = ($text -join "`n") | ConvertFrom-Json
 if ($plan.action -ne 'install' -or $plan.package.name -ne 'jq' -or $plan.package.version -ne '1.8.2' -or $plan.package.architecture -ne '64bit') { throw 'wrong target identity' }
 if ($plan.artifacts.Count -ne 1 -or $plan.artifacts[0].filename -ne 'jq.exe' -or $plan.artifacts[0].sha256 -ne 'a6fc67fedaf9128a3309a1e2ebb8b986aeccf70122ee46d2cb4849e423f0c627') { throw 'artifact mapping wrong' }
 if ($plan.manifest_sha256 -ne (Get-FileHash "$root/buckets/main/bucket/jq.json" -Algorithm SHA256).Hash.ToLower()) { throw 'manifest precondition not bound to bytes' }
-if ('download' -notin $plan.operations.kind -or 'verify' -notin $plan.operations.kind -or 'commit-state' -notin $plan.operations.kind) { throw 'incomplete operation plan' }
-$verifyOperation = @($plan.operations | Where-Object kind -eq 'verify')[0]
-if ($verifyOperation.detail -notmatch 'sha256') { throw 'the operation detail lost the declared digest algorithm' }
+$operations = @($plan.ir_operations | ForEach-Object { $_.operation })
+if ('download' -notin $operations -or 'verify' -notin $operations -or 'commit-state' -notin $operations) { throw 'incomplete operation plan' }
+$verifyOperation = @($plan.ir_operations | Where-Object operation -eq 'verify')[0]
+if ($verifyOperation.effect -notmatch 'sha256') { throw 'the operation effect lost the declared digest algorithm' }
 $after = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object { $_.FullName+':'+(Get-FileHash -LiteralPath $_.FullName).Hash })
 if (@(Compare-Object $before $after).Count -or (Test-Path "$root/.coop")) { throw 'preview changed state' }
-$text = & $CoopExe --root $root adopt jq --dry-run --json
-if ($LASTEXITCODE -eq 0 -or (($text -join "`n") | ConvertFrom-Json).eligibility -ne 'inconsistent') { throw 'incomplete installed fixture incorrectly eligible for adoption' }
-$adopt = ($text -join "`n") | ConvertFrom-Json
-if ($adopt.lifecycle_checks.update -ne 'unverified' -or $adopt.lifecycle_checks.uninstall -ne 'unverified') { throw 'adoption did not cover future lifecycle' }
-if ($adopt.preconditions.Count -lt 3 -or $adopt.local_facts.current_directory -ne [IO.Path]::GetFullPath("$root/apps/jq/current")) { throw 'installation facts not bound' }
+# An installation the other client created is managed from shared facts only: the preview binds
+# the current installation directory and its inputs without any Coop private record.
+$text = & $CoopExe --root $root update jq --dry-run --json
+$sharedPlan = ($text -join "`n") | ConvertFrom-Json
+if ($sharedPlan.preconditions.Count -lt 3 -or $sharedPlan.local_facts.current_directory -ne [IO.Path]::GetFullPath("$root/apps/jq/current")) { throw 'installation facts not bound' }
+if (Test-Path "$root/.coop") { throw 'a shared installation preview wrote a private record' }
 $text = & $CoopExe --root $root uninstall jq --dry-run --json
 $remove = ($text -join "`n") | ConvertFrom-Json
-if ('unlink-current' -notin $remove.operations.kind -or 'remove-commands' -notin $remove.operations.kind -or 'remove-version' -notin $remove.operations.kind) { throw 'uninstall operations incomplete' }
+$removeOperations = @($remove.ir_operations | ForEach-Object { $_.operation })
+if ('unlink-current' -notin $removeOperations -or 'remove-entries' -notin $removeOperations -or 'remove-version' -notin $removeOperations) { throw 'uninstall operations incomplete' }
 $text = & $CoopExe --root $root update jq --dry-run --json
 if ($LASTEXITCODE -ne 0) { throw 'update preview failed' }
 $update = ($text -join "`n") | ConvertFrom-Json
-if ($update.previous_package.version -ne '1.8.2' -or 'remove-version' -in $update.operations.kind) { throw 'update must retain previous version' }
+if ($update.previous_package.version -ne '1.8.2' -or 'remove-version' -in @($update.ir_operations | ForEach-Object { $_.operation })) { throw 'update must retain previous version' }
 $text = & $CoopExe --root $root install rclone --dry-run --json
 if ($LASTEXITCODE -ne 0) { throw 'script preview failed' }
 $script = ($text -join "`n") | ConvertFrom-Json

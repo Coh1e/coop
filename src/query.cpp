@@ -57,13 +57,8 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
             item["architecture"] = fact.architecture;
             item["directory"] = path_text(fact.directory);
             item["status"] = "installed";
-            if (scope == "user") {
-                Package listed;
-                listed.name = fact.name;
-                for (const auto& mapping : fact.persistence)
-                    listed.persistence.push_back({fs::path(wide(mapping.source)),fs::path(wide(mapping.target))});
-                item["persistence"] = persistence_plan_json(context,listed,fact.directory);
-            }
+            if (scope == "user")
+                item["persistence"] = persistence_plan_json(context,fact.name,fact.persistence,fact.directory);
         }
         if (scope == "user") {
             const auto managed = root/L".coop"/L"packages"/(wide(fact.name)+L".json");
@@ -72,7 +67,6 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
                 item["management"] = "managed";
                 item["status"] = record.value("status",std::string("unknown"));
                 item["origin"] = record.value("origin",std::string("coop"));
-                item["adoption_backup"] = record.value("adoption_backup",Json(nullptr));
             } catch (const std::exception& error) {
                 const auto message = std::string("Coop management record is unreadable; shared installation facts are still reported: ")+error.what();
                 item["diagnostics"].push_back(message);
@@ -214,6 +208,25 @@ Json catalog(const Context& context) {
 static std::string lowercase(std::string value) {
     for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     return value;
+}
+std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
+    std::vector<ir::CatalogueEntry> result;
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        const fs::path location(wide(source.at("path").get<std::string>()));
+        if (!fs::is_directory(location)) continue;
+        const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
+        const auto bucket = source.at("name").get<std::string>();
+        for (const auto& entry : catalog_entries(context,source)) {
+            if (!entry.is_object() || !entry.contains("name") || !entry.at("name").is_string()) continue;
+            const auto name = entry.at("name").get<std::string>();
+            result.push_back({name,bucket,directory/(wide(name)+L".json")});
+        }
+    }
+    std::sort(result.begin(), result.end(), [](const ir::CatalogueEntry& a, const ir::CatalogueEntry& b) {
+        return a.bucket+"/"+a.name < b.bucket+"/"+b.name;
+    });
+    return result;
 }
 // `info` reports the normalized IR and its layered diagnostics: a package that cannot currently be
 // executed still appears with the reason. The adapter and validator only read the manifest bytes.

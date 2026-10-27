@@ -19,50 +19,12 @@
 
 namespace coop {
 namespace {
-const char* action_name(Action action) {
+const char* action_name(ir::Action action) {
     switch (action) {
-    case Action::adopt: return "adopt";
-    case Action::install: return "install";
-    case Action::update: return "update";
-    case Action::uninstall: return "uninstall";
-    case Action::reset: return "reset";
-    }
-    return "unknown";
-}
-const char* step_name(StepKind kind) {
-    switch (kind) {
-    case StepKind::download: return "download";
-    case StepKind::verify: return "verify";
-    case StepKind::extract: return "extract";
-    case StepKind::script: return "script";
-    case StepKind::installer: return "installer";
-    case StepKind::publish_current: return "publish-current";
-    case StepKind::commands: return "commands";
-    case StepKind::shortcuts: return "shortcuts";
-    case StepKind::environment: return "environment";
-    case StepKind::persistence: return "persistence";
-    case StepKind::ps_module: return "ps-module";
-    case StepKind::commit_state: return "commit-state";
-    case StepKind::remove_commands: return "remove-commands";
-    case StepKind::unlink_current: return "unlink-current";
-    case StepKind::remove_environment: return "remove-environment";
-    case StepKind::remove_ps_module: return "remove-ps-module";
-    case StepKind::unlink_persistence: return "unlink-persistence";
-    case StepKind::remove_version: return "remove-version";
-    case StepKind::adopt_state: return "adopt-state";
-    case StepKind::uninstaller: return "uninstaller";
-    case StepKind::remove_shortcuts: return "remove-shortcuts";
-    }
-    return "unknown";
-}
-const char* archive_name(ArchiveKind kind) {
-    switch (kind) {
-    case ArchiveKind::none: return "none";
-    case ArchiveKind::zip: return "zip";
-    case ArchiveKind::seven_zip: return "7z";
-    case ArchiveKind::tar: return "tar";
-    case ArchiveKind::msi: return "msi";
-    case ArchiveKind::inno_setup: return "inno-setup";
+    case ir::Action::install: return "install";
+    case ir::Action::update: return "update";
+    case ir::Action::uninstall: return "uninstall";
+    case ir::Action::reset: return "reset";
     }
     return "unknown";
 }
@@ -79,25 +41,16 @@ std::string join_text(const std::vector<std::string>& values, const std::string&
     }
     return result;
 }
-std::string item_text(const Json& item, const char* key) {
-    return item.contains(key) && item.at(key).is_string() ? item.at(key).get<std::string>() : std::string{};
-}
 // Saved dependent manifests are read through the IR adapter, so reverse-dependency evidence uses
 // the same normalized identity as forward dependency planning. Coop's own record is only a fallback
 // when the shared manifest is missing or unreadable.
-bool read_dependent_dependencies(const Context& context, const Json& item, std::vector<ir::Dependency>& dependencies, std::string& problem) {
-    const auto name = item_text(item,"name");
-    const auto scope = item_text(item,"scope");
-    fs::path root = context.root;
-    if (scope == "global") {
-        if (!context.global_root) { problem = "Global root is unknown"; return false; }
-        root = *context.global_root;
-    }
-    const auto current = root/L"apps"/wide(name)/L"current";
+bool read_dependent_dependencies(const Context& context, const ir::InstalledFact& fact,
+                                 std::vector<ir::Dependency>& dependencies, std::string& problem) {
+    (void)context;
     try {
-        const auto manifest = installed_record(current,L"manifest");
-        const auto architecture = item_text(item,"architecture").empty() ? std::string("64bit") : item_text(item,"architecture");
-        const auto definition = ir::adapt_manifest(manifest,name,item_text(item,"bucket"),architecture);
+        const auto manifest = installed_record(fact.directory,L"manifest");
+        const auto definition = ir::adapt_manifest(manifest,fact.name,fact.bucket,
+            fact.architecture.empty() ? std::string("64bit") : fact.architecture);
         for (const auto& diagnostic : definition.diagnostics)
             if (diagnostic.code == "manifest-json" || diagnostic.code == "manifest-shape") {
                 problem = diagnostic.message;
@@ -106,77 +59,71 @@ bool read_dependent_dependencies(const Context& context, const Json& item, std::
         dependencies = definition.dependencies;
         return true;
     } catch (const std::exception& error) { problem = error.what(); }
-    if (scope == "user") {
-        try {
-            const auto record = read_json(context.root/L".coop"/L"packages"/(wide(name)+L".json"));
-            if (record.contains("dependencies") && record.at("dependencies").is_array()) {
-                std::vector<ir::Dependency> saved;
-                for (const auto& entry : record.at("dependencies")) {
-                    if (!entry.is_string()) throw std::runtime_error("Managed dependency record contains a non-string value");
-                    ir::Dependency dependency;
-                    dependency.source = entry.get<std::string>();
-                    dependency.name = dependency_package_name(dependency.source);
-                    saved.push_back(std::move(dependency));
-                }
-                dependencies = std::move(saved);
-                return true;
+    try {
+        const auto record = read_json(context.root/L".coop"/L"packages"/(wide(fact.name)+L".json"));
+        if (record.contains("dependencies") && record.at("dependencies").is_array()) {
+            std::vector<ir::Dependency> saved;
+            for (const auto& entry : record.at("dependencies")) {
+                if (!entry.is_string()) throw std::runtime_error("Managed dependency record contains a non-string value");
+                ir::Dependency dependency;
+                dependency.source = entry.get<std::string>();
+                dependency.name = dependency_package_name(dependency.source);
+                saved.push_back(std::move(dependency));
             }
-        } catch (const std::exception& error) { problem += "; managed record: "+std::string(error.what()); }
-    }
+            dependencies = std::move(saved);
+            return true;
+        }
+    } catch (const std::exception& error) { problem += "; managed record: "+std::string(error.what()); }
     return false;
 }
 void collect_reverse_dependencies(const Context& context, Plan& plan) {
     std::set<std::string> blocking, unverified;
-    for (const auto& item : installed_packages(context)) {
-        const auto name = item_text(item,"name");
-        const auto scope = item_text(item,"scope");
-        if (name.empty()) continue;
-        if (scope == "user" && equal_name(name,plan.package.name)) continue;
-        fs::path root = context.root;
-        if (scope == "global") {
-            if (!context.global_root) continue;
-            root = *context.global_root;
-        }
-        if (!fs::is_directory(root/L"apps"/wide(name)/L"current")) continue;
-        std::vector<ir::Dependency> dependencies;
-        std::string problem;
-        if (!read_dependent_dependencies(context,item,dependencies,problem)) {
-            unverified.insert(scope+"/"+name);
-            continue;
-        }
-        for (const auto& dependency : dependencies) {
-            if (!dependency.name.empty() && equal_name(dependency.name,plan.package.name)) {
-                blocking.insert(name);
-                break;
+    const auto collect = [&](const fs::path& root, const std::string& scope) {
+        for (const auto& fact : ir::read_installations(root)) {
+            if (fact.name.empty()) continue;
+            if (scope == "user" && equal_name(fact.name,plan.package.name)) continue;
+            if (!fs::is_directory(root/L"apps"/wide(fact.name)/L"current")) continue;
+            std::vector<ir::Dependency> dependencies;
+            std::string problem;
+            if (!read_dependent_dependencies(context,fact,dependencies,problem)) {
+                unverified.insert(scope+"/"+fact.name);
+                continue;
+            }
+            for (const auto& dependency : dependencies) {
+                if (!dependency.name.empty() && equal_name(dependency.name,plan.package.name)) {
+                    blocking.insert(fact.name);
+                    break;
+                }
             }
         }
-    }
+    };
+    collect(context.root,"user");
+    if (context.global_root) collect(*context.global_root,"global");
     plan.blocking_dependents.assign(blocking.begin(),blocking.end());
     plan.unverified_dependents.assign(unverified.begin(),unverified.end());
     if (!plan.blocking_dependents.empty())
-        plan.diagnostics.push_back({DiagnosticKind::verification,"blocked-by-dependents",
+        plan.diagnostics.push_back({ir::Layer::verification,"blocked-by-dependents",
             "Installed packages still depend on this package: "+join_text(plan.blocking_dependents,", ")+"; uninstall is refused and no dependent is removed automatically"});
     if (!plan.unverified_dependents.empty())
-        plan.diagnostics.push_back({DiagnosticKind::verification,"dependency-evidence-incomplete",
+        plan.diagnostics.push_back({ir::Layer::verification,"dependency-evidence-incomplete",
             "Saved dependency evidence cannot be read for: "+join_text(plan.unverified_dependents,", ")+"; missing evidence does not prove that no package depends on this one"});
 }
-// The IR planner resolves the package graph. This adapter supplies local catalog identity and
+// The IR planner resolves the package graph. This adapter supplies local catalogue identity and
 // normalized package IR; it does not decide order, cycles or source conflicts itself.
-ir::DependencyResolution resolve_package_dependencies(const Context& context, const Package& package,
+ir::DependencyResolution resolve_package_dependencies(const Context& context, const ir::Package& package,
                                                       bool require_installed) {
-    if (!package.definition) return {};
-    const auto index = catalog(context);
+    const auto index = catalogue(context);
     ir::DependencySource source;
     source.buckets = [index](const std::string& name) {
         std::vector<std::string> buckets;
         for (const auto& item : index)
-            if (equal_name(item_text(item,"name"),name)) buckets.push_back(item_text(item,"bucket"));
+            if (equal_name(item.name,name)) buckets.push_back(item.bucket);
         return buckets;
     };
     source.load = [index,architecture = package.architecture](const std::string& bucket, const std::string& name) {
         for (const auto& item : index)
-            if (equal_name(item_text(item,"name"),name) && equal_name(item_text(item,"bucket"),bucket)) {
-                auto definition = ir::adapt_manifest(fs::path(wide(item_text(item,"path"))),name,bucket,
+            if (equal_name(item.name,name) && equal_name(item.bucket,bucket)) {
+                auto definition = ir::adapt_manifest(item.manifest_path,name,bucket,
                     architecture.empty() ? std::string("64bit") : architecture);
                 ir::validate(definition);
                 return definition;
@@ -184,47 +131,12 @@ ir::DependencyResolution resolve_package_dependencies(const Context& context, co
         throw std::runtime_error("Package not found in local buckets");
     };
     const ir::DependencyBlocker blocker = [&context](const ir::Package& definition) {
-        return package_execution_blocker(context,project_package(definition));
+        return capability_blocker(context,definition);
     };
-    return ir::resolve_dependencies(*package.definition,ir::read_installations(context.root),require_installed,
+    return ir::resolve_dependencies(package,ir::read_installations(context.root),require_installed,
         source,blocker);
 }
-StepKind legacy_step(ir::Operation operation) {
-    switch (operation) {
-    case ir::Operation::download: return StepKind::download;
-    case ir::Operation::verify: return StepKind::verify;
-    case ir::Operation::extract: return StepKind::extract;
-    case ir::Operation::hook: return StepKind::script;
-    case ir::Operation::installer: return StepKind::installer;
-    case ir::Operation::publish_current: return StepKind::publish_current;
-    case ir::Operation::entries: return StepKind::commands;
-    case ir::Operation::shortcuts: return StepKind::shortcuts;
-    case ir::Operation::environment: return StepKind::environment;
-    case ir::Operation::persistence: return StepKind::persistence;
-    case ir::Operation::ps_module: return StepKind::ps_module;
-    case ir::Operation::commit_state: return StepKind::commit_state;
-    case ir::Operation::remove_entries: return StepKind::remove_commands;
-    case ir::Operation::remove_shortcuts: return StepKind::remove_shortcuts;
-    case ir::Operation::remove_environment: return StepKind::remove_environment;
-    case ir::Operation::remove_ps_module: return StepKind::remove_ps_module;
-    case ir::Operation::unlink_persistence: return StepKind::unlink_persistence;
-    case ir::Operation::unlink_current: return StepKind::unlink_current;
-    case ir::Operation::remove_version: return StepKind::remove_version;
-    case ir::Operation::adopt_state: return StepKind::adopt_state;
-    }
-    return StepKind::commit_state;
-}
-// Package actions take their operation sequence from the IR planner only. Preview reports the very
-// same steps, so it cannot describe a different order from the one the plan carries.
-void append_ir_plan(Plan& plan, ir::Action action, bool retain_previous_version) {
-    if (!plan.package.definition) return;
-    const auto package_plan = ir::plan(action,*plan.package.definition,
-        plan.previous && plan.previous->definition ? plan.previous->definition.get() : nullptr,retain_previous_version);
-    for (const auto& step : package_plan.steps)
-        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous,step.effect});
-    plan.ir_steps = package_plan.steps;
-}
-Json external_tools_json(const Context& context, const Package& package) {
+Json external_tools_json(const Context& context, const ir::Package& package) {
     Json result = Json::array();
     for (const auto& tool : package_external_tools(context,package))
         result.push_back({{"name",tool.name},{"purpose",tool.purpose},{"policy",tool.policy},
@@ -232,21 +144,19 @@ Json external_tools_json(const Context& context, const Package& package) {
             {"path",path_text(tool.path)}});
     return result;
 }
-bool has_msi_artifact(const Package& package) {
-    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
-        return artifact.archive == ArchiveKind::msi;
+bool has_format(const ir::Package& package, ir::ArchiveFormat format) {
+    return std::any_of(package.downloads.begin(),package.downloads.end(),[format](const ir::Download& artifact) {
+        return artifact.format == format;
     });
 }
-bool has_inno_artifact(const Package& package) {
-    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
-        return artifact.archive == ArchiveKind::inno_setup;
-    });
-}
-bool has_nsis_payload(const Package& package) {
-    return std::any_of(package.artifacts.begin(),package.artifacts.end(),[](const Artifact& artifact) {
+bool has_msi_artifact(const ir::Package& package) { return has_format(package,ir::ArchiveFormat::msi); }
+bool has_inno_artifact(const ir::Package& package) { return has_format(package,ir::ArchiveFormat::inno_setup); }
+bool has_nsis_payload(const ir::Package& package) {
+    return std::any_of(package.downloads.begin(),package.downloads.end(),[](const ir::Download& artifact) {
         return artifact.installer_payload;
     });
 }
+bool declares_environment(const ir::Package& package) { return !package.environment.empty(); }
 // The permission and reboot facts are stated where the user reviews the plan, and they describe the
 // mechanism Coop actually uses rather than the vendor installer's own behaviour.
 Json msi_extraction_json() {
@@ -307,20 +217,28 @@ Json nsis_extraction_json(const Context& context) {
         {"layout","the whole extracted NSIS payload, or the declared extract_dir selection, then the declared extract_to; file contents and timestamps are what 7-Zip writes"},
         {"limitations","the helper is used only when the verified content is an NSIS installer, so preview cannot promise that the payload needs it; a missing helper, a non-NSIS payload 7-Zip cannot read, or a non-zero helper exit fails with a named non-zero error before a version is published"}};
 }
-Json package_json(const Context& context, const Package& package) {
+Json package_json(const Context& context, const ir::Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
-        {"manifest_path",path_text(package.manifest_path)},{"manifest_sha256",package.manifest_sha256},
+        {"manifest_path",package.manifest_path},{"manifest_sha256",package.manifest_digest},
         {"commands",Json::array()},{"shortcuts",Json::array()},{"persistence",Json::array()},
         {"environment",Json::array()},{"path_entries",Json::array()},{"scripts",Json::array()}};
-    for (const auto& item : package.commands) result["commands"].push_back({{"target",path_text(item.target)},{"name",item.name},{"arguments",item.arguments},{"launcher",command_launcher_name(item.target)}});
-    for (const auto& item : package.shortcuts) result["shortcuts"].push_back({{"target",path_text(item.target)},{"name",item.name},{"arguments",item.arguments},{"icon",path_text(item.icon)}});
-    for (const auto& item : package.persistence) result["persistence"].push_back({{"source",path_text(item.source)},{"target",path_text(item.target)}});
-    for (const auto& item : package.environment) result["environment"].push_back({{"name",item.name},{"value",item.value}});
-    for (const auto& item : package.path_entries) result["path_entries"].push_back(path_text(item));
+    for (const auto& item : package.entries) {
+        const auto target = fs::path(wide(item.target));
+        result["commands"].push_back({{"target",item.target},{"name",item.alias},{"arguments",item.arguments},
+            {"launcher",command_launcher_name(target)}});
+    }
+    for (const auto& item : package.shortcuts)
+        result["shortcuts"].push_back({{"target",item.target},{"name",item.name},{"arguments",item.arguments},{"icon",item.icon}});
+    for (const auto& item : package.persistence)
+        result["persistence"].push_back({{"source",item.source},{"target",item.target}});
+    for (const auto& item : package.environment) {
+        if (item.path_entry) result["path_entries"].push_back(item.value);
+        else result["environment"].push_back({{"name",item.variable},{"value",item.value}});
+    }
     if (package.psmodule) result["psmodule"] = {{"name",package.psmodule->name}};
     const auto host = script_host();
-    for (const auto& script : package.scripts) {
-        Json entry = {{"phase",script_phase_name(script.phase)},{"text",script.text},
+    for (const auto& script : package.hooks) {
+        Json entry = {{"phase",ir::hook_stage_name(script.stage)},{"text",script.text},
             {"host","real PowerShell child process"},
             {"declared_by",script.declared_by},
             {"side_effects","trusted Manifest script text; effects outside the managed package and persist roots cannot be predicted or rolled back, and a failed hook is never re-run automatically"}};
@@ -339,13 +257,14 @@ Json package_json(const Context& context, const Package& package) {
     if (has_msi_artifact(package)) result["msi_extraction"] = msi_extraction_json();
     if (has_inno_artifact(package)) result["inno_setup"] = inno_setup_json(context);
     if (has_nsis_payload(package)) result["nsis_extraction"] = nsis_extraction_json(context);
-    result["dependencies"] = package.dependencies;
+    result["dependencies"] = Json::array();
+    for (const auto& dependency : package.dependencies) result["dependencies"].push_back(dependency.source);
     // Installer/uninstaller programs run through the same real PowerShell host and pinned Scoop
     // library as hook scripts, calling upstream Invoke-Installer. The preview therefore names the
     // declared program, its substitution context, what happens to the program file, and which
     // effects cannot be recovered.
-    const auto process_json = [](const InstallerProcess& process) {
-        return Json{{"file",path_text(process.file)},{"arguments",process.arguments},{"keep",process.keep},
+    const auto process_json = [](const ir::InstallerProgram& process) {
+        return Json{{"file",process.file},{"arguments",process.arguments},{"keep",process.keep},
             {"host","real PowerShell host that loads the pinned Scoop compatibility library and calls upstream Invoke-Installer with the installer/uninstaller hook script suppressed"},
             {"arguments_context",Json::array({"$dir","$global","$version"})},
             {"program_removal",process.keep ?
@@ -386,7 +305,11 @@ std::string dependency_package_name(const std::string& specified) {
     if (const auto slash = value.find('/'); slash != std::string::npos) value.erase(0,slash+1);
     return value;
 }
-Plan make_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
+ir::Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
+                          const std::string& architecture) {
+    return ir::adapt_manifest(path,name,bucket,architecture);
+}
+Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture) {
     Plan plan;
     plan.action = action;
     auto name = request;
@@ -401,41 +324,49 @@ Plan make_plan(const Context& context, Action action, const std::string& request
     if (plan.local.exists) plan.local.directory = operating_path(fs::canonical(plan.local.current));
     // The system-level root is a read-only source of installation facts. A request that names a
     // package installed only there must not be reinterpreted as a user-scope change: update,
-    // uninstall, reset and adopt would otherwise silently target a different installation than
-    // the one the user can see in `list`. A fresh user-scope install remains available and never
-    // writes to the global root.
+    // uninstall and reset would otherwise silently target a different installation than the one
+    // the user can see in `list`. A fresh user-scope install remains available and never writes to
+    // the global root.
     if (!plan.local.exists && context.global_root) {
         const auto global_current = *context.global_root/L"apps"/wide(name)/L"current";
         if (fs::is_directory(global_current)) {
             std::error_code error;
             const auto canonical = fs::weakly_canonical(global_current,error);
             plan.global_installation = operating_path(error ? global_current : canonical);
-            if (action != Action::install)
+            if (action != ir::Action::install)
                 throw std::runtime_error("global-scope-readonly: package '"+name+"' is installed only in the "
                     "read-only system-level root "+path_text(*context.global_root)+
-                    "; Coop does not update, remove or adopt system-level installations");
+                    "; Coop does not update or remove system-level installations");
         }
     }
     const auto read_installed = [&]() {
         if (!plan.local.exists) throw std::runtime_error("No usable local current installation");
+        // The shared install record is decoded by the IR adapter. A missing or corrupt record is
+        // reported as an adapter diagnostic instead of a planner-owned JSON read.
+        ir::InstalledFact fact;
+        for (const auto& candidate : ir::read_installations(context.root))
+            if (equal_name(candidate.name,name)) { fact = candidate; break; }
+        for (const auto& diagnostic : fact.diagnostics)
+            plan.diagnostics.push_back(diagnostic);
         const auto manifest = installed_record(plan.local.current,L"manifest");
         const auto install_path = installed_record(plan.local.current,L"install");
-        const auto install = read_json(install_path);
         plan.preconditions.push_back({install_path,sha256_file(install_path)});
-        auto package = parse_package(manifest,name,install.value("bucket",std::string{}),install.value("architecture",architecture.empty() ? std::string("64bit") : architecture));
-        plan.preconditions.push_back({manifest,package.manifest_sha256});
+        auto package = parse_package(manifest,name,fact.bucket,
+            fact.architecture.empty() ? (architecture.empty() ? std::string("64bit") : architecture) : fact.architecture);
+        ir::validate(package);
+        plan.preconditions.push_back({manifest,package.manifest_digest});
         if (!bucket.empty() && !equal_name(bucket,package.bucket))
-            plan.diagnostics.push_back({DiagnosticKind::environment,"installed-bucket-mismatch","Installed package has a different bucket"});
+            plan.diagnostics.push_back({ir::Layer::environment,"installed-bucket-mismatch","Installed package has a different bucket"});
         return package;
     };
     auto target_architecture = architecture.empty() ? std::string("64bit") : architecture;
-    if (action == Action::update) {
+    if (action == ir::Action::update) {
         plan.previous = read_installed();
         if (bucket.empty()) bucket = plan.previous->bucket;
         if (architecture.empty()) target_architecture = plan.previous->architecture;
         plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
     }
-    if (action == Action::reset) {
+    if (action == ir::Action::reset) {
         // A rollback is resolved only from a local version directory with its saved Manifest and
         // installation record. Remote history is never consulted and no URL is reconstructed.
         plan.previous = read_installed();
@@ -458,6 +389,7 @@ Plan make_plan(const Context& context, Action action, const std::string& request
             throw std::runtime_error("Requested bucket does not match the local version's installation record");
         plan.package = parse_package(fs::path(wide(evidence.at("manifest_path").get<std::string>())),
             name,target_bucket,target_arch);
+        ir::validate(plan.package);
         plan.preconditions.push_back({install_record,sha256_file(install_record)});
         if (!equal_name(plan.package.version,version))
             throw std::runtime_error("Saved Manifest version does not match the requested local version");
@@ -469,62 +401,53 @@ Plan make_plan(const Context& context, Action action, const std::string& request
             const auto expected_install = record.value("install_record_sha256",std::string{});
             const auto expected_stamp = record.value("tree_stamp",std::string{});
             if (!expected_manifest.empty() && expected_manifest != evidence.value("manifest_sha256",std::string{}))
-                plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                plan.diagnostics.push_back({ir::Layer::verification,"retained-version-modified",
                     "Retained Manifest changed after Coop recorded this version; rollback is refused"});
             if (!expected_install.empty() && expected_install != evidence.value("install_record_sha256",std::string{}))
-                plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                plan.diagnostics.push_back({ir::Layer::verification,"retained-version-modified",
                     "Retained installation record changed after Coop recorded this version; rollback is refused"});
             if (!expected_stamp.empty()) {
                 try {
                     if (version_tree_stamp(directory) != expected_stamp)
-                        plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                        plan.diagnostics.push_back({ir::Layer::verification,"retained-version-modified",
                             "Retained version contents changed after Coop recorded them; rollback is refused"});
                 } catch (const std::exception& error) {
-                    plan.diagnostics.push_back({DiagnosticKind::verification,"retained-version-modified",
+                    plan.diagnostics.push_back({ir::Layer::verification,"retained-version-modified",
                         std::string("Retained version contents cannot be inspected: ")+error.what()});
                 }
             }
             break;
         }
         if (!same_persistence(*plan.previous,plan.package))
-            plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
+            plan.diagnostics.push_back({ir::Layer::verification,"persist-change-unverified",
                 "Persist mapping differs from the current version; data rollback is not verified, so the reset is refused"});
         plan.diagnostics.insert(plan.diagnostics.end(),plan.previous->diagnostics.begin(),plan.previous->diagnostics.end());
     }
-    if (action == Action::install || action == Action::update) {
-        Json matches = Json::array();
-        for (const auto& item : catalog(context))
-            if (equal_name(item.at("name"),name) && (bucket.empty() || equal_name(item.at("bucket"),bucket))) matches.push_back(item);
+    if (action == ir::Action::install || action == ir::Action::update) {
+        std::vector<ir::CatalogueEntry> matches;
+        for (const auto& entry : catalogue(context))
+            if (equal_name(entry.name,name) && (bucket.empty() || equal_name(entry.bucket,bucket))) matches.push_back(entry);
         if (matches.size() != 1) throw std::runtime_error(matches.empty() ? "Package not found in local buckets" : "Ambiguous package; qualify it with its bucket");
-        const auto& item = matches.front();
-        plan.package = parse_package(fs::path(wide(item.at("path"))),item.at("name"),item.at("bucket"),target_architecture);
+        const auto& entry = matches.front();
+        plan.package = parse_package(entry.manifest_path,entry.name,entry.bucket,target_architecture);
+        ir::validate(plan.package);
         if (!version.empty() && plan.package.version != version)
-            plan.diagnostics.push_back({DiagnosticKind::environment,"version-unavailable","Requested version is absent locally; no URL will be guessed"});
-        if (action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
-            plan.diagnostics.push_back({DiagnosticKind::verification,"persist-change-unverified",
+            plan.diagnostics.push_back({ir::Layer::environment,"version-unavailable","Requested version is absent locally; no URL will be guessed"});
+        if (action == ir::Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
+            plan.diagnostics.push_back({ir::Layer::verification,"persist-change-unverified",
                 "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
-    } else if (action != Action::reset) {
+    } else if (action != ir::Action::reset) {
         plan.package = read_installed();
         if (!version.empty() && version != plan.package.version)
-            plan.diagnostics.push_back({DiagnosticKind::environment,"installed-version-mismatch","Requested version is not the current local installation"});
-        if (action == Action::adopt) {
-            for (const auto& candidate : catalog(context)) {
-                if (!equal_name(candidate.at("name"),name) || !equal_name(candidate.at("bucket"),plan.package.bucket)) continue;
-                plan.update_candidate = parse_package(fs::path(wide(candidate.at("path"))),name,plan.package.bucket,plan.package.architecture);
-                plan.preconditions.push_back({plan.update_candidate->manifest_path,plan.update_candidate->manifest_sha256});
-                for (const auto& diagnostic : plan.update_candidate->diagnostics)
-                    plan.diagnostics.push_back({diagnostic.kind,"future-update-"+diagnostic.code,diagnostic.message});
-                break;
-            }
-        }
+            plan.diagnostics.push_back({ir::Layer::environment,"installed-version-mismatch","Requested version is not the current local installation"});
     }
-    if (action == Action::install || action == Action::update || action == Action::adopt || action == Action::reset) {
+    if (action != ir::Action::uninstall) {
         // The IR planner resolves the declared dependency graph once. The plan carries the ordered
         // result, so preview, execution and the saved evidence cannot disagree about it.
-        auto resolution = resolve_package_dependencies(context,plan.package,action != Action::install);
+        auto resolution = resolve_package_dependencies(context,plan.package,action != ir::Action::install);
         plan.dependencies = std::move(resolution.dependencies);
         for (const auto& diagnostic : resolution.diagnostics)
-            plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
+            plan.diagnostics.push_back(diagnostic);
         for (const auto& dependency : plan.dependencies) {
             if (dependency.installed) continue;
             plan.preconditions.push_back({fs::path(wide(dependency.package.manifest_path)),dependency.package.manifest_digest});
@@ -532,59 +455,44 @@ Plan make_plan(const Context& context, Action action, const std::string& request
             // executable. Execution refuses that dependency's plan, so preview reports the same
             // diagnostics at the parent level.
             for (const auto& diagnostic : dependency.diagnostics)
-                plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
+                plan.diagnostics.push_back(diagnostic);
         }
     }
-    if (action == Action::install) append_ir_plan(plan,ir::Action::install,true);
-    else if (action == Action::update) append_ir_plan(plan,ir::Action::update,true);
-    else if (action == Action::uninstall) append_ir_plan(plan,ir::Action::uninstall,false);
-    else if (action == Action::adopt) append_ir_plan(plan,ir::Action::adopt,false);
-    else if (action == Action::reset) append_ir_plan(plan,ir::Action::reset,true);
-    if (action == Action::update || action == Action::uninstall || action == Action::reset) {
-        const auto& installed_facts = (action == Action::update || action == Action::reset) && plan.previous ? *plan.previous : plan.package;
+    switch (action) {
+    case ir::Action::install: plan.steps = ir::plan(ir::Action::install,plan.package,nullptr,true).steps; break;
+    case ir::Action::update: plan.steps = ir::plan(ir::Action::update,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
+    case ir::Action::uninstall: plan.steps = ir::plan(ir::Action::uninstall,plan.package,nullptr,false).steps; break;
+    case ir::Action::reset: plan.steps = ir::plan(ir::Action::reset,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
+    }
+    if (plan.steps.empty()) {
+        // An empty sequence is a contract violation, not a successful no-op: refuse it here so no
+        // caller can present or execute a plan that carries no operations.
+        plan.diagnostics.push_back({ir::Layer::validation,"empty-plan",
+            "The IR planner produced no operation for this request; the plan cannot be executed"});
+    }
+    if (action == ir::Action::update || action == ir::Action::uninstall || action == ir::Action::reset) {
+        const auto& installed_facts = (action == ir::Action::update || action == ir::Action::reset) && plan.previous ? *plan.previous : plan.package;
         std::vector<std::string> names;
-        for (const auto& command : installed_facts.commands) names.push_back(command.name);
+        for (const auto& command : installed_facts.entries) names.push_back(command.alias);
         plan.scoop_entry_wrappers = scoop_entry_wrappers(context,installed_facts.name,names);
         for (const auto& wrapper : plan.scoop_entry_wrappers)
             plan.preconditions.push_back({wrapper,sha256_file(wrapper)});
     }
-    plan.preconditions.push_back({plan.package.manifest_path,plan.package.manifest_sha256});
+    plan.preconditions.push_back({fs::path(wide(plan.package.manifest_path)),plan.package.manifest_digest});
     const auto registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) plan.preconditions.push_back({registry,sha256_file(registry)});
     plan.diagnostics.insert(plan.diagnostics.end(),plan.package.diagnostics.begin(),plan.package.diagnostics.end());
-    if (action == Action::adopt) {
-        plan.adoption = assess_adoption(context,plan);
-        plan.diagnostics.insert(plan.diagnostics.end(),plan.adoption->diagnostics.begin(),plan.adoption->diagnostics.end());
-        if (plan.adoption->eligibility == AdoptionEligibility::eligible) {
-            // Plan preconditions compare raw file bytes with SHA256; the artifact's declared digest
-            // algorithm is separate evidence and may be SHA512, SHA1 or MD5.
-            plan.preconditions.push_back({plan.local.directory/wide(plan.package.artifacts.front().filename),
-                sha256_file(plan.local.directory/wide(plan.package.artifacts.front().filename))});
-            for (const auto& command : plan.adoption->commands) {
-                plan.preconditions.push_back(command.executable);
-                plan.preconditions.push_back(command.metadata);
-            }
-            for (const auto& shortcut : plan.adoption->shortcuts) plan.preconditions.push_back({shortcut.path,shortcut.sha256});
-        }
-    }
-    if (action == Action::uninstall) {
-        for (const auto& item : installed_packages(context)) {
-            const auto dependent_name = item_text(item,"name");
-            const auto scope = item_text(item,"scope");
-            if (dependent_name.empty() || (scope == "user" && equal_name(dependent_name,plan.package.name))) continue;
-            fs::path root = context.root;
-            if (scope == "global" && context.global_root) root = *context.global_root;
-            const auto current = root/L"apps"/wide(dependent_name)/L"current";
-            const auto manifest = installed_record(current,L"manifest");
-            if (fs::is_regular_file(manifest)) plan.preconditions.push_back({manifest,sha256_file(manifest)});
-            if (scope == "user") {
-                const auto record = context.root/L".coop"/L"packages"/(wide(dependent_name)+L".json");
-                if (fs::is_regular_file(record)) plan.preconditions.push_back({record,sha256_file(record)});
-            }
-        }
+    if (action == ir::Action::uninstall) {
         collect_reverse_dependencies(context,plan);
+        for (const auto& fact : ir::read_installations(context.root)) {
+            if (equal_name(fact.name,plan.package.name)) continue;
+            const auto manifest = installed_record(fact.directory,L"manifest");
+            if (fs::is_regular_file(manifest)) plan.preconditions.push_back({manifest,sha256_file(manifest)});
+            const auto record = context.root/L".coop"/L"packages"/(wide(fact.name)+L".json");
+            if (fs::is_regular_file(record)) plan.preconditions.push_back({record,sha256_file(record)});
+        }
     }
-    plan.execution_available = execution_blocker(context,plan).empty();
+    plan.blocker = execution_blocker(context,plan);
     return plan;
 }
 void recheck_plan(const Plan& plan) {
@@ -601,9 +509,9 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     auto package_description = package_json(context,plan.package);
     expand_package_arguments(context,plan.package.name,package_description,argument_base);
     Json result = {{"action",action_name(action)},{"package",std::move(package_description)},
-        {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
+        {"manifest_sha256",plan.package.manifest_digest},{"execution_available",plan.executable()},
         {"external_tools",external_tools_json(context,plan.package)},
-        {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},
+        {"artifacts",Json::array()},{"preconditions",Json::array()},
         {"diagnostics",Json::array()},{"warnings",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
     if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
@@ -611,30 +519,28 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     result["scoop_entry_wrappers"] = Json::array();
     for (const auto& wrapper : plan.scoop_entry_wrappers)
         result["scoop_entry_wrappers"].push_back(path_text(wrapper));
-    const auto persistence_directory = (action == Action::install || action == Action::update || action == Action::reset)
+    const auto persistence_directory = (action == ir::Action::install || action == ir::Action::update || action == ir::Action::reset)
         ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version) : plan.local.directory;
-    result["persistence"] = persistence_plan_json(context,plan.package,persistence_directory);
-    if (action == Action::update || action == Action::uninstall)
+    result["persistence"] = persistence_plan_json(context,plan.package.name,plan.package.persistence,persistence_directory);
+    if (action == ir::Action::update || action == ir::Action::uninstall)
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
-    if (action == Action::reset) {
+    if (action == ir::Action::reset) {
         result["current_version"] = plan.previous ? plan.previous->version : std::string{};
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
         result["local_version_reference"] = {{"directory",path_text(persistence_directory)},
-            {"manifest",path_text(plan.package.manifest_path)},{"network","none"},
+            {"manifest",plan.package.manifest_path},{"network","none"},
             {"download_url_guessed",false},{"lifecycle_hooks","not-run"},{"declared_installer_program","not-run"},
             {"data_rollback","none"}};
     }
     Json purge = {{"requested",plan.purge},{"status",plan.purge ? "planned" : "not-requested"},{"scope",Json::array()}};
-    if (plan.purge && action != Action::uninstall) {
+    if (plan.purge && action != ir::Action::uninstall) {
         purge["status"] = "blocked";
         purge["reason"] = "--purge is only supported by uninstall";
     } else if (plan.purge) {
+        // The purge scope comes from the installed package's own declarations and the verified
+        // links; a Coop private record is not a precondition for removing declared data.
         try {
-            const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
-            if (!fs::is_regular_file(record)) throw std::runtime_error("Package is unadopted; purge is refused");
-            const auto managed = read_json(record);
-            purge["scope"] = purge_scope(context,plan.package,plan.local.directory,
-                managed.value("persistence",Json::array()));
+            purge["scope"] = purge_scope(context,plan.package,plan.local.directory);
         } catch (const std::exception& error) {
             purge["status"] = "blocked";
             purge["reason"] = error.what();
@@ -669,66 +575,49 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     }
     // Installation previews keep the historical shape where the requested package appears last in
     // dependency_order. It is reported from the same plan and its own IR steps, not re-derived.
-    if (action == Action::install) {
+    if (action == ir::Action::install) {
         Json requested = {{"package",plan.package.name},
             {"request",plan.package.bucket.empty() ? plan.package.name : plan.package.bucket+"/"+plan.package.name},
             {"bucket",plan.package.bucket},{"version",plan.package.version},{"installed",plan.local.exists},
             {"status",plan.local.exists ? "satisfied" : "planned"},{"requested",true},
-            {"dependencies",declared_json(plan.package.definition ? plan.package.definition->dependencies : std::vector<ir::Dependency>{})},
-            {"ir_operations",steps_json(plan.ir_steps)},{"diagnostics",Json::array()}};
+            {"dependencies",declared_json(plan.package.dependencies)},
+            {"ir_operations",steps_json(plan.steps)},{"diagnostics",Json::array()}};
         result["dependency_order"].push_back(std::move(requested));
     }
     Json planned = Json::array();
     for (const auto& item : plan.dependencies)
         if (!item.installed) planned.push_back(item.name);
-    if (action == Action::install && !plan.local.exists) planned.push_back(plan.package.name);
+    if (action == ir::Action::install && !plan.local.exists) planned.push_back(plan.package.name);
     result["planned_dependencies"] = std::move(planned);
-    const fs::path exposure_base = (action == Action::install || action == Action::update)
+    const fs::path exposure_base = (action == ir::Action::install || action == ir::Action::update)
         ? context.root/L"apps"/wide(plan.package.name)/L"current"
-        : action == Action::reset ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version)
-        : action == Action::adopt ? plan.local.current : plan.local.directory;
+        : action == ir::Action::reset ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version)
+        : plan.local.directory;
     result["exposure"] = exposure_plan_json(context,plan.package,exposure_base);
     // A psmodule package exposes one shared module link. An update that drops the declaration (or
     // an uninstall) plans the removal instead, so the preview never hides what will disappear.
-    // Adoption reuses an existing installation and publishes no exposure of its own, so it reports
-    // no module operation.
-    const Package* psmodule_package = nullptr;
-    if (action != Action::adopt) {
-        if (plan.package.psmodule) psmodule_package = &plan.package;
-        else if (plan.previous && plan.previous->psmodule) psmodule_package = &*plan.previous;
-    }
+    const ir::Package* psmodule_package = nullptr;
+    if (plan.package.psmodule) psmodule_package = &plan.package;
+    else if (plan.previous && plan.previous->psmodule) psmodule_package = &*plan.previous;
     if (psmodule_package) {
-        const bool removal = action == Action::uninstall || !plan.package.psmodule;
+        const bool removal = action == ir::Action::uninstall || !plan.package.psmodule;
         result["ps_module"] = ps_module_plan_json(context,psmodule_package->psmodule->name,
             context.root/L"apps"/wide(psmodule_package->name)/L"current",removal);
     } else {
         result["ps_module"] = Json(nullptr);
     }
-    if (plan.adoption) {
-        Json adopted = Json::array();
-        for (const auto& shortcut : plan.adoption->shortcuts)
-            adopted.push_back({{"name",shortcut.name},{"path",path_text(shortcut.path)},{"sha256",shortcut.sha256}});
-        result["exposure"]["adopted_shortcuts"] = adopted;
-    }
-    if ((action == Action::update || action == Action::uninstall) && plan.local.exists) {
+    if ((action == ir::Action::update || action == ir::Action::uninstall) && plan.local.exists) {
         Json missing = Json::array();
         for (const auto& shortcut : plan.package.shortcuts)
             if (!fs::is_regular_file(shortcut_link_path(context,shortcut.name))) missing.push_back(shortcut.name);
         result["exposure"]["missing_shortcuts"] = missing;
     }
     result["lifecycle_checks"] = {{"install","unverified"},{"update","unverified"},{"uninstall","unverified"}};
-    if (action == Action::adopt && !plan.update_candidate) result["lifecycle_checks"]["update"] = "missing-local-manifest";
-    if (plan.update_candidate) {
-        result["update_candidate"] = package_json(context,*plan.update_candidate);
-        expand_package_arguments(context,plan.update_candidate->name,result["update_candidate"],
-            context.root/L"apps"/wide(plan.update_candidate->name)/L"current");
-        if (!plan.update_candidate->diagnostics.empty()) result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
-    }
     if (!plan.package.diagnostics.empty()) {
         result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
         result["lifecycle_checks"]["uninstall"] = "known-unsupported-or-invalid";
     }
-    if (!plan.package.scripts.empty()) {
+    if (!plan.package.hooks.empty()) {
         const auto host = script_host();
         if (!host.problem.empty()) {
             result["lifecycle_checks"]["install"] = "known-unsupported-or-invalid";
@@ -737,7 +626,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             result["lifecycle_checks"]["hooks"] = "real PowerShell host with the pinned Scoop compatibility library (script text is not whitelisted)";
         }
     }
-    if (plan.previous && !plan.previous->scripts.empty() && !script_host().problem.empty())
+    if (plan.previous && !plan.previous->hooks.empty() && !script_host().problem.empty())
         result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (has_msi_artifact(plan.package) || (plan.previous && has_msi_artifact(*plan.previous)))
         result["lifecycle_checks"]["msi_extraction"] = "read-only Windows Installer database plus the Windows cabinet decompression API; no elevation, reboot, msiexec process or machine-cache write";
@@ -753,38 +642,27 @@ static Json describe_plan(const Context& context, const Plan& plan) {
             "declared external 7-Zip helper "+path_text(helper.path)+
             " with Scoop's Expand-7zipArchive arguments for a content-detected NSIS installer payload; other payloads stay on the native archive reader, the vendor setup.exe is never run and no elevation or reboot is requested";
     }
-    if (plan.update_candidate && !plan.update_candidate->scripts.empty() && !script_host().problem.empty())
-        result["lifecycle_checks"]["update"] = "known-unsupported-or-invalid";
     if (plan.previous) {
         result["previous_package"] = package_json(context,*plan.previous);
         expand_package_arguments(context,plan.previous->name,result["previous_package"],
             context.root/L"apps"/wide(plan.previous->name)/L"current");
     }
-    if (plan.adoption) {
-        static const char* states[] = {"eligible","already-managed","unsupported","untested","inconsistent"};
-        result["eligibility"] = states[static_cast<int>(plan.adoption->eligibility)];
-        result["backup_scope"] = "Original installation metadata and Scoop command entries; installed programs and user data are left in place";
-        if (plan.adoption->eligibility == AdoptionEligibility::eligible) {
-            result["lifecycle_checks"]["update"] = "supported-path";
-            result["lifecycle_checks"]["uninstall"] = "supported-path";
-        }
-    }
-    for (const auto& item : plan.package.artifacts) {
-        Json artifact = {{"archive",archive_name(item.archive)},{"url",item.url},{"filename",item.filename},
-            {"algorithm",ir::digest_algorithm_name(item.algorithm)},{"digest",item.digest},
-            {"hash",std::string(ir::digest_algorithm_name(item.algorithm))+":"+item.digest},
-            {"renamed",item.renamed},{"extract_dir",path_text(item.extract_directory)},
-            {"extract_to",path_text(item.extract_destination)}};
-        if (item.archive == ArchiveKind::msi) {
+    for (const auto& item : plan.package.downloads) {
+        Json artifact = {{"archive",ir::archive_format_name(item.format)},{"url",item.url},{"filename",item.filename},
+            {"algorithm",ir::digest_algorithm_name(item.digest.algorithm)},{"digest",item.digest.value},
+            {"hash",std::string(ir::digest_algorithm_name(item.digest.algorithm))+":"+item.digest.value},
+            {"renamed",item.renamed},{"extract_dir",item.extract_directory},
+            {"extract_to",item.extract_destination}};
+        if (item.format == ir::ArchiveFormat::msi) {
             artifact["extraction"] = "read-only-msi-image";
             artifact["requires_elevation"] = false;
             artifact["reboot_required"] = false;
-        } else if (item.archive == ArchiveKind::inno_setup) {
+        } else if (item.format == ir::ArchiveFormat::inno_setup) {
             artifact["extraction"] = "external-innounp";
             artifact["requires_elevation"] = false;
             artifact["reboot_required"] = false;
             artifact["vendor_installer_executed"] = false;
-            artifact["inno_selection"] = "-c"+inno_selection(path_text(item.extract_directory));
+            artifact["inno_selection"] = "-c"+inno_selection(item.extract_directory);
         } else if (item.installer_payload) {
             artifact["extraction"] = "native-archive-or-external-7zip-nsis";
             artifact["requires_elevation"] = false;
@@ -794,29 +672,24 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         }
         // Keep the historical key only for genuine SHA256 artifacts. A SHA512 value must never be
         // labelled sha256.
-        if (item.algorithm == ir::DigestAlgorithm::sha256) artifact["sha256"] = item.digest;
+        if (item.digest.algorithm == ir::DigestAlgorithm::sha256) artifact["sha256"] = item.digest.value;
         result["artifacts"].push_back(std::move(artifact));
     }
-    for (const auto& item : plan.steps) result["operations"].push_back({{"kind",step_name(item.kind)},{"index",item.index},{"previous_package",item.previous_package},{"detail",item.detail}});
-    // The same IR operations the plan carries, with the effect each one has. Kept beside the legacy
-    // operation list while both paths coexist; a transition can be checked by comparing the two.
-    result["ir_operations"] = Json::array();
-    for (const auto& step : plan.ir_steps)
-        result["ir_operations"].push_back({{"operation",ir::operation_name(step.operation)},{"index",step.index},
-            {"previous_package",step.previous},{"effect",step.effect}});
     Json capabilities = Json::array();
-    if (plan.package.definition) for (const auto& item : plan.package.definition->capabilities)
+    for (const auto& item : plan.package.capabilities)
         capabilities.push_back({{"id",item.id},{"supported",item.supported},{"detail",item.detail}});
     result["capabilities"] = std::move(capabilities);
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
+    // Preview and execution report the same IR operation sequence; there is no second operation
+    // list, so a displayed plan cannot drift from the one the executor consumes.
+    result["ir_operations"] = steps_json(plan.steps);
     static const char* categories[] = {"syntax","adapter","ir","environment","capability","verification"};
-    for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
+    for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.layer)]},{"code",item.code},{"message",item.message}});
     // A warning is a source observation, not a gap: it never changes diagnostics, the exit code or
     // execution_available, but it stays visible wherever a plan is reviewed.
     for (const auto& item : plan.package.warnings)
-        result["warnings"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
-    const auto blocker = execution_blocker(context,plan);
-    if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
+        result["warnings"].push_back({{"category",categories[static_cast<int>(item.layer)]},{"code",item.code},{"message",item.message}});
+    if (!plan.blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",plan.blocker}});
     result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z, MSI, Inno Setup and NSIS installer-payload archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); Inno Setup .exe artifacts are unpacked by the separately installed innounp helper with Scoop's Expand-InnoArchive arguments and layout (the vendor installer is never executed, the helper is detected and never downloaded, and its own [Run]/[Registry]/service/shortcut effects are outside the extraction); an executable self-extractor declared as an archive payload is inspected by content after verification and, when it is an NSIS installer, unpacked by the separately installed 7-Zip helper with Scoop's Expand-7zipArchive arguments (ordinary 7z, ZIP and tar payloads stay native, the vendor setup.exe is never executed, and the helper is detected and never downloaded); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR/PY command entries and Scoop's bash else-branch (extensionless, .config and other targets) with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
     return result;
 }
@@ -826,12 +699,12 @@ struct PackageOutcome {
     std::string reason;
     Json value = Json::object();
 };
-std::string first_diagnostic(const std::vector<Diagnostic>& diagnostics) {
+std::string first_diagnostic(const std::vector<ir::Diagnostic>& diagnostics) {
     return diagnostics.empty() ? std::string{} : diagnostics.front().message;
 }
 // Interactive output keeps the observation visible; JSON consumers read `warnings` instead so the
 // machine-readable contract is not mixed with human-readable lines.
-void print_warnings(const Context& context, const Package& package) {
+void print_warnings(const Context& context, const ir::Package& package) {
     if (context.json_output) return;
     for (const auto& warning : package.warnings) std::cerr << "coop: warning: " << warning.message << '\n';
 }
@@ -841,7 +714,7 @@ void print_json(const Json& value) {
 PackageOutcome install_preview(const Context& context, const std::string& request, const std::string& architecture) {
     PackageOutcome outcome;
     try {
-        auto plan = make_plan(context,Action::install,request,architecture);
+        auto plan = make_plan(context,ir::Action::install,request,architecture);
         print_warnings(context,plan.package);
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
@@ -861,29 +734,25 @@ PackageOutcome install_preview(const Context& context, const std::string& reques
 Plan dependency_execution_plan(const Context& context, const ir::DependencyPlan& item,
                                const std::vector<ir::DependencyPlan>& order) {
     Plan plan;
-    plan.action = Action::install;
-    plan.package = project_package(item.package);
+    plan.action = ir::Action::install;
+    plan.package = item.package;
     plan.dependencies = order;
     plan.local.current = context.root/L"apps"/wide(item.name)/L"current";
-    plan.ir_steps = item.steps;
-    for (const auto& step : item.steps)
-        plan.steps.push_back({legacy_step(step.operation),step.index,step.previous,step.effect});
-    plan.preconditions.push_back({plan.package.manifest_path,plan.package.manifest_sha256});
-    for (const auto& diagnostic : item.diagnostics)
-        plan.diagnostics.push_back({diagnostic_kind(diagnostic.layer),diagnostic.code,diagnostic.message});
-    plan.execution_available = execution_blocker(context,plan).empty();
+    plan.steps = item.steps;
+    plan.preconditions.push_back({fs::path(wide(plan.package.manifest_path)),plan.package.manifest_digest});
+    for (const auto& diagnostic : item.diagnostics) plan.diagnostics.push_back(diagnostic);
+    plan.blocker = execution_blocker(context,plan);
     return plan;
 }
 PackageOutcome install_execute_plan(const Context& context, const Plan& plan, const std::string& request) {
     PackageOutcome outcome;
     Json packages = Json::array();
     Json root_result;
-    const auto blocker = execution_blocker(context,plan);
-    if (!blocker.empty()) {
+    if (!plan.executable()) {
         outcome.failed = true;
         outcome.status = "failed";
-        outcome.reason = blocker;
-        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",blocker}};
+        outcome.reason = plan.blocker;
+        outcome.value = Json{{"package",request},{"action","install"},{"status","failed"},{"reason",plan.blocker}};
         return outcome;
     }
     for (const auto& item : plan.dependencies) {
@@ -932,7 +801,7 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
 }
 PackageOutcome install_execute(const Context& context, const std::string& request, const std::string& architecture) {
     PackageOutcome outcome;
-    try { return install_execute_plan(context,make_plan(context,Action::install,request,architecture),request); }
+    try { return install_execute_plan(context,make_plan(context,ir::Action::install,request,architecture),request); }
     catch (const std::exception& error) {
         outcome.failed = true;
         outcome.status = "failed";
@@ -941,15 +810,14 @@ PackageOutcome install_execute(const Context& context, const std::string& reques
         return outcome;
     }
 }
-Plan prepared_simple_plan(const Context& context, Action action, const std::string& request, const std::string& architecture) {
+Plan prepared_simple_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture) {
     return make_plan(context,action,request,architecture);
 }
-PackageOutcome simple_preview(const Context& context, Action action, const std::string& request, const std::string& architecture, bool purge = false) {
+PackageOutcome simple_preview(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
         auto plan = prepared_simple_plan(context,action,request,architecture);
         plan.purge = purge;
-        plan.execution_available = execution_blocker(context,plan).empty();
         print_warnings(context,plan.package);
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
@@ -968,25 +836,23 @@ PackageOutcome simple_preview(const Context& context, Action action, const std::
     }
     return outcome;
 }
-PackageOutcome simple_execute(const Context& context, Action action, const std::string& request, const std::string& architecture, bool purge = false) {
+PackageOutcome simple_execute(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
         auto plan = prepared_simple_plan(context,action,request,architecture);
         plan.purge = purge;
         print_warnings(context,plan.package);
-        const auto blocker = execution_blocker(context,plan);
-        if (!blocker.empty()) {
+        if (!plan.executable()) {
             outcome.failed = true;
             outcome.status = "failed";
-            outcome.reason = blocker;
+            outcome.reason = plan.blocker;
             outcome.value = Json{{"package",plan.package.name},{"action",action_name(action)},{"status","failed"},{"reason",outcome.reason}};
             return outcome;
         }
         auto result = execute_plan_result(context,plan);
         const auto partial = result.value("status",std::string{}) == "partial";
         outcome.failed = partial;
-        outcome.status = (action == Action::adopt && result.value("status",std::string{}) == "already-managed") ? "skipped" :
-            partial ? "partial" : "success";
+        outcome.status = partial ? "partial" : "success";
         if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
         outcome.value = result;
     } catch (const std::exception& error) {
@@ -1003,10 +869,9 @@ int install_single(const Context& context, const std::string& request, const std
         print_json(outcome.value);
         return outcome.failed ? 1 : 0;
     }
-    auto plan = make_plan(context,Action::install,request,architecture);
+    auto plan = make_plan(context,ir::Action::install,request,architecture);
     print_warnings(context,plan.package);
-    const auto blocker = execution_blocker(context,plan);
-    if (!blocker.empty()) throw std::runtime_error(blocker);
+    if (!plan.executable()) throw std::runtime_error(plan.blocker);
     if (plan.dependencies.empty()) return execute_plan(context,plan);
     const auto outcome = install_execute_plan(context,plan,request);
     if (context.json_output) print_json(outcome.value);
@@ -1058,7 +923,7 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
     }
     return failed ? 1 : 0;
 }
-int simple_single(const Context& context, Action action, const std::string& request, const std::string& architecture, bool dry_run, bool purge = false) {
+int simple_single(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool dry_run, bool purge = false) {
     if (dry_run) {
         const auto outcome = simple_preview(context,action,request,architecture,purge);
         print_json(outcome.value);
@@ -1066,11 +931,10 @@ int simple_single(const Context& context, Action action, const std::string& requ
     }
     auto plan = prepared_simple_plan(context,action,request,architecture);
     plan.purge = purge;
-    const auto blocker = execution_blocker(context,plan);
-    if (!blocker.empty()) throw std::runtime_error(blocker);
+    if (!plan.executable()) throw std::runtime_error(plan.blocker);
     return execute_plan(context,plan);
 }
-int simple_batch(const Context& context, Action action, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run, bool purge = false) {
+int simple_batch(const Context& context, ir::Action action, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run, bool purge = false) {
     Json results = Json::array();
     bool failed = false;
     for (const auto& name : names) {
@@ -1094,19 +958,6 @@ int simple_batch(const Context& context, Action action, const std::vector<std::w
     return failed ? 1 : 0;
 }
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
-    if (command == L"adopt" && args.size() == 1 && args[0] == L"--dry-run") {
-        Json result = Json::array();
-        for (const auto& item : installed_packages(context)) {
-            if (item.at("scope") == "global") {
-                result.push_back({{"package",item},{"eligibility","unsupported"},{"diagnostics",{"System-level roots are read-only"}}});
-                continue;
-            }
-            try { result.push_back(describe_plan(context,make_plan(context,Action::adopt,item.at("name"),architecture))); }
-            catch (const std::exception& error) { result.push_back({{"package",item},{"eligibility","inconsistent"},{"diagnostics",{error.what()}}}); }
-        }
-        print_json(result);
-        return 0;
-    }
     bool dry_run = false;
     bool purge = false;
     std::vector<std::wstring> names;
@@ -1127,9 +978,9 @@ int package_command(const Context& context, const std::wstring& command, const s
     if (purge && command != L"uninstall") throw UsageError("--purge is only supported by uninstall");
     if (names.empty()) throw UsageError("Use one or more packages [--dry-run]");
     if (purge && names.size() > 1) throw UsageError("--purge accepts one package at a time");
-    const auto action = command == L"install" ? Action::install : command == L"update" ? Action::update :
-        command == L"adopt" ? Action::adopt : command == L"reset" ? Action::reset : Action::uninstall;
-    if (action == Action::install) return names.size() > 1
+    const auto action = command == L"install" ? ir::Action::install : command == L"update" ? ir::Action::update :
+        command == L"reset" ? ir::Action::reset : ir::Action::uninstall;
+    if (action == ir::Action::install) return names.size() > 1
         ? install_batch(context,names,architecture,dry_run)
         : install_single(context,utf8(names.front()),architecture,dry_run);
     if (names.size() > 1) return simple_batch(context,action,names,architecture,dry_run,purge);

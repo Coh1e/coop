@@ -71,7 +71,7 @@ $gitUpdatePlan = Get-Json $gitUpdate
 Assert (@($gitUpdatePlan.package.scripts).Count -eq 4) 'installed git update plan did not expose four hook phases'
 Assert ($gitUpdatePlan.package.script_support.library_version -match 'v0\.6\.0') 'hook library version missing from real preview'
 Assert ($gitUpdatePlan.execution_available -eq $true) "installed git update preview is still blocked: $(@($gitUpdatePlan.diagnostics) | ConvertTo-Json -Compress)"
-Assert (@($gitUpdatePlan.operations | Where-Object { $_.kind -eq 'script' }).Count -eq 4) 'git update preview did not list the four hook operations'
+Assert (@($gitUpdatePlan.ir_operations | Where-Object { $_.operation -eq 'hook' }).Count -eq 4) 'git update preview did not list the four hook operations'
 Assert (@($gitUpdatePlan.package.scripts | ForEach-Object { $_.phase }) -contains 'post_install') 'git update plan lost the post_install phase'
 $sevenUpdate = Test-Coop '7zip-update-preview' @('update','7zip','--dry-run','--json')
 Assert ($sevenUpdate.exit -eq 0) "7zip update preview failed: $($sevenUpdate.error)"

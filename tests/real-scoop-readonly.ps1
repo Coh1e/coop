@@ -59,7 +59,7 @@ $evidence = [ordered]@{
     installed_count = $installed.Count
     installed = @($installed | ForEach-Object { [ordered]@{ name = $_.name; version = $_.version; bucket = $_.bucket; architecture = $_.architecture; source = $_.source } })
     preview_target = $target
-    preview_operations = if ($updatePlan) { @($updatePlan.operations | ForEach-Object { $_.kind }) } else { @() }
+    preview_operations = if ($updatePlan) { @($updatePlan.ir_operations | ForEach-Object { $_.operation }) } else { @() }
     preview_ir_operations = if ($updatePlan) { @($updatePlan.ir_operations | ForEach-Object { $_.operation }) } else { @() }
     preview_execution_available = if ($updatePlan) { $updatePlan.execution_available } else { $null }
     preview_diagnostic_codes = if ($updatePlan) { @($updatePlan.diagnostics | ForEach-Object { $_.code }) } else { @() }

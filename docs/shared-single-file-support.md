@@ -10,12 +10,12 @@
   - Scoop 原生 `<shim>.shim`（`path`/`args`）及 Scoop shim 可执行文件；
   - Coop 旧 `<shim>.coop-shim.json` 及 Coop 启动器。
   - 同一入口出现两种元数据会作为冲突拒绝。
-- Scoop shim 可执行文件的身份按共享入口证据判断，不使用固定 SHA256 白名单：`.shim` 的 `path`/`args` 必须指向当前包和参数；启动器可以是 Coop 自身二进制、记录中已观察到的启动器、带有 Scoop shim 程序标记的 PE（GUI shim 与 console shim 只差 PE subsystem），或与同一 root 内另一 `.shim` 共用相同字节的启动器（为未来更换 shim 程序但保留共享复制行为的 Scoop 版本）。明显的外来替换会在预览和执行阶段同时被拒绝。`.shim` 读取器由启动器与执行后端共用，只有一个大小/校验策略；共享更新/卸载忽略未知键，旧 `adopt` 路径把未知键标为 `untested-shim-option` 并读取该诊断，不把字段当作无效证据。
+- Scoop shim 可执行文件的身份按共享入口证据判断，不使用固定 SHA256 白名单：`.shim` 的 `path`/`args` 必须指向当前包和参数；启动器可以是 Coop 自身二进制、记录中已观察到的启动器、带有 Scoop shim 程序标记的 PE（GUI shim 与 console shim 只差 PE subsystem），或与同一 root 内另一 `.shim` 共用相同字节的启动器（为未来更换 shim 程序但保留共享复制行为的 Scoop 版本）。明显的外来替换会在预览和执行阶段同时被拒绝（预览把同一验证结果写入 `execution_available` 与 `execution-blocked` 诊断）。`.shim` 读取器由启动器与执行后端共用，只有一个大小/校验策略；共享更新/卸载忽略未知键，不把未来的 Scoop 字段当作无效证据。
 - `.coop/packages/<包>.json` 只作为附加缓存和恢复证据。记录缺失、过期或来自另一客户端时，执行器重新读取共享事实；只有实际入口/产物被外部改写且无法确认归属时才拒绝。新建安装记录 `origin=coop`；更新已有的 Scoop 共享安装保留 `origin=scoop`，不把 Coop 创建的安装误标为 Scoop 来源。
 
 ## 执行顺序
 
-`ir::plan` 为安装、更新、卸载生成唯一操作序列；执行器逐条消费 `plan.ir_steps`，并在事务日志写入 `observed_steps`。预览的 `ir_operations`、日志中的 `observed_steps` 与实际发生的入口、版本、记录写入使用同一顺序。空操作计划在执行前被拒绝。
+`ir::plan` 为安装、更新、卸载与回退生成唯一操作序列；执行器逐条消费 `plan.steps`，并在事务日志写入 `observed_steps`。预览的 `ir_operations` 就是同一序列，日志中的 `observed_steps` 与实际发生的入口、版本、记录写入使用同一顺序。空操作计划由计划构建标记为诊断，执行前被拒绝。
 
 更新保留旧版本；普通卸载只移除当前入口、current 链接与当前版本目录，持久化数据按后续任务继续细化。首个写入前保存事务日志、输入摘要与准备失败回滚边界；`recover` 读取同一日志恢复可确认归属的 Coop 操作，不重跑脚本。
 
@@ -28,4 +28,3 @@
 - `tests/scoop-interop.ps1`（CTest 名称 `scoop_interop`）：真实 Scoop 风格的 `.shim`、无 Coop 私有记录的更新/卸载、计划与执行日志逐项对应、Scoop reset 后 Coop 继续识别、反向 Coop 安装后由 Scoop 风格入口继续管理，以及共享同一启动器字节的无标记回退与外来启动器拒绝。
 - `tests/real-scoop-alternating.ps1`：在本机同一 Scoop 根上顺序执行 Scoop 安装 → Coop 更新 → Scoop 运行/识别，再由 Coop 安装 → Scoop reset/运行 → Coop 卸载/识别；下载、入口、版本、标准记录与退出码写入任务证据目录。
 - 小样本通过只证明该机制路径，不证明 Main/Extras 全量、所有入口类型、用户环境或安装器已完成。共享归档的更新/卸载已有真实 Scoop→Coop→Scoop 证据，但版本目录内部的任意修改无法像直接文件摘要那样逐一发现；需要内容摘要的场景仍应使用可核对产物的包或后续显式树摘要记录。
-- `adopt` 专用旧路径仍只接受无归档的直接单文件布局；共享归档的实际更新/卸载走 IR 计划路径，不要求先执行 `adopt`。

@@ -65,7 +65,7 @@ foreach ($architecture in @('64bit','32bit','arm64')) {
 Write-Ripgrep '14.1.1'
 $plan = & $CoopExe --root $root install test/ripgrep --dry-run --json | ConvertFrom-Json
 Assert-Exit 'ZIP preview failed'
-if (-not $plan.execution_available -or $plan.artifacts[0].archive -ne 'zip' -or 'extract' -notin @($plan.operations.kind)) { throw 'ZIP preview did not expose native extraction' }
+if (-not $plan.execution_available -or $plan.artifacts[0].archive -ne 'zip' -or 'extract' -notin @($plan.ir_operations | ForEach-Object { $_.operation })) { throw 'ZIP preview did not expose native extraction' }
 if ((Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop/transactions")) { throw 'ZIP preview changed installation state' }
 $install = & $CoopExe --root $root install test/ripgrep --json
 Assert-Exit 'ZIP install failed'

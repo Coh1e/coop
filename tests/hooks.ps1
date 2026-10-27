@@ -134,7 +134,7 @@ Check ((Test-Path -LiteralPath $preview.package.script_support.interpreter)) 'pr
 Check ($preview.package.script_support.problem -eq '') 'preview reported a host problem while the host is usable'
 Check (($preview.package.script_support.phases -join ',') -eq 'pre_install,installer,post_install,pre_uninstall,uninstaller,post_uninstall') 'preview did not disclose all six lifecycle phases'
 Check ((@($preview.package.script_support.undefined_context) -join ' ') -match '\$cmd') 'preview did not explain that $cmd is not a Scoop hook variable'
-Check (@($preview.operations | Where-Object { $_.kind -eq 'script' }).Count -eq 2) 'preview did not list both hook operations'
+Check (@($preview.ir_operations | Where-Object { $_.operation -eq 'hook' }).Count -eq 2) 'preview did not list both hook operations'
 $transactionsAfterPreview = @(Get-ChildItem "$root/.coop/transactions" -Directory | Select-Object -ExpandProperty Name)
 Check (-not (Test-Path -LiteralPath "$root/apps/notes") -and ($transactionsAfterPreview -join ',') -eq ($transactionsAfterPlain -join ',')) 'preview executed a hook or wrote installation state'
 
@@ -537,21 +537,19 @@ $missingLibrary = Parse-Json 'preview-missing-library' $missingLibraryRun
 Check ($missingLibrary.execution_available -eq $false) 'missing Scoop compatibility library stayed executable'
 Check (@($missingLibrary.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'compatibility library' }).Count -eq 1) 'missing compatibility library diagnostic is absent'
 
-# --- 14. Adoption of hook packages stays untested until real evidence exists.
+# --- 14. Shared installations with declared hooks are managed from shared facts; no private
+# management record is required and no adoption step gates the lifecycle.
 $legacyDirectory = "$root/apps/legacyhook/1"
 New-Item -ItemType Directory -Path $legacyDirectory -Force | Out-Null
 [IO.File]::WriteAllBytes("$legacyDirectory/legacy.exe",[IO.File]::ReadAllBytes($fixture1))
 $legacyManifest = @{version='1';url=([Uri]$fixture1).AbsoluteUri+'#/legacy.exe';hash=(File-Hash $fixture1);pre_install=$nodePostInstall}
-Write-Manifest 'main' 'legacyhook' $legacyManifest
 $legacyManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$legacyDirectory/scoop-manifest.json" -Encoding utf8
 @{architecture='64bit';bucket='main'} | ConvertTo-Json | Set-Content -LiteralPath "$legacyDirectory/scoop-install.json" -Encoding utf8
 New-Item -ItemType Junction -Path "$root/apps/legacyhook/current" -Target $legacyDirectory | Out-Null
-$adoptRun = Invoke-Coop 'adopt-preview' @('--root',$root,'adopt','legacyhook','--dry-run','--json')
-$adopt = Parse-Json 'adopt-preview' $adoptRun
-Check ($adopt.eligibility -eq 'untested') 'adoption of a hook package was promoted without real evidence'
-Check (@($adopt.diagnostics | Where-Object { $_.message -match 'script-adoption-unverified' -or $_.message -match 'lifecycle hooks' }).Count -ge 1) 'adoption did not explain the missing hook evidence'
-$adoptReal = Invoke-Coop 'adopt' @('--root',$root,'adopt','legacyhook','--json')
-Check ($adoptReal.exit -ne 0 -and -not (Test-Path -LiteralPath "$root/.coop/packages/legacyhook.json")) 'hook package adoption wrote a management record'
+$sharedPreview = Invoke-Coop 'shared-hook-preview' @('--root',$root,'uninstall','legacyhook','--dry-run','--json')
+$shared = Parse-Json 'shared-hook-preview' $sharedPreview
+Check ($sharedPreview.exit -eq 0 -and @($shared.ir_operations).Count -gt 0) "shared hook package preview produced no IR plan: $($sharedPreview.error)"
+Check (-not (Test-Path -LiteralPath "$root/.coop/packages/legacyhook.json")) 'a read-only preview wrote a private management record'
 
 @{
     timestamp=[DateTime]::UtcNow.ToString('o')

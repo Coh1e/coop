@@ -30,5 +30,5 @@ struct ExternalTool {
     std::string limitation;
     fs::path path;
 };
-std::vector<ExternalTool> package_external_tools(const Context& context, const Package& package);
+std::vector<ExternalTool> package_external_tools(const Context& context, const ir::Package& package);
 }

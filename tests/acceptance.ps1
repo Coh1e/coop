@@ -202,8 +202,9 @@ if (@(Get-ChildItem -LiteralPath $corpusRoot -Force | Where-Object { $_.Name -ne
     throw 'Corpus planning created files outside the copied bucket'
 }
 
-# --- 2. First acceptance path: preview, in-place adoption, local query, explicit bucket
-# update, rejected update, successful update, batch partial failure and uninstall. ---
+# --- 2. First acceptance path: query a shared installation, explicit bucket update, preview,
+# rejected update, successful update, batch partial failure and uninstall. The installation was not
+# taken over: Coop manages the shared Scoop state directly, with no private record requirement. ---
 $root = Join-Path $TestRoot ('first-path-'+[guid]::NewGuid().ToString('N'))
 $source = Join-Path $TestRoot ('source-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path "$root/apps/jq/1.7.1","$source/bucket" -Force | Out-Null
@@ -224,39 +225,29 @@ Assert-SingleWorkload $add 'Local bucket registration'
 $sourceRecord = Convert-JsonOutput $add.text 'bucket add'
 if ($sourceRecord.kind -ne 'local' -or -not (Test-Path -LiteralPath $sourceRecord.path)) { throw 'Registered bucket source is not the project-local directory' }
 $info = Invoke-Guarded 'info-before' @('--root',$root,'info','main/jq','--json')
-Assert-Exit $info.exit 0 'Local query before adoption failed' $info.error
+Assert-Exit $info.exit 0 'Local query before the shared update failed' $info.error
 Assert-SingleWorkload $info 'Local query'
 if ((@(Convert-JsonOutput $info.text 'info before') | Select-Object -First 1).version -ne '1.7.1') { throw 'Registered bucket did not expose the installed version' }
 
 $previewState = Get-StateEvidence $root
-$adoptPreview = Invoke-Guarded 'adopt-preview' @('--root',$root,'adopt','jq','--dry-run','--json')
-Assert-Exit $adoptPreview.exit 0 'Adoption preview failed' $adoptPreview.error
-Assert-SingleWorkload $adoptPreview 'Adoption preview'
-$adoptPlan = Convert-JsonOutput $adoptPreview.text 'adopt preview'
-if ($adoptPlan.eligibility -ne 'eligible' -or -not $adoptPlan.execution_available) { throw "Real jq installation is not eligible for adoption: $($adoptPlan.eligibility)" }
-if ($adoptPlan.lifecycle_checks.update -ne 'supported-path' -or $adoptPlan.lifecycle_checks.uninstall -ne 'supported-path') { throw 'Adoption preview did not assess future update/uninstall' }
-if (@(Compare-Object $previewState (Get-StateEvidence $root)).Count) { throw 'Adoption preview changed installed state' }
-Assert-NoManagementWrite $root 'Adoption preview'
-
-$adopt = Invoke-Guarded 'adopt' @('--root',$root,'adopt','jq','--json')
-Assert-Exit $adopt.exit 0 'In-place adoption failed' $adopt.error
-Assert-SingleWorkload $adopt 'In-place adoption'
-$adopted = Convert-JsonOutput $adopt.text 'adopt'
-if ($adopted.status -ne 'adopted' -or $adopted.version -ne '1.7.1' -or -not (Test-Path -LiteralPath "$($adopted.backup)/evidence.json")) {
-    throw 'Adoption result is incomplete'
-}
-$afterAdopt = @(Get-ChildItem -LiteralPath "$root/apps/jq/1.7.1" -Recurse -File | ForEach-Object { $_.FullName+':'+(Get-FileHash -LiteralPath $_.FullName).Hash }) +
-    @(Get-ChildItem -LiteralPath "$root/shims" -File | ForEach-Object { $_.FullName+':'+(Get-FileHash -LiteralPath $_.FullName).Hash })
-Assert-Unchanged $original $afterAdopt 'Adoption altered the original program, Manifest, install record or command entry'
-if (((& "$root/shims/jq.exe" --version) -join "`n") -notmatch '^jq-1\.7\.1') { throw 'Adoption broke the original command entry' }
-
-$list = Invoke-Guarded 'list-after-adopt' @('--root',$root,'list','--json')
-Assert-Exit $list.exit 0 'Local list after adoption failed' $list.error
+$list = Invoke-Guarded 'list-shared' @('--root',$root,'list','--json')
+Assert-Exit $list.exit 0 'Local list of the shared installation failed' $list.error
 Assert-SingleWorkload $list 'Local list'
-$listed = @(Convert-JsonOutput $list.text 'list after adopt')
-if ($listed.Count -ne 1 -or $listed[0].management -ne 'managed' -or $listed[0].version -ne '1.7.1' -or $listed[0].origin -ne 'scoop') {
-    throw 'Local query did not report the adopted package as managed'
+$listed = @(Convert-JsonOutput $list.text 'list shared')
+if ($listed.Count -ne 1 -or $listed[0].management -ne 'unadopted' -or $listed[0].version -ne '1.7.1' -or
+    -not (Test-Path -LiteralPath "$root/apps/jq/1.7.1/scoop-manifest.json")) {
+    throw 'Local query did not report the shared installation from standard Scoop records'
 }
+if (@(Compare-Object $previewState (Get-StateEvidence $root)).Count) { throw 'Shared installation query changed installed state' }
+Assert-NoManagementWrite $root 'Shared installation query'
+$sharedUpdate = Invoke-Guarded 'shared-update-preview' @('--root',$root,'update','jq','--dry-run','--json')
+Assert-Exit $sharedUpdate.exit 0 'Shared installation update preview failed' $sharedUpdate.error
+$sharedPlan = Convert-JsonOutput $sharedUpdate.text 'shared update preview'
+if (-not $sharedPlan.execution_available -or $sharedPlan.previous_package.version -ne '1.7.1') {
+    throw 'A shared Scoop installation without a private record was not planned for update'
+}
+Assert-NoManagementWrite $root 'Shared installation update preview'
+if (((& "$root/shims/jq.exe" --version) -join "`n") -notmatch '^jq-1\.7\.1') { throw 'Preview broke the original command entry' }
 
 # The source bucket is the only thing that changes: an explicit update must publish jq
 # 1.8.2 and ripgrep 15.2.0 while the installed jq stays at 1.7.1 until update runs.
@@ -278,12 +269,12 @@ Assert-Exit $updatePreview.exit 0 'Update preview failed' $updatePreview.error
 Assert-SingleWorkload $updatePreview 'Update preview'
 $updatePlan = Convert-JsonOutput $updatePreview.text 'update preview'
 if ($updatePlan.previous_package.version -ne '1.7.1' -or $updatePlan.package.version -ne '1.8.2' -or -not $updatePlan.execution_available) {
-    throw 'Update preview did not target the new version from the adopted installation'
+    throw 'Update preview did not target the new version from the shared installation'
 }
 if (@(Compare-Object $updatePreviewState (Get-StateEvidence $root)).Count) { throw 'Update preview changed installed state' }
 if (((& "$root/shims/jq.exe" --version) -join "`n") -notmatch '^jq-1\.7\.1') { throw 'Update preview changed the current entry' }
 
-# A rejected update leaves the adopted current version runnable and records a failure.
+# A rejected update leaves the shared current version runnable and records a failure.
 $corrupt = New-CorpusManifest 'Main/jq' $jq18
 $corrupt.architecture.'64bit'.hash = '0'*64
 Write-JsonFile "$source/bucket/jq.json" $corrupt
@@ -295,7 +286,7 @@ Assert-SingleWorkload $rejected 'Rejected update'
 if (((& "$root/shims/jq.exe" --version) -join "`n") -notmatch '^jq-1\.7\.1') { throw 'Rejected update replaced the current entry' }
 if (Test-Path -LiteralPath "$root/apps/jq/1.8.2") { throw 'Rejected update published a new version directory' }
 $failedList = @(Convert-JsonOutput (Invoke-Coop @('--root',$root,'list','--json')).text 'list after rejected update')
-if ($failedList[0].version -ne '1.7.1' -or $failedList[0].last_operation -ne 'failed' -or $failedList[0].status -ne 'ready') {
+if ($failedList[0].version -ne '1.7.1' -or $failedList[0].last_operation -ne 'failed' -or $failedList[0].status -ne 'installed') {
     throw 'Rejected update was reported as a successful installed state'
 }
 
@@ -303,8 +294,8 @@ Write-JsonFile "$source/bucket/jq.json" (New-CorpusManifest 'Main/jq' $jq18)
 Start-Sleep -Milliseconds 100
 Assert-Exit (Invoke-Coop @('--root',$root,'bucket','update','main','--json')).exit 0 'Bucket update after repairing the Manifest failed'
 $updated = Invoke-Guarded 'update' @('--root',$root,'update','jq','--json')
-Assert-Exit $updated.exit 0 'Update of the adopted package failed' $updated.error
-Assert-SingleWorkload $updated 'Adopted update'
+Assert-Exit $updated.exit 0 'Update of the shared package failed' $updated.error
+Assert-SingleWorkload $updated 'Shared update'
 $updateResult = Convert-JsonOutput $updated.text 'update'
 if ($updateResult.status -ne 'success' -or $updateResult.version -ne '1.8.2' -or '1.7.1' -notin @($updateResult.retained_versions)) {
     throw 'Update result did not retain the previous version'
@@ -328,8 +319,8 @@ if (((& "$root/shims/rg.exe" --version) -join "`n") -notmatch '^ripgrep 15\.2\.0
 Assert-Exit (Invoke-Guarded 'batch-cleanup' @('--root',$root,'uninstall','ripgrep','--json')).exit 0 'Cleanup of the successful batch item failed'
 
 $uninstall = Invoke-Guarded 'uninstall' @('--root',$root,'uninstall','jq','--json')
-Assert-Exit $uninstall.exit 0 'Uninstall of the adopted package failed' $uninstall.error
-Assert-SingleWorkload $uninstall 'Adopted uninstall'
+Assert-Exit $uninstall.exit 0 'Uninstall of the shared package failed' $uninstall.error
+Assert-SingleWorkload $uninstall 'Shared uninstall'
 $uninstallResult = Convert-JsonOutput $uninstall.text 'uninstall'
 if ($uninstallResult.status -ne 'success' -or '1.7.1' -notin @($uninstallResult.retained_versions)) {
     throw 'Uninstall did not report the retained old version'
@@ -389,7 +380,7 @@ if ((Test-Path "$nodeRoot/apps/nodejs/current") -or (Test-Path "$nodeRoot/.coop/
 }
 
 $verifiedLifecycle = @{
-    'Main/jq'='verified: in-place adoption 1.7.1, update 1.8.2, uninstall in this acceptance test'
+    'Main/jq'='verified: shared installation 1.7.1 discovered without takeover, update 1.8.2, uninstall in this acceptance test'
     'Main/ripgrep'='verified: batch install 15.2.0, run entry, uninstall in this acceptance test'
     'Main/nodejs'='verified: install 26.12.1 with real post_install, normal uninstall retaining persist in this acceptance test'
 }
@@ -416,9 +407,10 @@ $evidence = [ordered]@{
     corpus=$corpusResults
     first_path=[ordered]@{
         package='jq'
-        adopted_version='1.7.1'
+        installed_version='1.7.1'
         updated_version='1.8.2'
-        adoption_eligibility=$adoptPlan.eligibility
+        management=$listed[0].management
+        private_record_written=$false
         update_preview_exit=$updatePreview.exit
         rejected_update_exit=$rejected.exit
         rejected_update_state_version=$failedList[0].version
@@ -448,6 +440,6 @@ $evidence = [ordered]@{
 Write-JsonFile (Join-Path $TestRoot 'acceptance-evidence.json') $evidence
 Write-Output ('PASS fixed corpus 20 samples ('+$evidence.corpus_summary.executable+' executable / '+
     $evidence.corpus_summary.unsupported+' unsupported / '+$evidence.corpus_summary.rejected+
-    ' rejected), real jq in-place adoption/query/bucket update/preview/rejection/batch/update/uninstall, real nodejs 7z persist retention: '+
+    ' rejected), real jq shared query/bucket update/preview/rejection/batch/update/uninstall, real nodejs 7z persist retention: '+
     $TestRoot)
 exit 0

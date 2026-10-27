@@ -1,4 +1,4 @@
-﻿#include "package.hpp"
+#include "package.hpp"
 #include "data.hpp"
 #include "native.hpp"
 #include "archive.hpp"
@@ -25,6 +25,11 @@
 
 namespace coop {
 namespace {
+Json dependency_sources(const ir::Package& package) {
+    Json result = Json::array();
+    for (const auto& dependency : package.dependencies) result.push_back(dependency.source);
+    return result;
+}
 void ordinary_parents(const fs::path& root, const fs::path& path) {
     const auto relative = path.lexically_relative(root);
     if (relative.empty() || relative.is_absolute()) throw std::runtime_error("Operation outside selected root");
@@ -37,12 +42,12 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
             throw std::runtime_error("Managed destination contains a reparse point");
     }
 }
-void require_capabilities(const Context& context, const Package& package, bool creating_command_entries = true) {
+void require_capabilities(const Context& context, const ir::Package& package, bool creating_command_entries = true) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
-    if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
+    if (package.downloads.empty()) throw std::runtime_error("Package has no install artifacts");
     // Hook scripts and installer/uninstaller programs share one host requirement: a real PowerShell
     // interpreter plus the pinned Scoop compatibility library. Both are reported before any write.
-    if (!package.scripts.empty() || package.installer || package.uninstaller) {
+    if (!package.hooks.empty() || package.installer || package.uninstaller) {
         const auto host = script_host();
         if (!host.problem.empty()) throw std::runtime_error(host.problem);
     }
@@ -50,12 +55,12 @@ void require_capabilities(const Context& context, const Package& package, bool c
         for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
         return value;
     };
-    for (const auto& artifact : package.artifacts) {
-        switch (artifact.archive) {
-        case ArchiveKind::none:
-        case ArchiveKind::zip:
+    for (const auto& artifact : package.downloads) {
+        switch (artifact.format) {
+        case ir::ArchiveFormat::file:
+        case ir::ArchiveFormat::zip:
             break;
-        case ArchiveKind::tar: {
+        case ir::ArchiveFormat::tar: {
             const auto name = lower_name(artifact.filename);
             const bool supported = name.ends_with(".tar") || name.ends_with(".tar.gz") || name.ends_with(".tgz") ||
                 name.ends_with(".tar.xz") || name.ends_with(".txz") || name.ends_with(".tar.lzma") ||
@@ -64,13 +69,13 @@ void require_capabilities(const Context& context, const Package& package, bool c
             if (!supported) throw std::runtime_error("This tar compression is not supported; gzip, xz, lzma, bzip2 and zstd tar streams are enabled");
             break;
         }
-        case ArchiveKind::seven_zip:
+        case ir::ArchiveFormat::seven_zip:
             break;
-        case ArchiveKind::msi:
+        case ir::ArchiveFormat::msi:
             if (!msi_database_api() || !cabinet_api())
                 throw std::runtime_error("MSI extraction requires the Windows Installer database API (msi.dll) and the Windows cabinet decompression API (cabinet.dll), Windows system components that were not found; Coop never downloads or installs external tools, and it never falls back to msiexec.exe");
             break;
-        case ArchiveKind::inno_setup: {
+        case ir::ArchiveFormat::inno_setup: {
             const auto helper = inno_helper(context);
             if (helper.path.empty()) throw std::runtime_error(helper.problem);
             break;
@@ -83,11 +88,11 @@ void require_capabilities(const Context& context, const Package& package, bool c
     // does not need the host, so uninstall and the replaced side of an update are not blocked by a
     // host that is no longer installed.
     if (creating_command_entries) {
-        for (const auto& command : package.commands) {
-            const auto kind = launcher_kind(command.target);
+        for (const auto& command : package.entries) {
+            const auto kind = launcher_kind(fs::path(wide(command.target)));
             if (kind != LauncherKind::python && kind != LauncherKind::bash) continue;
             if (!command_host_path(kind))
-                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+" -> "+path_text(command.target)+")");
+                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.alias+" -> "+command.target+")");
         }
     }
 }
@@ -98,11 +103,11 @@ fs::path record_relative_path(const std::string& value) {
     for (const auto& part : path) validate_component(path_text(part));
     return path.lexically_normal();
 }
-void verify_installed_files(const Json& managed, const fs::path& directory, const Package& installed) {
+void verify_installed_files(const Json& managed, const fs::path& directory, const ir::Package& installed) {
     if (managed.contains("command_targets") && managed.at("command_targets").is_array()) {
-        for (const auto& command : installed.commands) {
+        for (const auto& command : installed.entries) {
             const auto entry = std::find_if(managed.at("command_targets").begin(),managed.at("command_targets").end(),[&](const Json& item) {
-                return item.is_object() && equal_name(item.value("path",std::string{}),path_text(command.target));
+                return item.is_object() && equal_name(item.value("path",std::string{}),command.target);
             });
             if (entry == managed.at("command_targets").end()) throw std::runtime_error("Managed command target record is missing");
             const auto target = directory/record_relative_path(entry->at("path").get<std::string>());
@@ -111,17 +116,17 @@ void verify_installed_files(const Json& managed, const fs::path& directory, cons
         }
         return;
     }
-    for (const auto& artifact : installed.artifacts) {
-        if (artifact.archive != ArchiveKind::none)
+    for (const auto& artifact : installed.downloads) {
+        if (artifact.format != ir::ArchiveFormat::file)
             throw std::runtime_error("Installed archive layout has no verified file evidence; refusing operation");
         const auto path = directory/wide(artifact.filename);
         if (!fs::is_regular_file(path)) throw std::runtime_error("Installed artifact is missing; refusing operation");
-        if (digest_file(path,artifact.algorithm) != artifact.digest)
+        if (digest_file(path,artifact.digest.algorithm) != artifact.digest.value)
             throw std::runtime_error("Installed artifact changed; refusing operation");
     }
 }
-bool verify_shortcut_ownership(const Context& context, const Package& installed, const Json& managed,
-                               const ShortcutExposure& shortcut, const fs::path& link,
+bool verify_shortcut_ownership(const Context& context, const ir::Package& installed, const Json& managed,
+                               const ir::Shortcut& shortcut, const fs::path& link,
                                const fs::path& installed_directory) {
     // A shortcut removed outside Coop is already revoked: there is nothing left to own or
     // protect, so update/uninstall records the observation and continues. A shortcut that is
@@ -155,9 +160,9 @@ bool verify_shortcut_ownership(const Context& context, const Package& installed,
             // Ownership is confirmed by the launch identity, not by one client's exact bytes;
             // an unreadable or different target/argument/icon is still refused.
             const auto identity = read_shortcut(link);
-            const bool same_launch = identity && same_identity(identity->target,installed_directory/shortcut.target) &&
+            const bool same_launch = identity && same_identity(identity->target,installed_directory/wide(shortcut.target)) &&
                 identity->arguments == expected_arguments &&
-                (shortcut.icon.empty() || identity->icon.empty() || same_identity(identity->icon,installed_directory/shortcut.icon));
+                (shortcut.icon.empty() || identity->icon.empty() || same_identity(identity->icon,installed_directory/wide(shortcut.icon)));
             if (!same_launch)
                 throw std::runtime_error("Shortcut was modified externally; refusing to remove or replace it: "+path_text(link));
         }
@@ -167,12 +172,12 @@ bool verify_shortcut_ownership(const Context& context, const Package& installed,
     // current identity matches the package manifest exactly; otherwise it is left untouched.
     const auto identity = read_shortcut(link);
     if (!identity) throw std::runtime_error("Shared shortcut cannot be read: "+path_text(link));
-    const auto target = installed_directory/shortcut.target;
+    const auto target = installed_directory/wide(shortcut.target);
     if (!same_identity(identity->target,target))
         throw std::runtime_error("Shared shortcut points to a different target: "+path_text(link));
     if (identity->arguments != expected_arguments)
         throw std::runtime_error("Shared shortcut uses different arguments: "+path_text(link));
-    if (!shortcut.icon.empty() && !identity->icon.empty() && !same_identity(identity->icon,installed_directory/shortcut.icon))
+    if (!shortcut.icon.empty() && !identity->icon.empty() && !same_identity(identity->icon,installed_directory/wide(shortcut.icon)))
         throw std::runtime_error("Shared shortcut uses a different icon: "+path_text(link));
     return true;
 }
@@ -212,14 +217,14 @@ void publish_new(const fs::path& source, const fs::path& destination) {
 // shortcut target existing below the version directory, and an inspectable tree with no reparse
 // point at its root. This is the same ownership boundary Scoop uses for reset/uninstall; the
 // version directory itself is package-owned, while declared persistent data is handled separately.
-void verify_shared_artifacts(const Package& installed, const fs::path& directory) {
-    if (installed.artifacts.empty()) throw std::runtime_error("Shared installation has no recorded artifacts");
+void verify_shared_artifacts(const ir::Package& installed, const fs::path& directory) {
+    if (installed.downloads.empty()) throw std::runtime_error("Shared installation has no recorded artifacts");
     bool archive_layout = false;
-    for (const auto& artifact : installed.artifacts) {
-        if (artifact.archive != ArchiveKind::none) { archive_layout = true; continue; }
+    for (const auto& artifact : installed.downloads) {
+        if (artifact.format != ir::ArchiveFormat::file) { archive_layout = true; continue; }
         const auto path = directory/wide(artifact.filename);
         if (!fs::is_regular_file(path)) throw std::runtime_error("Shared installation artifact is missing: "+artifact.filename);
-        if (digest_file(path,artifact.algorithm) != artifact.digest)
+        if (digest_file(path,artifact.digest.algorithm) != artifact.digest.value)
             throw std::runtime_error("Shared installation artifact changed: "+artifact.filename);
     }
     if (!archive_layout) return;
@@ -228,15 +233,15 @@ void verify_shared_artifacts(const Package& installed, const fs::path& directory
     catch (const std::exception& error) {
         throw std::runtime_error(std::string("Shared archive layout cannot be inspected: ")+error.what());
     }
-    for (const auto& command : installed.commands) {
-        const auto target = directory/command.target;
+    for (const auto& command : installed.entries) {
+        const auto target = directory/wide(command.target);
         if (!fs::is_regular_file(target))
-            throw std::runtime_error("Shared archive command target is missing: "+path_text(command.target));
+            throw std::runtime_error("Shared archive command target is missing: "+command.target);
     }
     for (const auto& shortcut : installed.shortcuts) {
-        const auto target = directory/shortcut.target;
+        const auto target = directory/wide(shortcut.target);
         if (!fs::is_regular_file(target))
-            throw std::runtime_error("Shared archive shortcut target is missing: "+path_text(shortcut.target));
+            throw std::runtime_error("Shared archive shortcut target is missing: "+shortcut.target);
     }
 }
 bool path_is_under(const fs::path& path, const fs::path& base) {
@@ -398,26 +403,26 @@ bool shared_scoop_launcher(const Context& context, const std::string& name, cons
 // Direct EXE/COM entries have an exact Scoop-compatible representation (path + optional args).
 // BAT/CMD/PS1/JAR entries use Coop's explicit launcher metadata. PY and bash entries are published
 // as Scoop's native .cmd/sh wrappers instead of a copied launcher.
-bool prefer_scoop_shim(const Package& package) {
-    return package.environment.empty() && package.path_entries.empty() &&
-        std::all_of(package.commands.begin(),package.commands.end(),[](const CommandExposure& command) {
-            return launcher_kind(command.target) == LauncherKind::direct;
+bool prefer_scoop_shim(const ir::Package& package) {
+    return package.environment.empty() &&
+        std::all_of(package.entries.begin(),package.entries.end(),[](const ir::Entry& command) {
+            return launcher_kind(fs::path(wide(command.target))) == LauncherKind::direct;
         });
 }
 // A Manifest may declare the same alias for an executable and for a script target. Scoop keeps both
 // shim families on disk, so removal and preview associate each declaration with its own family
 // instead of assuming the alias maps to one copied launcher.
-bool has_direct_alias(const std::vector<CommandExposure>& commands, const std::string& name, const fs::path& target) {
-    return std::any_of(commands.begin(),commands.end(),[&](const CommandExposure& other) {
-        return equal_name(other.name,name) && !equal_name(path_text(other.target),path_text(target)) &&
-            launcher_kind(other.target) == LauncherKind::direct;
+bool has_direct_alias(const std::vector<ir::Entry>& commands, const std::string& name, const std::string& target) {
+    return std::any_of(commands.begin(),commands.end(),[&](const ir::Entry& other) {
+        return equal_name(other.alias,name) && !equal_name(other.target,target) &&
+            launcher_kind(fs::path(wide(other.target))) == LauncherKind::direct;
     });
 }
-bool wrappers_match_target(const Context& context, const std::string& package, const std::string& name, const fs::path& target) {
+bool wrappers_match_target(const Context& context, const std::string& package, const std::string& name, const std::string& target) {
     const auto wrappers = scoop_entry_wrappers(context,package,{name});
     if (wrappers.empty()) return false;
     return std::any_of(wrappers.begin(),wrappers.end(),[&](const fs::path& wrapper) {
-        return scoop_wrapper_names_target(wrapper,path_text(target));
+        return scoop_wrapper_names_target(wrapper,target);
     });
 }
 struct InstalledEntry {
@@ -437,27 +442,27 @@ struct InstalledEntry {
 // <name>.coop-shim.json). When both are present they describe the same shared entry only if the
 // Scoop view still targets this package's command with the same arguments; anything else remains
 // a real conflict.
-bool compatible_scoop_view(const Context& context, const Package& installed, const CommandExposure& command,
+bool compatible_scoop_view(const Context& context, const ir::Package& installed, const ir::Entry& command,
                            const std::string& expected_arguments, const fs::path& scoop_metadata) {
     ShimMetadata metadata;
     try { metadata = read_shim_metadata(scoop_metadata); }
     catch (const std::exception&) { return false; }
-    if (!same_identity(fs::path(wide(metadata.target)),context.root/L"apps"/wide(installed.name)/L"current"/command.target))
+    if (!same_identity(fs::path(wide(metadata.target)),context.root/L"apps"/wide(installed.name)/L"current"/wide(command.target)))
         return false;
     if (!expected_arguments.empty() && metadata.arguments != expected_arguments) return false;
     return true;
 }
 // Coop writes <name>.coop-shim.json; Scoop writes <name>.shim. A Coop metadata file still describes
 // this shared entry when it names the same package, target, arguments and host kind.
-bool coop_view_matches(const Package& installed, const fs::path& base, const CommandExposure& command,
+bool coop_view_matches(const ir::Package& installed, const fs::path& base, const ir::Entry& command,
                        const std::string& expected_arguments, const fs::path& coop_metadata) {
     Json metadata;
     try { metadata = read_json(coop_metadata); }
     catch (const std::exception&) { return false; }
     return equal_name(metadata.value("package",std::string{}),installed.name) &&
-        same_identity(fs::path(wide(metadata.value("target",std::string{}))),base/command.target) &&
+        same_identity(fs::path(wide(metadata.value("target",std::string{}))),base/wide(command.target)) &&
         metadata.value("arguments",std::string{}) == expected_arguments &&
-        metadata.value("launcher",std::string{}) == command_launcher_name(command.target);
+        metadata.value("launcher",std::string{}) == command_launcher_name(fs::path(wide(command.target)));
 }
 // Either client's launcher executable may be in place after the other client republished the
 // shared entry. Accept Coop's own binary, a recognized Scoop shim, or the exact launcher recorded
@@ -480,7 +485,7 @@ bool trusted_shared_launcher(const Context& context, const Json& record, const s
 // Preview and execution must agree on whether an existing shared entry can be replaced/removed.
 // The .shim target/arguments are the ownership evidence; the launcher must either be Coop's own
 // binary, the exact launcher recorded by Coop, or a Scoop shim identified by its program markers.
-std::string command_entry_blocker(const Context& context, const Package& installed) {
+std::string command_entry_blocker(const Context& context, const ir::Package& installed) {
     const auto shims = context.root/L"shims";
     const auto module_hash = coop_launcher_hash();
     Json record = Json::object();
@@ -489,24 +494,24 @@ std::string command_entry_blocker(const Context& context, const Package& install
         try { record = read_json(record_path); }
         catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
     }
-    for (const auto& command : installed.commands) {
+    for (const auto& command : installed.entries) {
         const auto expected_arguments = expand_exposure_arguments(context,installed.name,
             context.root/L"apps"/wide(installed.name)/L"current",command.arguments);
-        const auto exe = shims/(wide(command.name)+L".exe");
-        const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
-        const auto scoop_metadata = shims/(wide(command.name)+L".shim");
-        if (launcher_kind(command.target) != LauncherKind::direct &&
-            has_direct_alias(installed.commands,command.name,command.target)) {
+        const auto exe = shims/(wide(command.alias)+L".exe");
+        const auto coop_metadata = shims/(wide(command.alias)+L".coop-shim.json");
+        const auto scoop_metadata = shims/(wide(command.alias)+L".shim");
+        if (launcher_kind(fs::path(wide(command.target))) != LauncherKind::direct &&
+            has_direct_alias(installed.entries,command.alias,command.target)) {
             // Scoop keeps the script family as wrappers beside an executable shim of the same
             // alias; the .exe is the effective command, but the wrappers are still owned evidence.
-            if (!wrappers_match_target(context,installed.name,command.name,command.target))
-                return "Managed script wrapper is missing or points to a different target: "+command.name;
+            if (!wrappers_match_target(context,installed.name,command.alias,command.target))
+                return "Managed script wrapper is missing or points to a different target: "+command.alias;
             continue;
         }
         if (!fs::is_regular_file(exe)) {
-            if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) return "Managed command entry is missing: "+command.name;
-            if (!scoop_entry_wrappers(context,installed.name,{command.name}).empty()) continue;
-            return "Managed command entry is missing: "+command.name;
+            if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) return "Managed command entry is missing: "+command.alias;
+            if (!scoop_entry_wrappers(context,installed.name,{command.alias}).empty()) continue;
+            return "Managed command entry is missing: "+command.alias;
         }
         const auto base = context.root/L"apps"/wide(installed.name)/L"current";
         const bool has_coop = fs::exists(coop_metadata);
@@ -519,57 +524,48 @@ std::string command_entry_blocker(const Context& context, const Package& install
             // Both clients published this entry. The shared view is usable when at least one side
             // still describes the installed command; an unusable pair is a real conflict.
             if (!coop_valid && !scoop_valid)
-                return "Command entry has conflicting Coop and Scoop metadata: "+command.name;
+                return "Command entry has conflicting Coop and Scoop metadata: "+command.alias;
         } else if (!has_coop && !has_scoop) {
-            return "Managed command entry metadata is missing: "+command.name;
+            return "Managed command entry metadata is missing: "+command.alias;
         } else if (has_coop) {
-            if (!coop_valid) return "Managed command entry ownership changed: "+command.name;
+            if (!coop_valid) return "Managed command entry ownership changed: "+command.alias;
         } else if (!scoop_valid) {
-            return "Scoop command entry points to a different package or arguments: "+command.name;
+            return "Scoop command entry points to a different package or arguments: "+command.alias;
         }
-        if (!trusted_shared_launcher(context,record,command.name,exe,sha256_file(exe),module_hash,path_text(command.target)))
-            return "Shared command launcher is not recognized and is not recorded by Coop: "+command.name;
+        if (!trusted_shared_launcher(context,record,command.alias,exe,sha256_file(exe),module_hash,command.target))
+            return "Shared command launcher is not recognized and is not recorded by Coop: "+command.alias;
     }
     return {};
 }
 }
-std::string package_execution_blocker(const Context& context, const Package& package) {
+// The only package-level executability check: the IR capability requirements plus the external
+// hosts those entries need. `execution_blocker` adds the plan-specific local facts on top.
+std::string capability_blocker(const Context& context, const ir::Package& package) {
     try { require_capabilities(context,package); } catch (const std::exception& error) { return error.what(); }
     return {};
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
-    if (plan.action == Action::adopt) {
-        if (plan.adoption && plan.adoption->eligibility == AdoptionEligibility::already_managed) return {};
-        for (const auto& dependency : plan.dependencies)
-            if (!dependency.installed)
-                return "Declared dependency is not installed: "+dependency.request;
-        if (!plan.adoption || plan.adoption->eligibility != AdoptionEligibility::eligible)
-            return "Package is not eligible for in-place adoption; inspect --dry-run";
-        return {};
-    }
-    if (plan.action != Action::install && plan.action != Action::uninstall && plan.action != Action::update &&
-        plan.action != Action::reset) return "This action is not executable yet";
     // Reverse dependency protection is the first reason an uninstall can be refused. Reporting it
     // before unrelated lifecycle gaps keeps the user-facing failure about the dependent package.
-    if (plan.action == Action::uninstall) {
+    if (plan.action == ir::Action::uninstall) {
         if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
         if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     }
     try {
-        const bool publishes_entries = plan.action == Action::install || plan.action == Action::update || plan.action == Action::reset;
+        const bool publishes_entries = plan.action == ir::Action::install || plan.action == ir::Action::update || plan.action == ir::Action::reset;
         require_capabilities(context,plan.package,publishes_entries);
         if (plan.previous) require_capabilities(context,*plan.previous,false);
     } catch (const std::exception& error) { return error.what(); }
-    if (plan.action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
+    if (plan.action == ir::Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
         return "Persistence mapping changes are not verified; refusing to update declared data";
-    if (plan.action == Action::reset && plan.previous && !same_persistence(*plan.previous,plan.package))
+    if (plan.action == ir::Action::reset && plan.previous && !same_persistence(*plan.previous,plan.package))
         return "Persistence mapping changes are not verified; refusing to roll back declared data";
-    if (plan.action == Action::update || plan.action == Action::uninstall || plan.action == Action::reset) {
-        const auto& current = plan.action == Action::uninstall ? plan.package : *plan.previous;
+    if (plan.action == ir::Action::update || plan.action == ir::Action::uninstall || plan.action == ir::Action::reset) {
+        const auto& current = plan.action == ir::Action::uninstall ? plan.package : *plan.previous;
         try { verify_persistence(context,current,plan.local.directory); }
         catch (const std::exception& error) { return std::string("Managed persistence state cannot be verified: ")+error.what(); }
     }
-    if (plan.action == Action::reset) {
+    if (plan.action == ir::Action::reset) {
         // Rollback re-publishes a version directory that is already on disk. It is not a download
         // path: the saved Manifest, installation record and actual files are the whole input.
         if (!plan.previous || !plan.local.exists) return "No usable current installation exists for this package";
@@ -586,17 +582,16 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         catch (const std::exception& error) { return "Local version persistence cannot be verified for rollback: "+std::string(error.what()); }
     }
     if (plan.purge) {
-        if (plan.action != Action::uninstall) return "--purge is only supported by uninstall";
-        const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
-        if (!fs::is_regular_file(record)) return "Package is unadopted; purge is refused";
+        if (plan.action != ir::Action::uninstall) return "--purge is only supported by uninstall";
+        // Purge scope is the installed package's own declarations plus the verified link identities;
+        // a Coop private record is not a precondition for deleting declared data.
         try {
-            const auto managed = read_json(record);
-            purge_scope(context,plan.package,plan.local.directory,managed.value("persistence",Json::array()));
+            purge_scope(context,plan.package,plan.local.directory);
         } catch (const std::exception& error) {
             return std::string("Purge scope cannot be verified: ")+error.what();
         }
     }
-    if (plan.action == Action::update || plan.action == Action::reset) {
+    if (plan.action == ir::Action::update || plan.action == ir::Action::reset) {
         for (const auto& dependency : plan.dependencies)
             if (!dependency.installed)
                 return "Declared dependency is not installed: "+dependency.request;
@@ -604,7 +599,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     // Installs may carry planned dependencies; their own plans are executed before this package.
     // A dependency that is neither installed nor planned cannot happen in a resolved plan, but a
     // missing IR sequence would make that state silently acceptable, so refuse it explicitly.
-    if (plan.action == Action::install) {
+    if (plan.action == ir::Action::install) {
         for (const auto& dependency : plan.dependencies)
             if (!dependency.installed && dependency.steps.empty())
                 return "Declared dependency has no executable plan: "+dependency.request;
@@ -612,34 +607,43 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
     if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
-    if (plan.ir_steps.empty()) return "Plan contains no IR operations; execution is refused";
-    if (plan.action == Action::install && plan.local.exists) return "Package already exists; use update";
-    if ((plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) && !plan.local.exists)
+    if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
+    if (plan.action == ir::Action::install && plan.local.exists) return "Package already exists; use update";
+    if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
         return "No usable current installation exists for this package";
     // Shared Scoop installations have no Coop private record. Direct-file artifacts (including
     // multiple downloads) are verified from the saved Manifest and actual files. Archive layouts
     // are verified from the standard apps/<name>/current tree, the saved records and every declared
     // entry target; no private Coop record is a precondition.
-    if ((plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) &&
+    if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) &&
         !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
-        const auto& facts = (plan.action == Action::update || plan.action == Action::reset) && plan.previous ? *plan.previous : plan.package;
+        const auto& facts = (plan.action == ir::Action::update || plan.action == ir::Action::reset) && plan.previous ? *plan.previous : plan.package;
         try { verify_shared_artifacts(facts,plan.local.directory); }
         catch (const std::exception& error) { return error.what(); }
     }
-    if (plan.action == Action::uninstall || plan.action == Action::update || plan.action == Action::reset) {
-        const auto& facts = (plan.action == Action::update || plan.action == Action::reset) && plan.previous ? *plan.previous : plan.package;
+    if (plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) {
+        const auto& facts = (plan.action == ir::Action::update || plan.action == ir::Action::reset) && plan.previous ? *plan.previous : plan.package;
         const auto entry_blocker = command_entry_blocker(context,facts);
         if (!entry_blocker.empty()) return entry_blocker;
+        // Shortcuts are verified by the same function the executor uses, so a preview cannot
+        // claim that a changed or foreign shortcut will be replaced or removed.
+        Json managed = Json::object();
+        const auto record = context.root/L".coop"/L"packages"/(wide(facts.name)+L".json");
+        if (fs::is_regular_file(record)) {
+            try { managed = read_json(record); }
+            catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
+        }
+        for (const auto& shortcut : facts.shortcuts) {
+            try { verify_shortcut_ownership(context,facts,managed,shortcut,shortcut_link_path(context,shortcut.name),plan.local.directory); }
+            catch (const std::exception& error) { return error.what(); }
+        }
     }
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
-    if (plan.purge && plan.action == Action::uninstall && !context.json_output) {
+    if (plan.purge && plan.action == ir::Action::uninstall && !context.json_output) {
         try {
-            const auto record = context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json");
-            const auto managed = read_json(record);
-            const auto scope = purge_scope(context,plan.package,plan.local.directory,
-                managed.value("persistence",Json::array()));
+            const auto scope = purge_scope(context,plan.package,plan.local.directory);
             std::cout << "Purge scope (declared persistent data only):\n";
             for (const auto& entry : scope) std::cout << "  " << entry.at("store").get<std::string>() << '\n';
         } catch (const std::exception&) {
@@ -647,10 +651,6 @@ int execute_plan(const Context& context, const Plan& plan) {
         }
     }
     const auto result = execute_plan_result(context,plan);
-    if (plan.action == Action::adopt) {
-        std::cout << result.dump(2) << '\n';
-        return 0;
-    }
     const bool partial = result.value("status",std::string{}) == "partial";
     if (context.json_output) {
         std::cout << result.dump(2) << '\n';
@@ -684,8 +684,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) throw std::runtime_error(blocker);
     const auto& package = plan.package;
-    const bool updating = plan.action == Action::update;
-    const bool resetting = plan.action == Action::reset;
+    const bool updating = plan.action == ir::Action::update;
+    const bool resetting = plan.action == ir::Action::reset;
     const auto& installed = (updating || resetting) ? plan.previous.value() : package;
     const auto state = context.root/L".coop";
     const auto record_path = state/L"packages"/(wide(package.name)+L".json");
@@ -702,18 +702,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         if (!entry.is_directory()) continue;
         const auto journal_path = entry.path()/L"journal.json";
         if (fs::exists(journal_path) && read_json(journal_path).value("state",std::string{}) == "pending") {
-            if (plan.action == Action::adopt && recover_adoption(context,plan,journal_path)) continue;
             throw std::runtime_error("Pending transaction requires recovery: "+path_text(journal_path));
         }
     }
-    if (plan.action == Action::adopt) return commit_adoption_result(context,plan);
     Json managed = Json::object();
     Json persistence = Json::array();
     Json version_history = Json::array();
     Json purge_entries = Json::array();
     std::vector<FilePrecondition> owned_inputs;
     const bool has_managed_record = fs::exists(record_path);
-    if (plan.action == Action::install) {
+    if (plan.action == ir::Action::install) {
         if (plan.local.exists || fs::exists(version)) throw std::runtime_error("Package already exists; use update");
     } else {
         // Shared Scoop state is the authority. A Coop record is optional evidence: when it is
@@ -722,10 +720,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         if (has_managed_record) managed = read_json(record_path);
         const bool managed_matches_shared = has_managed_record &&
             same_identity(fs::path(wide(managed.value("directory",path_text(plan.local.directory)))),plan.local.directory) &&
-            managed.value("manifest_sha256",std::string{}) == installed.manifest_sha256;
+            managed.value("manifest_digest",std::string{}) == installed.manifest_digest;
         if (!managed_matches_shared) {
             managed["directory"] = path_text(plan.local.directory);
-            managed["manifest_sha256"] = installed.manifest_sha256;
+            managed["manifest_digest"] = installed.manifest_digest;
             managed["version"] = installed.version;
             managed["architecture"] = installed.architecture;
             managed["bucket"] = installed.bucket;
@@ -744,12 +742,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         if (managed_matches_shared) verify_installed_files(managed,plan.local.directory,installed);
         else verify_shared_artifacts(installed,plan.local.directory);
         persistence = verify_persistence(context,installed,plan.local.directory);
-        if (plan.purge) purge_entries = purge_scope(context,installed,plan.local.directory,
-            managed.value("persistence",Json::array()));
+        if (plan.purge) purge_entries = purge_scope(context,installed,plan.local.directory);
         version_history = managed.value("versions",Json::array());
         if (!version_history.is_array()) version_history = Json::array();
         if (version_history.empty()) version_history = scan_version_evidence(app);
-        if (plan.action == Action::update || resetting) {
+        if (plan.action == ir::Action::update || resetting) {
             const bool recorded = std::any_of(version_history.begin(),version_history.end(),[&](const Json& entry) {
                 return entry.is_object() && equal_name(entry.value("version",std::string{}),installed.version);
             });
@@ -757,27 +754,27 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto install_record = installed_record(plan.local.directory,L"install");
                 version_history.push_back({{"version",installed.version},
                     {"directory",path_text(operating_path(fs::canonical(plan.local.directory)))},
-                    {"manifest_sha256",installed.manifest_sha256},
+                    {"manifest_digest",installed.manifest_digest},
                     {"install_record_sha256",fs::is_regular_file(install_record) ? sha256_file(install_record) : std::string{}},
                     {"tree_stamp",version_tree_stamp(plan.local.directory)},
                     {"provenance","previous-current"}});
             }
         }
         if (has_managed_record) owned_inputs.push_back({record_path,sha256_file(record_path)});
-        for (const auto& command : installed.commands) {
-            const auto target = plan.local.directory/command.target;
+        for (const auto& command : installed.entries) {
+            const auto target = plan.local.directory/wide(command.target);
             owned_inputs.push_back({target,sha256_file(target)});
         }
     }
     std::vector<InstalledEntry> installed_entries;
     const auto module_hash = coop_launcher_hash();
-    for (const auto& command : installed.commands) {
+    for (const auto& command : installed.entries) {
         const auto expected_arguments = expand_exposure_arguments(context,installed.name,
             context.root/L"apps"/wide(installed.name)/L"current",command.arguments);
-        const auto exe = shims/(wide(command.name)+L".exe");
-        const auto coop_metadata = shims/(wide(command.name)+L".coop-shim.json");
-        const auto scoop_metadata = shims/(wide(command.name)+L".shim");
-        if (plan.action == Action::install) {
+        const auto exe = shims/(wide(command.alias)+L".exe");
+        const auto coop_metadata = shims/(wide(command.alias)+L".coop-shim.json");
+        const auto scoop_metadata = shims/(wide(command.alias)+L".shim");
+        if (plan.action == ir::Action::install) {
             if (fs::exists(exe) || fs::exists(coop_metadata) || fs::exists(scoop_metadata)) {
                 // A package installation that Scoop removed can leave Coop's own entry metadata
                 // behind (Scoop's rm_shim removes the launcher and its .shim, not .coop-shim.json).
@@ -795,29 +792,29 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 if (!stale_coop_metadata) throw std::runtime_error("Command entry conflicts with an existing file");
             }
-            const auto kind = launcher_kind(command.target);
+            const auto kind = launcher_kind(fs::path(wide(command.target)));
             if (kind != LauncherKind::direct) {
-                const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
-                const auto shell_wrapper = shims/wide(command.name);
-                const auto ps1_wrapper = shims/(wide(command.name)+L".ps1");
+                const auto cmd_wrapper = shims/(wide(command.alias)+L".cmd");
+                const auto shell_wrapper = shims/wide(command.alias);
+                const auto ps1_wrapper = shims/(wide(command.alias)+L".ps1");
                 if (fs::exists(cmd_wrapper) || fs::exists(shell_wrapper) || fs::exists(ps1_wrapper))
                     throw std::runtime_error("Command entry conflicts with an existing file");
             }
             continue;
         }
-        if (launcher_kind(command.target) != LauncherKind::direct &&
-            has_direct_alias(installed.commands,command.name,command.target)) {
+        if (launcher_kind(fs::path(wide(command.target))) != LauncherKind::direct &&
+            has_direct_alias(installed.entries,command.alias,command.target)) {
             // The executable family is the effective command; the script family is published as
             // Scoop wrappers and is removed through plan.scoop_entry_wrappers after verification.
-            if (!wrappers_match_target(context,installed.name,command.name,command.target))
-                throw std::runtime_error("Managed script wrapper is missing or points to a different target: "+command.name);
+            if (!wrappers_match_target(context,installed.name,command.alias,command.target))
+                throw std::runtime_error("Managed script wrapper is missing or points to a different target: "+command.alias);
             continue;
         }
         if (!fs::exists(exe)) {
             if (fs::exists(coop_metadata) || fs::exists(scoop_metadata)) throw std::runtime_error("Managed command entry is missing");
             // Scoop's script-host entries are .cmd/.ps1/sh wrappers without an .exe. They are
             // removed through plan.scoop_entry_wrappers after the content check above.
-            if (!scoop_entry_wrappers(context,installed.name,{command.name}).empty()) continue;
+            if (!scoop_entry_wrappers(context,installed.name,{command.alias}).empty()) continue;
             throw std::runtime_error("Managed command entry is missing");
         }
         const bool has_coop = fs::exists(coop_metadata);
@@ -836,8 +833,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         } else if (!has_coop && !scoop_valid) {
             throw std::runtime_error("Scoop command entry points to a different package or arguments");
         }
-        InstalledEntry entry{command.name,{},exe,{},sha256_file(exe),{}, {}, {}};
-        if (!trusted_shared_launcher(context,managed,command.name,entry.executable,entry.executable_hash,module_hash,path_text(command.target)))
+        InstalledEntry entry{command.alias,{},exe,{},sha256_file(exe),{}, {}, {}};
+        if (!trusted_shared_launcher(context,managed,command.alias,entry.executable,entry.executable_hash,module_hash,command.target))
             throw std::runtime_error("Shared command launcher changed");
         if (has_coop && coop_valid) {
             entry.format = "coop";
@@ -852,8 +849,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (managed.contains("commands") && managed.at("commands").is_array()) {
                 const auto& entries = managed.at("commands");
                 const auto same_command = [&](const Json& item) {
-                    return item.is_object() && equal_name(item.value("name",std::string{}),command.name) &&
-                        (item.value("target",std::string{}).empty() || item.value("target",std::string{}) == path_text(command.target));
+                    return item.is_object() && equal_name(item.value("name",std::string{}),command.alias) &&
+                        (item.value("target",std::string{}).empty() || item.value("target",std::string{}) == command.target);
                 };
                 auto found = std::find_if(entries.begin(),entries.end(),[&](const Json& item) {
                     return same_command(item) && item.contains("metadata_sha256");
@@ -886,7 +883,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     std::vector<std::string> absent_shortcuts;
     for (const auto& shortcut : installed.shortcuts) {
         const auto link = shortcut_link_path(context,shortcut.name);
-        if (plan.action == Action::install) {
+        if (plan.action == ir::Action::install) {
             if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
             continue;
         }
@@ -897,18 +894,18 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
-        if (package.version == installed.version && package.manifest_sha256 == installed.manifest_sha256) {
+        if (package.version == installed.version && package.manifest_digest == installed.manifest_digest) {
             return Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}};
         }
         if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
-        for (const auto& command : package.commands) {
-            if (std::any_of(installed.commands.begin(),installed.commands.end(),[&](const CommandExposure& old) { return equal_name(old.name,command.name); })) continue;
-            if (fs::exists(shims/(wide(command.name)+L".exe")) || fs::exists(shims/(wide(command.name)+L".coop-shim.json")) ||
-                fs::exists(shims/(wide(command.name)+L".shim")))
+        for (const auto& command : package.entries) {
+            if (std::any_of(installed.entries.begin(),installed.entries.end(),[&](const ir::Entry& old) { return equal_name(old.alias,command.alias); })) continue;
+            if (fs::exists(shims/(wide(command.alias)+L".exe")) || fs::exists(shims/(wide(command.alias)+L".coop-shim.json")) ||
+                fs::exists(shims/(wide(command.alias)+L".shim")))
                 throw std::runtime_error("New command entry conflicts with an existing file");
         }
         for (const auto& shortcut : package.shortcuts) {
-            if (std::any_of(installed.shortcuts.begin(),installed.shortcuts.end(),[&](const ShortcutExposure& old) { return equal_name(old.name,shortcut.name); })) continue;
+            if (std::any_of(installed.shortcuts.begin(),installed.shortcuts.end(),[&](const ir::Shortcut& old) { return equal_name(old.name,shortcut.name); })) continue;
             const auto link = shortcut_link_path(context,shortcut.name);
             if (fs::exists(link)) throw std::runtime_error("New shortcut conflicts with an existing file: "+path_text(link));
         }
@@ -926,23 +923,24 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     const auto scripts_directory = transaction/L"scripts";
     fs::create_directories(scripts_directory);
     std::map<std::wstring,fs::path> staged_manifests;
-    const auto staged_manifest = [&](const Package& target) -> fs::path {
-        const auto key = target.manifest_path.wstring();
+    const auto staged_manifest = [&](const ir::Package& target) -> fs::path {
+        const auto manifest_path = fs::path(wide(target.manifest_path));
+        const auto key = manifest_path.wstring();
         if (const auto found = staged_manifests.find(key); found != staged_manifests.end()) return found->second;
-        if (target.manifest_path.empty() || !fs::is_regular_file(target.manifest_path)) {
-            if (target.scripts.empty()) return {};
+        if (manifest_path.empty() || !fs::is_regular_file(manifest_path)) {
+            if (target.hooks.empty()) return {};
             throw std::runtime_error("Lifecycle hooks require the package Manifest, but it is missing: "+
-                path_text(target.manifest_path));
+                target.manifest_path);
         }
         const auto destination = scripts_directory/(wide(target.name)+L"-"+wide(target.version)+L".manifest.json");
-        fs::copy_file(target.manifest_path,destination,fs::copy_options::overwrite_existing);
+        fs::copy_file(manifest_path,destination,fs::copy_options::overwrite_existing);
         staged_manifests.emplace(key,destination);
         return destination;
     };
     // `installed` aliases `package` for install and uninstall; updates carry both records.
-    if (!installed.scripts.empty() || installed.installer || installed.uninstaller) staged_manifest(installed);
-    if (!package.scripts.empty() || package.installer || package.uninstaller) staged_manifest(package);
-    Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : resetting ? "reset" : plan.action == Action::install ? "install" : "uninstall"},
+    if (!installed.hooks.empty() || installed.installer || installed.uninstaller) staged_manifest(installed);
+    if (!package.hooks.empty() || package.installer || package.uninstaller) staged_manifest(package);
+    Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : resetting ? "reset" : plan.action == ir::Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"installers",Json::array()},
         {"shortcuts_already_absent",absent_shortcuts}};
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still
@@ -950,8 +948,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // evidence before deciding whether a current value is package-owned or a later user edit.
     Json user_environment_prior = managed.value("user_environment",Json(nullptr));
     std::string user_environment_source = user_environment_prior.is_null() ? "none" : "coop-record";
-    if (user_environment_prior.is_null() && (updating || resetting || plan.action == Action::uninstall) &&
-        (!installed.environment.empty() || !installed.path_entries.empty())) {
+    if (user_environment_prior.is_null() && (updating || resetting || plan.action == ir::Action::uninstall) &&
+        (!installed.environment.empty())) {
         // Coop publishes environment and PATH declarations against the stable current path, so
         // previous declarations must be expanded the same way rather than against the concrete
         // apps/<package>/<version> target of the junction.
@@ -1001,19 +999,19 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         journal["moves"].back()["moved"] = true; save();
     };
     Json script_runs = Json::array();
-    const auto run_scripts = [&](const Package& hooks, ScriptPhase phase, const fs::path& directory,
+    const auto run_scripts = [&](const ir::Package& target, ir::HookStage stage, const fs::path& directory,
                                  const fs::path& original_directory, const char* command, bool previous,
                                  std::size_t only_index = static_cast<std::size_t>(-1)) {
-        for (std::size_t index = 0; index < hooks.scripts.size(); ++index) {
-            if (hooks.scripts[index].phase != phase) continue;
+        for (std::size_t index = 0; index < target.hooks.size(); ++index) {
+            if (target.hooks[index].stage != stage) continue;
             if (only_index != static_cast<std::size_t>(-1) && index != only_index) continue;
-            journal["scripts"].push_back({{"phase",script_phase_name(phase)},{"index",index},{"package",hooks.name},
+            journal["scripts"].push_back({{"phase",ir::hook_stage_name(stage)},{"index",index},{"package",target.name},
                 {"previous_package",previous},{"directory",path_text(directory)},{"command",command},{"status","running"},
                 {"external_side_effects","unknown; effects outside the managed package and persist roots are not rolled back, and a failed hook is not re-run automatically"}});
             save();
             ScriptRun run;
-            try { run = run_package_script(context,hooks,index,directory,original_directory,
-                context.root/L"persist"/wide(hooks.name),transaction,command,plan.purge,staged_manifest(hooks)); }
+            try { run = run_package_script(context,target,index,directory,original_directory,
+                context.root/L"persist"/wide(target.name),transaction,command,plan.purge,staged_manifest(target)); }
             catch (const std::exception& error) {
                 journal["scripts"].back()["status"] = "failed";
                 journal["scripts"].back()["error"] = error.what();
@@ -1029,13 +1027,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             record["manifest"] = path_text(run.manifest_path);
             record["scoop_library"] = path_text(run.library);
             record["scoop_library_version"] = script_host().library_version;
-            record["context"] = {{"app",hooks.name},{"bucket",hooks.bucket},{"version",hooks.version},
-                {"architecture",hooks.architecture},
-                {"fname",hooks.artifacts.empty() ? std::string{} : hooks.artifacts.front().filename},
+            record["context"] = {{"app",target.name},{"bucket",target.bucket},{"version",target.version},
+                {"architecture",target.architecture},
+                {"fname",target.downloads.empty() ? std::string{} : target.downloads.front().filename},
                 {"dir",path_text(directory)},{"original_dir",path_text(original_directory)},
-                {"persist_dir",path_text(context.root/L"persist"/wide(hooks.name))},
+                {"persist_dir",path_text(context.root/L"persist"/wide(target.name))},
                 {"bucketsdir",path_text(context.root/L"buckets")},{"scoopdir",path_text(context.root)},
-                {"global",false},{"purge",plan.action == Action::uninstall && plan.purge}};
+                {"global",false},{"purge",plan.action == ir::Action::uninstall && plan.purge}};
             record["stdout_log"] = path_text(run.stdout_path);
             record["stderr_log"] = path_text(run.stderr_path);
             record["stdout_bytes"] = run.stdout_bytes;
@@ -1044,9 +1042,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             record["stderr_tail"] = script_json_text(run.stderr_tail);
             save();
             script_runs.push_back(record);
-            test_fault_point(context,std::string("after-script:")+script_phase_name(phase));
+            test_fault_point(context,std::string("after-script:")+ir::hook_stage_name(stage));
             if (run.exit_code != 0)
-                throw std::runtime_error(std::string(script_phase_name(phase))+" hook failed with exit code "+
+                throw std::runtime_error(std::string(ir::hook_stage_name(stage))+" hook failed with exit code "+
                     std::to_string(run.exit_code)+"; output was captured in "+path_text(run.stdout_path)+
                     " and "+path_text(run.stderr_path));
         }
@@ -1056,7 +1054,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // declared program's checks, argument substitution, exit code and keep=false removal, so this
     // backend only binds the directory/stage context and records the evidence.
     Json installer_runs = Json::array();
-    const auto run_installer = [&](const Package& target, const ir::InstallerProgram& program,
+    const auto run_installer = [&](const ir::Package& target, const ir::InstallerProgram& program,
                                    bool uninstall, const fs::path& directory, const char* command,
                                    bool previous) {
         const auto phase = std::string(uninstall ? "uninstaller" : "installer");
@@ -1108,11 +1106,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // fragment rename and the declared digest algorithm, so preview, execution and recovery
     // evidence describe the same inputs.
     journal["artifacts"] = Json::array();
-    for (std::size_t index = 0; index < package.artifacts.size(); ++index) {
-        const auto& artifact = package.artifacts[index];
+    for (std::size_t index = 0; index < package.downloads.size(); ++index) {
+        const auto& artifact = package.downloads[index];
         journal["artifacts"].push_back({{"index",index},{"url",artifact.url},{"filename",artifact.filename},
-            {"renamed",artifact.renamed},{"algorithm",ir::digest_algorithm_name(artifact.algorithm)},
-            {"digest",artifact.digest}});
+            {"renamed",artifact.renamed},{"algorithm",ir::digest_algorithm_name(artifact.digest.algorithm)},
+            {"digest",artifact.digest.value}});
     }
     journal["downloads"] = Json::array();
     save();
@@ -1124,7 +1122,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     try {
         const auto stage = transaction/L"payload";
         const auto downloads = transaction/L"downloads";
-        std::vector<fs::path> downloaded_files(package.artifacts.size());
+        std::vector<fs::path> downloaded_files(package.downloads.size());
         bool stage_ready = false;
         bool version_published = false;
         bool preparation_checked = false;
@@ -1157,7 +1155,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (stage_ready) return;
             fs::create_directories(stage);
             fs::create_directories(downloads);
-            fs::copy_file(package.manifest_path,stage/L"scoop-manifest.json",fs::copy_options::overwrite_existing);
+            fs::copy_file(fs::path(wide(package.manifest_path)),stage/L"scoop-manifest.json",fs::copy_options::overwrite_existing);
             write_json(stage/L"scoop-install.json",{{"architecture",package.architecture},{"bucket",package.bucket}});
             stage_ready = true;
         };
@@ -1187,7 +1185,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         };
         // Every package action is driven by the IR sequence the plan carries. The switch below is
         // the execution backend for each operation, never a second source of package ordering.
-        for (const auto& step : plan.ir_steps) {
+        for (const auto& step : plan.steps) {
             journal["stage"] = ir::operation_name(step.operation);
             if (!journal.contains("observed_steps")) journal["observed_steps"] = Json::array();
             journal["observed_steps"].push_back(ir::operation_name(step.operation));
@@ -1195,31 +1193,26 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             switch (step.operation) {
             case ir::Operation::download: {
                 ensure_stage();
-                if (step.index >= package.artifacts.size()) throw std::runtime_error("Plan download index is out of range");
-                const auto& artifact = package.artifacts[step.index];
+                if (step.index >= package.downloads.size()) throw std::runtime_error("Plan download index is out of range");
+                const auto& artifact = package.downloads[step.index];
                 const auto downloaded = downloads/(std::to_wstring(step.index)+L"-"+wide(artifact.filename));
                 download_file(artifact.url,downloaded);
                 downloaded_files[step.index] = downloaded;
                 journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
                     {"filename",artifact.filename},{"renamed",artifact.renamed},
-                    {"algorithm",ir::digest_algorithm_name(artifact.algorithm)},{"expected_digest",artifact.digest},
+                    {"algorithm",ir::digest_algorithm_name(artifact.digest.algorithm)},{"expected_digest",artifact.digest.value},
                     {"bytes",fs::file_size(downloaded)}});
                 save();
                 break;
             }
             case ir::Operation::verify: {
-                if (step.index >= package.artifacts.size() || downloaded_files[step.index].empty())
+                if (step.index >= package.downloads.size() || downloaded_files[step.index].empty())
                     throw std::runtime_error("Plan verification has no downloaded artifact");
-                const auto& artifact = package.artifacts[step.index];
-                // The IR declaration is authority for the algorithm; the projected record only
-                // mirrors it for the legacy helpers. Never fall back to SHA256 for a SHA512 or
-                // SHA1 declaration.
-                auto algorithm = artifact.algorithm;
-                auto expected = artifact.digest;
-                if (package.definition && step.index < package.definition->downloads.size()) {
-                    algorithm = package.definition->downloads[step.index].digest.algorithm;
-                    expected = package.definition->downloads[step.index].digest.value;
-                }
+                const auto& artifact = package.downloads[step.index];
+                // The IR declaration is authority for the digest algorithm and value. Never fall
+                // back to SHA256 for a SHA512 or SHA1 declaration.
+                const auto algorithm = artifact.digest.algorithm;
+                const auto expected = artifact.digest.value;
                 const auto actual = digest_file(downloaded_files[step.index],algorithm);
                 if (actual != expected)
                     throw std::runtime_error("Artifact "+std::string(ir::digest_algorithm_name(algorithm))+
@@ -1227,7 +1220,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
                 journal["downloads"][std::size_t(step.index)]["verified"] = true;
                 save();
-                if (artifact.archive == ArchiveKind::none) {
+                if (artifact.format == ir::ArchiveFormat::file) {
                     ensure_stage();
                     const auto target = stage/wide(artifact.filename);
                     if (!fs::copy_file(downloaded_files[step.index],target,fs::copy_options::none))
@@ -1236,16 +1229,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             }
             case ir::Operation::extract: {
-                if (step.index >= package.artifacts.size() || downloaded_files[step.index].empty())
+                if (step.index >= package.downloads.size() || downloaded_files[step.index].empty())
                     throw std::runtime_error("Plan extraction has no downloaded artifact");
                 ensure_stage();
-                const auto& artifact = package.artifacts[step.index];
+                const auto& artifact = package.downloads[step.index];
                 const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
                 // Inno Setup extraction selects the declared Inno directory with innounp's own -c
                 // switch, so the merge below starts at the extracted root instead of applying
                 // extract_dir a second time.
                 fs::path merge_directory = artifact.extract_directory;
-                if (artifact.archive == ArchiveKind::msi) {
+                if (artifact.format == ir::ArchiveFormat::msi) {
                     // MSI artifacts are extracted from a read-only view of the installer database and
                     // its embedded cabinets. The journal records that no msiexec process, machine
                     // cache entry, elevation or reboot is involved, next to what was actually read.
@@ -1257,7 +1250,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     entry["filename"] = artifact.filename;
                     journal["msi_extractions"].push_back(std::move(entry));
                     save();
-                } else if (artifact.archive == ArchiveKind::inno_setup) {
+                } else if (artifact.format == ir::ArchiveFormat::inno_setup) {
                     const auto helper = inno_helper(context);
                     if (helper.path.empty()) throw std::runtime_error(helper.problem);
                     auto entry = extract_inno_archive(context,helper.path,downloaded_files[step.index],raw,
@@ -1268,7 +1261,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     journal["inno_extractions"].push_back(std::move(entry));
                     save();
                     merge_directory.clear();
-                } else if ((artifact.archive == ArchiveKind::zip || artifact.archive == ArchiveKind::seven_zip) &&
+                } else if ((artifact.format == ir::ArchiveFormat::zip || artifact.format == ir::ArchiveFormat::seven_zip) &&
                            inspect_nsis_payload(downloaded_files[step.index]).detected) {
                     // The declared suffix only describes the transport. An NSIS installer is
                     // unpacked by the 7-Zip helper that Scoop's Expand-7zipArchive also uses; the
@@ -1296,30 +1289,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             }
             case ir::Operation::hook: {
-                const auto& hooks = step.previous ? installed : package;
-                if (!hooks.definition || step.index >= hooks.definition->hooks.size())
+                const auto& source = step.previous ? installed : package;
+                if (step.index >= source.hooks.size())
                     throw std::runtime_error("Plan hook index is out of range");
-                const auto stage_kind = hooks.definition->hooks[step.index].stage;
-                ScriptPhase phase = ScriptPhase::before_install;
-                switch (stage_kind) {
-                case ir::HookStage::pre_install: phase = ScriptPhase::before_install; break;
-                case ir::HookStage::installer: phase = ScriptPhase::installer; break;
-                case ir::HookStage::post_install: phase = ScriptPhase::after_install; break;
-                case ir::HookStage::pre_uninstall: phase = ScriptPhase::before_uninstall; break;
-                case ir::HookStage::uninstaller: phase = ScriptPhase::uninstaller; break;
-                case ir::HookStage::post_uninstall: phase = ScriptPhase::after_uninstall; break;
-                }
-                if (step.previous || plan.action == Action::uninstall) {
+                const auto hook_stage = source.hooks[step.index].stage;
+                if (step.previous || plan.action == ir::Action::uninstall) {
                     ensure_preparation();
-                    run_scripts(installed,phase,plan.local.directory,plan.local.directory,
+                    run_scripts(installed,hook_stage,plan.local.directory,plan.local.directory,
                         step.previous && updating ? "update" : "uninstall",step.previous,step.index);
                 } else {
                     ensure_preparation();
                     ensure_version();
-                    const bool after = stage_kind == ir::HookStage::post_install;
+                    const bool after = hook_stage == ir::HookStage::post_install;
                     const auto directory = after ? app/L"current" : version;
                     const auto original = after ? version : version;
-                    run_scripts(package,phase,directory,original,updating ? "update" : "install",false,step.index);
+                    run_scripts(package,hook_stage,directory,original,updating ? "update" : "install",false,step.index);
                 }
                 break;
             }
@@ -1329,17 +1313,15 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // the installer hook or, for a removal, after pre_uninstall and before the
                 // uninstaller hook.
                 const auto& target = step.previous ? installed : package;
-                const bool uninstall = step.previous || plan.action == Action::uninstall;
+                const bool uninstall = step.previous || plan.action == ir::Action::uninstall;
                 const ir::InstallerProgram* program = nullptr;
-                if (target.definition) {
-                    const auto& section = uninstall ? target.definition->uninstaller : target.definition->installer;
-                    if (section) program = &*section;
-                }
+                const auto& section = uninstall ? target.uninstaller : target.installer;
+                if (section) program = &*section;
                 if (!program)
                     throw std::runtime_error("Plan installer step has no declared "+
                         std::string(uninstall ? "uninstaller" : "installer")+" program in the package IR");
                 ensure_preparation();
-                const bool old_version = step.previous || plan.action == Action::uninstall;
+                const bool old_version = step.previous || plan.action == ir::Action::uninstall;
                 if (!old_version) ensure_version();
                 const auto directory = old_version ? plan.local.directory : version;
                 const auto command_name = old_version ? (step.previous && updating ? "update" : "uninstall") :
@@ -1382,7 +1364,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // says Coop added the shared modules directory to PSModulePath and no other module
                 // link still needs it, remove exactly that entry. Everything else is preserved.
                 ensure_preparation();
-                const auto& module_package = (step.previous || plan.action == Action::uninstall) ? installed : package;
+                const auto& module_package = (step.previous || plan.action == ir::Action::uninstall) ? installed : package;
                 if (!module_package.psmodule)
                     throw std::runtime_error("Plan remove-ps-module step has no psmodule in the installed package IR");
                 const auto modules = context.root/L"modules";
@@ -1436,7 +1418,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // values until the replacement is ready. An operation without any new declarations
                 // and a normal uninstall revert immediately.
                 bool environment_reverted_now = false;
-                if ((updating || resetting) && !(package.environment.empty() && package.path_entries.empty())) {
+                if ((updating || resetting) && !(package.environment.empty())) {
                     journal["environment_reversion"] = "deferred; the replacement's environment operation reconciles old and new declarations";
                 } else {
                     auto reverted = revert_user_environment(user_environment_prior);
@@ -1482,17 +1464,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
                 const auto scoop_shims = prefer_scoop_shim(package);
-                for (const auto& command : package.commands) {
+                for (const auto& command : package.entries) {
                     const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
-                    const auto kind = launcher_kind(command.target);
-                    const auto target = version/command.target;
+                    const auto kind = launcher_kind(fs::path(wide(command.target)));
+                    const auto target = version/wide(command.target);
                     ordinary_parents(version,target);
-                    if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
-                    command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
-                    const auto exposed_target = app/L"current"/command.target;
-                    const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
-                    const auto shell_wrapper = shims/wide(command.name);
-                    const auto ps1_wrapper = shims/(wide(command.name)+L".ps1");
+                    if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+command.target);
+                    command_targets.push_back({{"path",command.target},{"sha256",sha256_file(target)}});
+                    const auto exposed_target = app/L"current"/wide(command.target);
+                    const auto cmd_wrapper = shims/(wide(command.alias)+L".cmd");
+                    const auto shell_wrapper = shims/wide(command.alias);
+                    const auto ps1_wrapper = shims/(wide(command.alias)+L".ps1");
                     const bool script_family = kind != LauncherKind::direct;
                     // Scoop's script branches always publish .cmd plus an extensionless shell wrapper
                     // (PS1 also gets .ps1). Coop publishes that view for every script family so a
@@ -1504,7 +1486,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                             // The host was checked before the transaction; a missing program here
                             // still fails before any wrapper is written.
                             if (!command_host_path(kind))
-                                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+")");
+                                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.alias+")");
                         }
                         publish_text(cmd_wrapper,scoop_command_cmd(kind,exposed_target,command_arguments));
                         if (kind == LauncherKind::power_shell)
@@ -1515,8 +1497,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         // .py and bash commands have no copied launcher; a script declaration whose
                         // alias also has an executable declaration owns only the wrapper family.
                         if (kind == LauncherKind::python || kind == LauncherKind::bash ||
-                            has_direct_alias(package.commands,command.name,command.target)) {
-                            Json record = {{"name",command.name},{"target",path_text(command.target)},
+                            has_direct_alias(package.entries,command.alias,command.target)) {
+                            Json record = {{"name",command.alias},{"target",command.target},
                                 {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",false},
                                 {"format","scoop-wrapper"}};
                             for (auto item = wrapper_hashes.begin(); item != wrapper_hashes.end(); ++item)
@@ -1530,41 +1512,41 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         for (auto item = wrapper_hashes.begin(); item != wrapper_hashes.end(); ++item)
                             record[item.key()] = item.value();
                     };
-                    const auto exe = shims/(wide(command.name)+L".exe");
+                    const auto exe = shims/(wide(command.alias)+L".exe");
                     const bool gui = kind == LauncherKind::direct && is_gui_executable(target);
-                    const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
+                    const auto prepared = transaction/(wide(command.alias)+L".prepared.exe");
                     fs::copy_file(fs::path(module.data()),prepared);
                     if (gui) mark_launcher_gui(prepared);
                     const auto launcher_hash = sha256_file(prepared);
                     if (kind == LauncherKind::direct && scoop_shims) {
-                        const auto metadata = shims/(wide(command.name)+L".shim");
-                        std::string text = "path = \""+path_text(app/L"current"/command.target)+"\"\r\n";
+                        const auto metadata = shims/(wide(command.alias)+L".shim");
+                        std::string text = "path = \""+path_text(app/L"current"/wide(command.target))+"\"\r\n";
                         if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
                         publish_text(metadata,text);
                         create(exe,[&]() { publish_new(prepared,exe); });
                         test_fault_point(context,"after-entry");
-                        legacy_shims[command.name] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
-                        Json record = {{"name",command.name},{"target",path_text(command.target)},
+                        legacy_shims[command.alias] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
+                        Json record = {{"name",command.alias},{"target",command.target},
                             {"arguments",command_arguments},{"launcher","direct"},{"gui",gui},{"format","scoop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
                         add_wrapper_hashes(record);
                         command_records.push_back(std::move(record));
                     } else {
-                        const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
-                        publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
+                        const auto metadata = shims/(wide(command.alias)+L".coop-shim.json");
+                        publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/wide(command.target))},
                             {"launcher",launcher_text(kind)},{"arguments",command_arguments},{"gui",gui},
                             {"environment",environment},{"path_entries",path_entries}});
                         // Publish Scoop's .shim view as well: it carries the same target and arguments so
                         // the other client can still recognize this shared entry, and its rm_shim is what
                         // removes <name>.exe when Scoop removes the package. Coop's launcher reads the
                         // richer .coop-shim.json first for host and environment details.
-                        const auto scoop_view = shims/(wide(command.name)+L".shim");
-                        std::string scoop_text = "path = \""+path_text(app/L"current"/command.target)+"\"\r\n";
+                        const auto scoop_view = shims/(wide(command.alias)+L".shim");
+                        std::string scoop_text = "path = \""+path_text(app/L"current"/wide(command.target))+"\"\r\n";
                         if (!command_arguments.empty()) scoop_text += "args = "+command_arguments+"\r\n";
                         publish_text(scoop_view,scoop_text);
                         create(exe,[&]() { publish_new(prepared,exe); });
                         test_fault_point(context,"after-entry");
-                        Json record = {{"name",command.name},{"target",path_text(command.target)},
+                        Json record = {{"name",command.alias},{"target",command.target},
                             {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",gui},{"format","coop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)},
                             {"scoop_metadata_sha256",sha256_file(scoop_view)}};
@@ -1579,10 +1561,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     const auto link = shortcut_link_path(context,shortcut.name);
                     // Scoop resolves the combined path as a FileInfo before creating the shortcut;
                     // collapsing parent components here keeps the recorded identity identical.
-                    const auto target = (app/L"current"/shortcut.target).lexically_normal();
-                    if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
-                    const auto icon = shortcut.icon.empty() ? fs::path{} : (app/L"current"/shortcut.icon).lexically_normal();
-                    if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
+                    const auto target = (app/L"current"/wide(shortcut.target)).lexically_normal();
+                    if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+shortcut.target);
+                    const auto icon = shortcut.icon.empty() ? fs::path{} : (app/L"current"/wide(shortcut.icon)).lexically_normal();
+                    if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+shortcut.icon);
                     const auto shortcut_arguments = expand_exposure_arguments(context,package.name,app/L"current",shortcut.arguments);
                     std::error_code error;
                     fs::create_directories(link.parent_path(),error);
@@ -1687,13 +1669,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             case ir::Operation::commit_state: {
                 Json kept_versions = Json::array();
-                if (plan.action == Action::uninstall) {
+                if (plan.action == ir::Action::uninstall) {
                     for (const auto& entry : recorded_version_evidence(context,package.name))
                         if (!equal_name(entry.value("version",std::string{}),package.version)) kept_versions.push_back(entry);
                 }
                 if (has_managed_record && fs::exists(record_path))
                     move(record_path,transaction/((updating || resetting) ? L"old-managed-record.json" : L"managed-record.json"));
-                if (plan.action == Action::uninstall) {
+                if (plan.action == ir::Action::uninstall) {
                     if (!kept_versions.empty()) {
                         const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
                         ordinary_parents(context.root,retained_path);
@@ -1715,30 +1697,27 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     }),version_history.end());
                     const auto installed_record_path = installed_record(version,L"install");
                     version_history.push_back({{"version",package.version},{"directory",path_text(operating_path(fs::canonical(version)))},
-                        {"manifest_sha256",package.manifest_sha256},
+                        {"manifest_digest",package.manifest_digest},
                         {"install_record_sha256",fs::is_regular_file(installed_record_path) ? sha256_file(installed_record_path) : std::string{}},
                         {"tree_stamp",version_tree_stamp(version)},
                         {"provenance",resetting ? "coop-reset" : updating ? "coop-update" : "coop-install"}});
                     publish_json(record_path,{{"name",package.name},{"version",package.version},{"architecture",package.architecture},
-                        {"bucket",package.bucket},{"directory",path_text(operating_path(fs::canonical(version)))},{"manifest_sha256",package.manifest_sha256},
+                        {"bucket",package.bucket},{"directory",path_text(operating_path(fs::canonical(version)))},{"manifest_digest",package.manifest_digest},
                         {"status","ready"},{"shim_format",legacy_shims.empty() ? "coop" : "scoop"},
                         {"command_targets",command_targets},{"commands",command_records},{"legacy_shims",legacy_shims},
                         {"shortcuts",shortcut_records},{"environment",environment},{"path_entries",path_entries},
                         {"user_environment",user_environment},
                         {"psmodule",psmodule_record},
-                        {"dependencies",package.dependencies},{"persistence",persistence},{"versions",version_history},
-                        {"origin",(updating || resetting) ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")},
-                        {"adoption_backup",has_managed_record ? managed.value("adoption_backup",Json(nullptr)) : Json(nullptr)}});
+                        {"dependencies",dependency_sources(package)},{"persistence",persistence},{"versions",version_history},
+                        {"origin",(updating || resetting) ? (has_managed_record ? managed.value("origin",std::string("coop")) : std::string("scoop")) : std::string("coop")}});
                 }
                 test_fault_point(context,"before-commit");
                 break;
             }
-            case ir::Operation::adopt_state:
-                throw std::runtime_error("Adoption is handled by the dedicated adopt path");
             }
         }
         journal["state"] = "committed"; save();
-        if (updating || resetting || plan.action == Action::uninstall) {
+        if (updating || resetting || plan.action == ir::Action::uninstall) {
             std::vector<fs::path> revoked;
             for (const auto& shortcut : installed.shortcuts)
                 if (!shortcut_was_absent(shortcut.name)) revoked.push_back(shortcut_link_path(context,shortcut.name));
@@ -1769,7 +1748,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         } catch (...) { /* Original failure propagates; pending journal preserves recovery evidence. */ }
         throw;
     }
-    if (plan.action == Action::uninstall) {
+    if (plan.action == ir::Action::uninstall) {
         erase_tree(transaction/L"current");
         erase_tree(transaction/L"removed-version");
         erase_tree(transaction/L"removed-ps-module");
@@ -1780,7 +1759,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
         {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
         {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs},{"installers",installer_runs}};
-    if (plan.action == Action::uninstall) {
+    if (plan.action == ir::Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         if (!plan.purge) {
             result["purge"] = {{"requested",false},{"status","not-requested"},{"scope",Json::array()}};

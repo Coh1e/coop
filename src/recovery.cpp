@@ -55,7 +55,12 @@ Json pending_recovery_report(const Context& context, bool execute,
             matched = wanted.empty() || (!package.empty() && wanted.contains(package));
             // A scoped command must never run a transaction the caller did not name.
             const bool execute_this = execute && matched;
-            if (action == "adopt") info = adoption_recovery_status(context,journal,execute_this);
+            // Adoption journals are no longer produced. A leftover journal from that retired path is
+            // reported honestly instead of being routed to a removed recovery implementation.
+            if (action == "adopt") info = {{"journal",path_text(journal)},{"action",action},{"package",package},
+                {"mode","manual"},{"status","manual"},{"actions",Json::array()},{"diagnostics",Json::array()},
+                {"conflicts",Json::array()},
+                {"reason","Adoption transactions were retired; this journal cannot be recovered automatically. Remove the transaction directory after checking that no original file changed"}};
             else if (action == "cleanup") info = cleanup_recovery_status(context,journal,execute_this);
             else info = package_recovery_status(context,journal,execute_this);
         } catch (const std::exception& error) {

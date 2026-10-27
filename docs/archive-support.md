@@ -29,7 +29,7 @@
 | NSIS 安装器载荷 | 已运行 | 已验证 | 声明为归档产物的 NSIS 自解压器在摘要校验后按 FirstHeader 签名识别，再由 root 内已安装的 7-Zip helper 按 Scoop `Expand-7zipArchive` 参数解包（不内嵌、不下载、不执行 `setup.exe`）；真实 apngasm 3.1.3 → 3.1.1 安装/更新/卸载、elm 0.19.3 的 `-ir!bin\*` 选择、截断失败与缺失 helper 见 `tests/nsis-lifecycle.ps1`，真实共用根 Main/apngasm 双向交替与逐文件镜像一致见 `tests/real-scoop-nsis.ps1` |
 | WiX/Dark 等其他特殊安装器 | 未启用 | 未启用 | 由 Manifest 诊断或安装器能力拒绝；普通压缩库能力不冒充安装器提取，Inno Setup 与 NSIS 的成功也不外推到这些格式 |
 
-`ArchiveKind` 的 ZIP、tar 系列、7z、MSI、Inno Setup 与 NSIS 载荷路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper，NSIS 安装器载荷使用单独安装的 7-Zip helper（#35，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#nsis-安装器载荷提取35)），三者都不与普通归档共用解压实现。普通 7z/ZIP/tar 载荷不会因为 NSIS 支持而变成需要 7-Zip：只有摘要校验后内容命中 NSIS 签名时才使用 helper。普通 `adopt` 旧路径仍只接受调查过的直接单文件布局；共享归档安装的实际更新/卸载不再依赖该旧路径（见下文）。
+`ir::ArchiveFormat` 的 ZIP、tar 系列、7z、MSI、Inno Setup 与 NSIS 载荷路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper，NSIS 安装器载荷使用单独安装的 7-Zip helper（#35，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#nsis-安装器载荷提取35)），三者都不与普通归档共用解压实现。普通 7z/ZIP/tar 载荷不会因为 NSIS 支持而变成需要 7-Zip：只有摘要校验后内容命中 NSIS 签名时才使用 helper。共享归档安装的更新/卸载与直接文件包使用同一 IR → Plan 路径；R22 已移除只接受直接单文件布局的旧 `adopt` 命令。
 
 ## 目录布局语义
 
@@ -106,4 +106,4 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 - 本文件只证明这些真实样本与机制路径，不构成 Main/Extras 完整分母、安装器、真实脚本、用户环境或全部入口类型的完成证明。
 - MSI 管理镜像提取已启用（#33）；Inno Setup 提取已通过声明的外部 innounp helper 启用（#34）；NSIS 安装器载荷提取已通过声明的外部 7-Zip helper 启用（#35），不内嵌也不静默下载这些工具。外部 cabinet、多段/partial cabinet、WiX/Dark 与厂商 EXE 安装器结构仍未启用；分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 共享归档的更新/卸载以标准布局和入口目标为事实；Scoop 不提供解压树摘要，因此用户对版本目录内部的任意修改不会像直接文件摘要那样被逐一发现。需要内容摘要的场景仍应使用可核对产物的包，或后续在卸载/清理前增加显式树摘要记录。
-- `adopt` 专用旧路径仍拒绝归档布局；实际共享更新/卸载走 IR 计划路径，不要求该旧命令。由 #43 统一清理旧路径。
+- R22（#43）已移除旧接管命令与旧预览执行列表：共享归档的更新/卸载一直是 IR 计划路径，现在执行器只消费单一 `Plan`，不再存在接受归档限制的专用旧路径。

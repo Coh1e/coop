@@ -52,6 +52,8 @@ struct Download {
 
 // Command entries are identified by their package-relative target and alias. The IR stores only
 // the source-declared target so the exposure layer remains the single owner of launcher kinds.
+// The adapter's own `direct_launcher_target` helper only models Scoop's shim-family split (which
+// files Scoop rewrites); it is not the Coop host selection.
 struct Entry { std::string target; std::string alias; std::string arguments; };
 struct Shortcut { std::string target; std::string name; std::string arguments; std::string icon; };
 
@@ -121,11 +123,21 @@ struct InstalledFact {
     std::vector<Diagnostic> diagnostics;
 };
 
-enum class Action { install, update, uninstall, adopt, reset };
+// One installed or available package the planner may select. The catalog adapter publishes these
+// entries so the planner never reads Scoop manifest fields or bucket JSON itself.
+struct CatalogueEntry {
+    std::string name;
+    std::string bucket;
+    fs::path manifest_path;
+};
+
+// There is no adoption action: shared Scoop state is managed directly, so a private takeover step
+// cannot gate update, uninstall or reset.
+enum class Action { install, update, uninstall, reset };
 enum class Operation {
     download, verify, extract, hook, installer, publish_current, entries, shortcuts, environment,
     persistence, ps_module, commit_state, remove_entries, remove_shortcuts, remove_environment,
-    remove_ps_module, unlink_persistence, unlink_current, remove_version, adopt_state
+    remove_ps_module, unlink_persistence, unlink_current, remove_version
 };
 const char* operation_name(Operation operation);
 

@@ -191,7 +191,7 @@ fs::path prepare_package_target(const fs::path& root, const fs::path& relative) 
     ensure_parents(root,target);
     return target;
 }
-std::vector<ExternalTool> package_external_tools(const Context& context, const Package& package) {
+std::vector<ExternalTool> package_external_tools(const Context& context, const ir::Package& package) {
     std::vector<ExternalTool> tools;
     const auto database_api = msi_database_api();
     const auto fdi_api = cabinet_api();
@@ -199,7 +199,7 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
     bool inno_looked_up = false;
     NsisHelper nsis;
     bool nsis_looked_up = false, nsis_reported = false;
-    for (const auto& artifact : package.artifacts) {
+    for (const auto& artifact : package.downloads) {
         if (artifact.installer_payload && !nsis_reported) {
             if (!nsis_looked_up) { nsis = nsis_helper(context); nsis_looked_up = true; }
             nsis_reported = true;
@@ -212,7 +212,7 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
                 nsis.path});
             continue;
         }
-        if (artifact.archive == ArchiveKind::inno_setup) {
+        if (artifact.format == ir::ArchiveFormat::inno_setup) {
             if (!inno_looked_up) { inno = inno_helper(context); inno_looked_up = true; }
             tools.push_back({"innounp (Inno Setup unpacker)",
                 "unpack the Inno Setup payload of "+artifact.filename+" with the same arguments as Scoop's Expand-InnoArchive",
@@ -223,7 +223,7 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
                 inno.path});
             continue;
         }
-        if (artifact.archive != ArchiveKind::msi) continue;
+        if (artifact.format != ir::ArchiveFormat::msi) continue;
         tools.push_back({"Windows Installer APIs","read-only MSI database access (msi.dll) and embedded cabinet decompression (cabinet.dll) for "+artifact.filename,
             "Windows system components; Coop never downloads or installs them and never runs msiexec.exe",
             database_api.has_value() && fdi_api.has_value(),database_api.has_value() && fdi_api.has_value(),
@@ -233,13 +233,14 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
     // Scoop's shim() runs .py entries through python and every other unrecognized target through
     // bash. Both are external hosts detected before an entry is published, never bundled by Coop.
     bool python_reported = false, bash_reported = false;
-    for (const auto& command : package.commands) {
-        const auto kind = launcher_kind(command.target);
+    for (const auto& command : package.entries) {
+        const auto target = fs::path(wide(command.target));
+        const auto kind = launcher_kind(target);
         if (kind == LauncherKind::python && !python_reported) {
             python_reported = true;
             const auto host = command_host_path(kind);
             tools.push_back({"Python (command-entry host)",
-                "run the .py command entry "+path_text(command.target)+" with python.exe, like Scoop's .py shim branch",
+                "run the .py command entry "+command.target+" with python.exe, like Scoop's .py shim branch",
                 "external program required by the package's declared entry; Coop detects it, never downloads, installs or bundles it",
                 host.has_value(),host.has_value(),
                 host ? "the entry is started by python.exe found on PATH" : command_host_problem(kind),
@@ -248,7 +249,7 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
             bash_reported = true;
             const auto host = command_host_path(kind);
             tools.push_back({"bash (command-entry host)",
-                "run the script command entry "+path_text(command.target)+" through bash, like Scoop's else shim branch (which also uses cygpath or wslpath for the path)",
+                "run the script command entry "+command.target+" through bash, like Scoop's else shim branch (which also uses cygpath or wslpath for the path)",
                 "external program required by the package's declared entry; Coop detects it, never downloads, installs or bundles it",
                 host.has_value(),host.has_value(),
                 host ? "the entry is started by bash.exe found on PATH; the generated Scoop wrapper uses cygpath or wslpath at run time like Scoop" : command_host_problem(kind),

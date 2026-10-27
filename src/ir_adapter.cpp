@@ -36,10 +36,10 @@ bool hexadecimal(const std::string& value) {
 // Scoop's shim() has two file families: EXE/COM targets get a copied <name>.exe plus <name>.shim,
 // every other target gets <name>.cmd and an extensionless shell wrapper (PS1 also gets <name>.ps1).
 // Declarations in the same family overwrite the same files; declarations in different families do
-// not, so both sets stay on disk and Windows resolves the .exe first.
+// not, so both sets stay on disk and Windows resolves the .exe first. The family split asks the
+// exposure layer's launcher-kind contract instead of duplicating the extension rules here.
 bool direct_launcher_target(const std::string& target) {
-    const auto extension = lower(path_text(fs::path(wide(target)).extension()));
-    return extension == ".exe" || extension == ".com";
+    return launcher_kind(fs::path(wide(target))) == LauncherKind::direct;
 }
 fs::path relative_path(const std::string& value, bool root_allowed = false, bool parent_allowed = false) {
     fs::path path(wide(value));
@@ -140,50 +140,7 @@ std::vector<PersistenceMapping> persistence_mappings(const Json& manifest) {
     return result;
 }
 }
-const char* layer_name(Layer layer) {
-    switch (layer) {
-    case Layer::syntax: return "syntax";
-    case Layer::adapter: return "adapter";
-    case Layer::validation: return "ir";
-    case Layer::environment: return "environment";
-    case Layer::capability: return "capability";
-    case Layer::verification: return "verification";
-    }
-    return "unknown";
-}
-const char* digest_algorithm_name(DigestAlgorithm algorithm) {
-    switch (algorithm) {
-    case DigestAlgorithm::missing: return "missing";
-    case DigestAlgorithm::sha256: return "sha256";
-    case DigestAlgorithm::sha512: return "sha512";
-    case DigestAlgorithm::sha1: return "sha1";
-    case DigestAlgorithm::md5: return "md5";
-    case DigestAlgorithm::other: return "other";
-    }
-    return "unknown";
-}
-const char* archive_format_name(ArchiveFormat format) {
-    switch (format) {
-    case ArchiveFormat::file: return "none";
-    case ArchiveFormat::zip: return "zip";
-    case ArchiveFormat::seven_zip: return "7z";
-    case ArchiveFormat::tar: return "tar";
-    case ArchiveFormat::msi: return "msi";
-    case ArchiveFormat::inno_setup: return "inno-setup";
-    }
-    return "unknown";
-}
-const char* hook_stage_name(HookStage stage) {
-    switch (stage) {
-    case HookStage::pre_install: return "pre_install";
-    case HookStage::installer: return "installer";
-    case HookStage::post_install: return "post_install";
-    case HookStage::pre_uninstall: return "pre_uninstall";
-    case HookStage::uninstaller: return "uninstaller";
-    case HookStage::post_uninstall: return "post_uninstall";
-    }
-    return "unknown";
-}
+
 Package adapt_manifest(const fs::path& path, const std::string& name, const std::string& bucket,
                        const std::string& architecture) {
     Package package;

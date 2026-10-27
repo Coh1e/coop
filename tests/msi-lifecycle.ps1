@@ -109,7 +109,7 @@ $plan = Parse-Json 'msi-preview' $preview
 Check ($plan.execution_available -eq $true) 'MSI preview is not executable'
 Check ($plan.artifacts[0].archive -eq 'msi' -and $plan.artifacts[0].extraction -eq 'read-only-msi-image') 'MSI artifact or extraction method is not reported'
 Check ($plan.artifacts[0].requires_elevation -eq $false -and $plan.artifacts[0].reboot_required -eq $false) 'MSI preview does not state that no elevation or reboot is required'
-Check ((@($plan.operations | Where-Object { $_.kind -eq 'extract' }).Count -eq 1) -and
+Check ((@($plan.ir_operations | Where-Object { $_.operation -eq 'extract' }).Count -eq 1) -and
     ((@($plan.ir_operations | ForEach-Object { $_.operation }) -join ',') -eq 'download,verify,extract,publish-current,entries,persistence,commit-state')) 'MSI plan does not carry the expected operation order'
 $facts = $plan.package.msi_extraction
 Check ($facts.mechanism -match 'read-only Windows Installer database' -and $facts.msiexec_started -eq $false -and

@@ -289,22 +289,20 @@ try {
         throw "Manual conflict resolution did not complete recovery: $manualRetry"
     }
 
-    # F/G: the same recovery command routes adoption and cleanup journals to their own
-    # idempotent protocols instead of treating them as package installs.
+    # F/G: the recovery command routes cleanup journals to their own idempotent protocol, and it
+    # reports a leftover journal from the retired adoption path honestly instead of guessing.
     $rootF = [IO.Path]::GetFullPath("$sessionRoot/adopt-journal")
     $adoptTx = [IO.Path]::GetFullPath("$rootF/.coop/transactions/simulated-adopt")
-    $adoptBackup = [IO.Path]::GetFullPath("$rootF/.coop/backups/fixture/simulated-adopt")
     $adoptRecord = [IO.Path]::GetFullPath("$rootF/.coop/packages/fixture.json")
-    New-Item -ItemType Directory -Path $adoptTx,$adoptBackup -Force | Out-Null
-    [IO.File]::WriteAllText("$adoptBackup/evidence.json",'{}')
-    @{state='pending';action='adopt';package='fixture';record=$adoptRecord;backup=$adoptBackup} |
+    New-Item -ItemType Directory -Path $adoptTx -Force | Out-Null
+    @{state='pending';action='adopt';package='fixture';record=$adoptRecord} |
         ConvertTo-Json | Set-Content -LiteralPath "$adoptTx/journal.json" -Encoding utf8
     $adoptRecovered = & $CoopExe --root $rootF recover --json
     $adoptEntry = @($adoptRecovered | ConvertFrom-Json)[0]
-    if ($LASTEXITCODE -ne 0 -or $adoptEntry.action -ne 'adopt' -or $adoptEntry.mode -ne 'automatic' -or
-        $adoptEntry.status -ne 'rolled-back' -or
-        (Get-Content -LiteralPath "$adoptTx/journal.json" -Raw | ConvertFrom-Json).state -ne 'rolled-back') {
-        throw "Adoption journal was not recovered through the shared command: $adoptRecovered"
+    if ($LASTEXITCODE -eq 0 -or $adoptEntry.action -ne 'adopt' -or $adoptEntry.mode -ne 'manual' -or
+        $adoptEntry.status -ne 'manual' -or $adoptEntry.reason -notmatch 'retired' -or
+        (Get-Content -LiteralPath "$adoptTx/journal.json" -Raw | ConvertFrom-Json).state -ne 'pending') {
+        throw "A retired adoption journal was not reported as manual: $adoptRecovered"
     }
     $rootG = "$sessionRoot/cleanup-journal"
     $cleanupTx = "$rootG/.coop/transactions/simulated-cleanup"

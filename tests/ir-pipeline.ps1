@@ -59,22 +59,20 @@ if (Test-Path "$root/.coop") { throw 'query or preview wrote management state' }
 
 $plan = ($preview.text | ConvertFrom-Json)
 if ($plan.action -ne 'update' -or $plan.package.version -ne '1.8.2') { throw 'update preview lost the installed target' }
-$kinds = @($plan.operations | ForEach-Object { $_.kind })
+$kinds = @($plan.ir_operations | ForEach-Object { $_.operation })
 if ('download' -notin $kinds -or 'verify' -notin $kinds -or 'publish-current' -notin $kinds -or 'commit-state' -notin $kinds) { throw "preview operations are incomplete: $kinds" }
-$verifyOperations = @($plan.operations | Where-Object kind -eq 'verify')
-if ($verifyOperations.Count -ne 1 -or $verifyOperations[0].detail -notmatch 'sha256') { throw 'the verify operation lost its declared algorithm' }
+$verifyOperations = @($plan.ir_operations | Where-Object operation -eq 'verify')
+if ($verifyOperations.Count -ne 1 -or $verifyOperations[0].effect -notmatch 'sha256') { throw 'the verify operation lost its declared algorithm' }
 if ('remove-version' -in $kinds) { throw 'update preview planned to delete the retained previous version' }
-$irKinds = @($plan.ir_operations | ForEach-Object { $_.operation })
-if ($irKinds.Count -ne $kinds.Count) { throw "IR plan and legacy operation list disagree: $($irKinds.Count) vs $($kinds.Count)" }
 if (@($plan.ir_operations | Where-Object { [string]::IsNullOrWhiteSpace($_.effect) }).Count) { throw 'an IR operation has no stated effect' }
-$firstPublish = [array]::IndexOf($irKinds,'publish-current')
-$verify = [array]::IndexOf($irKinds,'verify')
+$firstPublish = [array]::IndexOf($kinds,'publish-current')
+$verify = [array]::IndexOf($kinds,'verify')
 if ($verify -ge $firstPublish) { throw 'verification is not planned before publishing' }
 $capability = @($plan.capabilities | Where-Object id -eq 'native-download')
 if ($capability.Count -ne 1 -or $capability[0].supported -ne $true) { throw 'the IR capabilities of a native download package are missing' }
 
 $uninstall = Read-CoopJson @('--root',$root,'uninstall','jq','--dry-run','--json')
-$removeKinds = @($uninstall.operations | ForEach-Object { $_.kind })
+$removeKinds = @($uninstall.ir_operations | ForEach-Object { $_.operation })
 if ('unlink-current' -notin $removeKinds -or 'remove-version' -notin $removeKinds) { throw "uninstall preview is incomplete: $removeKinds" }
 if (@($uninstall.ir_operations | Where-Object operation -eq 'remove-version').Count -ne 1) { throw 'uninstall IR plan omitted the version removal it reports' }
 

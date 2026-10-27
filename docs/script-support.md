@@ -62,7 +62,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 
 ## 输出、退出码与失败
 
-- 预览不启动 PowerShell：`install|update|uninstall|adopt --dry-run` 只读取 Manifest，输出每个阶段的原文、宿主类型、解释器、兼容库路径/版本和 `problem`；`execution_available=false` 只在宿主确实不可用时出现（缺少 PowerShell、显式 `COOP_SCOOP_LIB` 无效或缺少兼容库）。
+- 预览不启动 PowerShell：`install|update|uninstall|reset --dry-run` 只读取 Manifest，输出每个阶段的原文、宿主类型、解释器、兼容库路径/版本和 `problem`；`execution_available=false` 只在宿主确实不可用时出现（缺少 PowerShell、显式 `COOP_SCOOP_LIB` 无效或缺少兼容库）。
 - `stdout`/`stderr` 全量写入每个 Hook 的日志文件，不截断；JSON 结果与事务日志记录字节数与尾部摘要（无效 UTF-8 字节替换为 `?`，原始字节仍在日志中）。
 - 显式 `exit N`、`abort` 与未捕获终止错误传播为包操作失败，退出码写入 `scripts[i].exit_code`；失败后按事务回滚已创建的包状态，失败原因包含日志路径。
 - **与固定 Scoop 的刻意差异**：Hook 子进程设置 `$ErrorActionPreference = 'Stop'`，Scoop 使用调用作用域默认的 `Continue`。因此 Scoop 会容忍的非终止错误在 Coop 中使操作失败并回滚，避免“脚本报错但安装记为成功”。需要使用非终止错误语义的脚本可以在语句上显式 `-ErrorAction SilentlyContinue/Ignore`，真实样本（如 `Extras/vscode`）本来就这样做。
@@ -95,7 +95,7 @@ Scoop 在调用方进程内执行 Hook，因此脚本的当前目录就是调用
 | 并发输出 | 约 100 KiB stdout 与约 50 KiB stderr 同时输出时安装成功，完整日志字节数和最后一行尾部均核对 |
 | 合法修改 | 真实 `notepadplusplus` `pre_install` 增加注释与额外语句后仍执行；函数、哈希表、`try/catch/finally`、子表达式、.NET 调用、`Where-Object`/`Select-Object` 与 `$env:` 读取都在普通 Hook 中运行 |
 | 能力诊断 | 缺少 PowerShell 或无效 `COOP_SCOOP_LIB` 在执行前诊断，不启动 PowerShell、不写事务 |
-| 接管资格 | 带 Hook 的已安装包仍为 `untested`，不写管理记录；该类需要真实共用根证据 |
+| 共享安装 Hook | 无私有记录的已安装 Hook 包仍可预览与执行；带 Hook 的安装不再有单独的接管资格门槛（R22 已移除 `adopt`） |
 
 `tests/installers.ps1`（CTest `installers`）补充 `installer`/`uninstaller` 阶段：真实 7z 产物、rclone `uninstaller.script` 原文、installer 阶段顺序/上下文/退出码和失败传播，并确认不再把脚本原文当作可执行性判据。
 `tests/installer-programs.ps1`（CTest `installer_programs`，75 项检查）覆盖安装器/卸载器程序与多阶段脚本的组合：真实 `.cmd`/`.ps1` 程序、`$dir`/`$version`/`$global` 参数替换、`args`-only 下载文件名回退、`keep` 语义、`current`/持久化时序、更新（旧卸载器程序 + 新安装器程序）、卸载顺序与失败回滚。

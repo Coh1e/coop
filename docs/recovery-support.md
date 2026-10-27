@@ -4,7 +4,7 @@
 
 ## 1. 协议边界
 
-- 同一 Coop 根目录的所有写命令（接管、安装、更新、卸载、清理、bucket 变更与恢复）先取得 `.coop/write.lock` 的独占句柄；另一个写进程得到非零退出，而不是等待或并发写入。查询命令不打开写锁，也不修改状态。
+- 同一 Coop 根目录的所有写命令（安装、更新、卸载、清理、bucket 变更与恢复）先取得 `.coop/write.lock` 的独占句柄；另一个写进程得到非零退出，而不是等待或并发写入。查询命令不打开写锁，也不修改状态。
 - 每个包操作在第一次改动前写入 pending 事务日志；日志使用临时文件加 `MoveFileEx` 替换。下载、校验、解压、入口/链接、脚本、安装器程序、用户环境、数据删除和管理记录提交都记录在日志中，跨文件提交不声称一次 rename 就是原子事务。
 - 失败时进程内先按日志回滚 Coop 自有路径；无法确认回滚条件时保留 pending 日志。进程被终止后，下一次命令从日志读取事实，不以“进程已退出”推断成功。
 - 查询只读取已发布记录、实际安装事实与日志：pending 操作不会显示为 `succeeded`；更新/卸载已把旧管理记录移入事务时，`list` 读取该最后提交记录；`current` 已被移入事务但旧管理记录仍在时，`list` 报告该记录的版本并保留“当前链接缺失”的事实诊断；尚未发布管理记录的安装也会出现在 `list` 中，状态为 `pending-recovery`，并携带 `recovery` 分类。后续 Scoop 操作实际安装了同名包时，`list` 报告实际安装版本（`management` 为 `unadopted`/`none`），同时保留 pending 事务。
@@ -59,7 +59,7 @@
 `coop recover [包名...] [--dry-run] [--json]`
 
 - 只处理 `state=pending` 的事务。包名是执行范围：只对指定包执行自动恢复；未指定的 pending 事务保持字节和文件状态不变，以 `requested=false`、`skipped=true` 出现在报告中。指定包没有 pending 事务时报告 `status=not-pending`，不执行任何恢复。`--dry-run` 不写日志、不移动文件、不写注册表，只报告分类、冲突、环境预览和逐项动作。
-- `automatic`：日志中的创建项均有可核对的所有权证据，移动项可安全还原；恢复按创建项逆序删除、移动项逆序移回，恢复环境值，然后把日志标为 `rolled-back`。接管事务按已发布管理记录标记 `committed` 或保留备份标为 `rolled-back`；清理事务继续幂等完成，仍被占用的版本放回原位。
+- `automatic`：日志中的创建项均有可核对的所有权证据，移动项可安全还原；恢复按创建项逆序删除、移动项逆序移回，恢复环境值，然后把日志标为 `rolled-back`。R22 退役的旧接管（`adopt`）日志不再自动恢复：`coop recover` 把它们报告为 `manual` 并保留 pending，由人工核对后删除；清理事务继续幂等完成，仍被占用的版本放回原位。
 - `manual`：存在上表冲突、日志损坏、路径不安全时不做任何自动删除或移动，保持 pending 并返回非零。
 - 脚本与安装器程序事务不会重跑。脚本/程序记录（阶段、退出码、日志路径）保留在日志中，整个事务目录（含 stdout/stderr 日志）作为恢复证据保留；自动恢复结果为 `recovered-with-unknown-script-effects`，并明确声明 Coop 管理路径之外的外部副作用未知且未回滚。
 - 批量恢复逐事务报告；只要仍有 pending 事务（未指定而跳过、需要人工处理或恢复失败）或指定包没有 pending 事务，总体退出码就为非零，不声称全局成功。
@@ -76,7 +76,7 @@
 | 生命周期 Hook | 崩溃 `after-script:post_install` | 结果 `recovered-with-unknown-script-effects`；事务证据保留；Hook 不重跑（外部标记计数不变） | `tests/recovery-matrix.ps1` C |
 | 声明的安装器程序 | 崩溃 `after-installer` / 失败 `after-installer` | 程序不重跑；路径可回滚；外部副作用未知 | `tests/recovery-matrix.ps1` C |
 | 创建项被外部替换 | 崩溃后替换版本目录/修改 shim | `created-path-replaced`/`created-file-modified` 人工冲突，不删除外部对象；人工处理后可恢复 | `tests/recovery-matrix.ps1` A、G |
-| 下载中断、并发写、发布阶段回退、接管/清理日志、包名范围 | 实际终止进程 / 真实协议夹具 | 旧版本可用、查询可读、第二写者非零、恢复分类与逐项动作正确 | `tests/recovery.ps1`（T16 保留） |
+| 下载中断、并发写、发布阶段回退、清理与退役接管日志、包名范围 | 实际终止进程 / 真实协议夹具 | 旧版本可用、查询可读、第二写者非零、恢复分类与逐项动作正确 | `tests/recovery.ps1`（T16 保留） |
 | 真实共用根：更新解压崩溃 → 真实 `scoop reset` → 恢复 → 重试 → `scoop reset` | `after-extract` | 崩溃退出码 `-1073740791`；Scoop 在 pending 期间可正常 reset 并运行 v1；恢复丢弃准备；重试后 v2 可运行；store 不变 | `tests/real-scoop-recovery.ps1` 场景 2 |
 | 真实共用根：安装崩溃后 Scoop reset/安装覆盖 | 崩溃 `after-entry` | Coop 重新识别 Scoop 实际安装版本（`unadopted`）；恢复报告 `created-path-replaced` 冲突并保留 Scoop 的 `current` 与入口；Scoop 卸载后恢复只报告 `already-absent`、无删除动作 | `tests/real-scoop-recovery.ps1` 场景 3 |
 

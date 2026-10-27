@@ -157,12 +157,12 @@ try {
         Assert-True ($item.link_type -eq 'junction' -and $item.store_exists -eq $true -and $item.data_retained -eq $true) "Coop list did not report an existing 7zip store: $($item | ConvertTo-Json -Compress)"
         Assert-Junction $item.link $item.store
     }
-    $sevenAdopt = Coop '7zip-adopt-preview' @('adopt','7zip','--dry-run','--json')
-    $sevenPlan = Read-Json $sevenAdopt.output
-    Save-Json '7zip-adopt-preview.json' $sevenPlan
-    Assert-True (@($sevenPlan.persistence).Count -eq 2) 'adoption preview omitted the existing 7zip persist mappings'
+    $sevenUpdate = Coop '7zip-update-preview' @('update','7zip','--dry-run','--json')
+    $sevenPlan = Read-Json $sevenUpdate.output
+    Save-Json '7zip-update-preview.json' $sevenPlan
+    Assert-True (@($sevenPlan.persistence).Count -eq 2) 'update preview omitted the existing 7zip persist mappings'
     foreach ($item in @($sevenPlan.persistence)) {
-        Assert-True ($item.data_retained -eq $true -and $item.store_exists -eq $true) "adoption preview did not retain the 7zip store: $($item | ConvertTo-Json -Compress)"
+        Assert-True ($item.data_retained -eq $true -and $item.store_exists -eq $true) "update preview did not retain the 7zip store: $($item | ConvertTo-Json -Compress)"
         Assert-Junction $item.link $item.store
     }
     Assert-True (-not (Test-Path -LiteralPath "$ScoopRoot/.coop/packages/7zip.json")) 'reading the 7zip persistence preview wrote management state'
@@ -170,7 +170,7 @@ try {
     $scenarios['7zip_read_only'] = [ordered]@{
         store = $sevenStore
         mappings = @($sevenEntry.persistence)
-        preview = [ordered]@{exit=$sevenAdopt.exit;eligibility=$sevenPlan.eligibility;persistence=@($sevenPlan.persistence)}
+        preview = [ordered]@{exit=$sevenUpdate.exit;execution_available=$sevenPlan.execution_available;persistence=@($sevenPlan.persistence)}
         store_snapshot = $sevenBefore
     }
 

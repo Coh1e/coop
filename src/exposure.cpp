@@ -350,7 +350,7 @@ void write_shortcut(const fs::path& link, const fs::path& target, const std::str
     if (error) throw std::runtime_error("Cannot create shortcut directory: "+path_text(link.parent_path()));
     if (FAILED(persist.value->Save(link.c_str(),TRUE))) throw std::runtime_error("Shortcut cannot be written: "+path_text(link));
 }
-std::string expand_package_value(const Context& context, const Package& package, const fs::path& base, const std::string& value) {
+std::string expand_package_value(const Context& context, const ir::Package& package, const fs::path& base, const std::string& value) {
     auto text = value;
     const auto persist = path_text(context.root/L"persist"/wide(package.name));
     const auto directory = path_text(base);
@@ -377,23 +377,26 @@ std::string expand_exposure_arguments(const Context& context, const std::string&
     replace_all(text,"$dir",path_text(base));
     return text;
 }
-Json expanded_environment(const Context& context, const Package& package, const fs::path& base) {
+Json expanded_environment(const Context& context, const ir::Package& package, const fs::path& base) {
     Json result = Json::array();
-    for (const auto& setting : package.environment)
-        result.push_back({{"name",setting.name},{"value",expand_package_value(context,package,base,setting.value)}});
+    for (const auto& setting : package.environment) {
+        if (setting.path_entry) continue;
+        result.push_back({{"name",setting.variable},{"value",expand_package_value(context,package,base,setting.value)}});
+    }
     return result;
 }
-Json expanded_path_entries(const Context& context, const Package& package, const fs::path& base) {
+Json expanded_path_entries(const Context& context, const ir::Package& package, const fs::path& base) {
     (void)context;
     Json result = Json::array();
-    for (const auto& entry : package.path_entries) {
-        auto text = path_text((base/entry).lexically_normal());
+    for (const auto& entry : package.environment) {
+        if (!entry.path_entry) continue;
+        auto text = path_text((base/wide(entry.value)).lexically_normal());
         while (text.size() > 3 && (text.back() == '\\' || text.back() == '/')) text.pop_back();
         result.push_back(text);
     }
     return result;
 }
-Json exposure_plan_json(const Context& context, const Package& package, const fs::path& base) {
+Json exposure_plan_json(const Context& context, const ir::Package& package, const fs::path& base) {
     const auto programs = shortcut_directory(context);
     Json result = {{"shortcut_directory",path_text(programs)},
         {"shortcut_directory_source",environment_variable(L"COOP_PROGRAMS_DIR").empty() ? "start-menu-programs" : "isolated-override"},
@@ -406,9 +409,9 @@ Json exposure_plan_json(const Context& context, const Package& package, const fs
             {"link",path_text(programs/fs::path(wide(shortcut.name)+L".lnk"))},
             // Scoop combines the declared value with $dir and resolves it as a FileInfo, so parent
             // components are already collapsed in the path that actually reaches the shortcut.
-            {"target",path_text((base/shortcut.target).lexically_normal())},
+            {"target",path_text((base/wide(shortcut.target)).lexically_normal())},
             {"arguments",expand_exposure_arguments(context,package.name,argument_base,shortcut.arguments)},
-            {"icon",shortcut.icon.empty() ? std::string{} : path_text((base/shortcut.icon).lexically_normal())}});
+            {"icon",shortcut.icon.empty() ? std::string{} : path_text((base/wide(shortcut.icon)).lexically_normal())}});
     return result;
 }
 Json ps_module_plan_json(const Context& context, const std::string& name, const fs::path& target, bool removal) {

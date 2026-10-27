@@ -43,15 +43,15 @@ void write_shortcut(const fs::path& link, const fs::path& target, const std::str
 
 // Declared environment values are expanded against the package's current directory so the
 // launchers keep working after an update switches the current junction.
-std::string expand_package_value(const Context& context, const Package& package, const fs::path& base, const std::string& value);
+std::string expand_package_value(const Context& context, const ir::Package& package, const fs::path& base, const std::string& value);
 // Scoop substitutes $dir, $original_dir and $persist_dir in bin/shortcut arguments before it
 // writes the shim metadata or shortcut, so the same values must reach the shared files.
 std::string expand_exposure_arguments(const Context& context, const std::string& package_name,
     const fs::path& base, const std::string& value);
-Json expanded_environment(const Context& context, const Package& package, const fs::path& base);
-Json expanded_path_entries(const Context& context, const Package& package, const fs::path& base);
+Json expanded_environment(const Context& context, const ir::Package& package, const fs::path& base);
+Json expanded_path_entries(const Context& context, const ir::Package& package, const fs::path& base);
 
-Json exposure_plan_json(const Context& context, const Package& package, const fs::path& base);
+Json exposure_plan_json(const Context& context, const ir::Package& package, const fs::path& base);
 // psmodule exposure in the preview: the shared modules junction and the user PSModulePath entry,
 // stated the same way for the operation that creates it and the one that removes it.
 Json ps_module_plan_json(const Context& context, const std::string& name, const fs::path& target, bool removal);

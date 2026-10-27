@@ -72,7 +72,7 @@ Coop 的顺序与之一致：`publish-current → entries → shortcuts → ps-m
 }
 ```
 
-`ir_operations`/`operations` 同时列出 `ps-module`（卸载/替换为 `remove-ps-module`）。`--dry-run` 只读取清单与安装事实：不创建 `modules`、不创建包目录、不写 `HKCU`。
+`ir_operations` 列出 `ps-module`（卸载/替换为 `remove-ps-module`），执行器消费同一序列。`--dry-run` 只读取清单与安装事实：不创建 `modules`、不创建包目录、不写 `HKCU`。
 
 ## 本轮验证（R25 / #46）
 

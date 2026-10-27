@@ -432,8 +432,9 @@ $bad = (& $CoopExe --root $badRoot install test/badcmd --dry-run --json 2>&1) -j
 if ($bad -notmatch 'Invalid path component' -or ($bad | ConvertFrom-Json).execution_available -ne $false) { throw 'unsafe command target path was not refused explicitly' }
 if (Test-Path "$badRoot/shims") { throw 'unsafe command preview created an entry' }
 
-# Adoption: legacy Scoop shims with aliases/arguments, a legacy shortcut and declared environment
-# are verified before ownership is recorded; the update keeps argument forwarding and environment.
+# A shared Scoop installation with legacy shims (aliases and arguments), a Scoop shortcut and declared
+# environment is managed directly: no private record is required, the update keeps argument forwarding
+# and environment values, and uninstall removes the shared entries it still owns.
 $adoptRoot = New-TestRoot
 $adoptPrograms = Join-Path $adoptRoot 'programs'
 $env:COOP_PROGRAMS_DIR = $adoptPrograms
@@ -465,28 +466,26 @@ if (((& "$adoptRoot/shims/legacy.exe" --caller) -join "`n") -notmatch 'fixture 2
 $updateManifest = @{version='2';url=((File-Uri $fixtureEnv)+'#/legacy.exe');hash=(Get-FileHash -LiteralPath $fixtureEnv -Algorithm SHA256).Hash.ToLower();
     bin=$legacyBins;shortcuts=$legacyShortcuts;env_set=@{FIXTURE_ENV='updated-value'};env_add_path='.'}
 Write-Manifest $adoptRoot 'legacy' $updateManifest
-$adoptPreview = Read-Json (& $CoopExe --root $adoptRoot adopt legacy --dry-run --json)
-Assert-Exit 'legacy complex entry adoption preview failed'
-if ($adoptPreview.eligibility -ne 'eligible') { throw "legacy complex entry adoption is $($adoptPreview.eligibility): $($adoptPreview.diagnostics | ConvertTo-Json -Compress)" }
-if (@($adoptPreview.exposure.adopted_shortcuts).Count -ne 1) { throw 'adoption preview omitted the verified legacy shortcut' }
-if ((Test-Path "$adoptRoot/.coop") -or -not (Test-Path -LiteralPath $legacyLink)) { throw 'adoption preview changed state or shortcuts' }
-$adopt = & $CoopExe --root $adoptRoot adopt legacy --json
-Assert-Exit "legacy complex entry adoption failed: $($adopt -join "`n")"
-$adoptRecord = Get-Content -LiteralPath "$adoptRoot/.coop/packages/Legacy.json" -Raw | ConvertFrom-Json
-if ($adoptRecord.origin -ne 'scoop' -or -not ($adoptRecord.legacy_shortcuts.PSObject.Properties.Name -contains $legacyShortcut)) { throw 'adoption record omitted shortcut ownership' }
-if (@($adoptRecord.environment | Where-Object name -eq 'FIXTURE_ENV').value -ne 'legacy-value') { throw 'adoption record omitted declared environment exposure' }
-if (((& "$adoptRoot/shims/legacy2.exe" --caller) -join "`n") -notmatch 'fixture 2') { throw 'adoption broke the original command entry' }
+if (Test-Path "$adoptRoot/.coop/packages/Legacy.json") { throw 'the shared fixture unexpectedly had a private management record' }
+$sharedPreview = Read-Json (& $CoopExe --root $adoptRoot update legacy --dry-run --json)
+Assert-Exit 'legacy complex entry shared update preview failed'
+if (-not $sharedPreview.execution_available) { throw "shared legacy entry update is blocked: $($sharedPreview.diagnostics | ConvertTo-Json -Compress)" }
+if ((Test-Path "$adoptRoot/.coop") -or -not (Test-Path -LiteralPath $legacyLink)) { throw 'shared update preview changed state or shortcuts' }
 $update = & $CoopExe --root $adoptRoot update legacy --json
-Assert-Exit "adopted complex entry update failed: $($update -join "`n")"
+Assert-Exit "shared complex entry update failed: $($update -join "`n")"
+$updateRecord = Get-Content -LiteralPath "$adoptRoot/.coop/packages/Legacy.json" -Raw | ConvertFrom-Json
+if ($updateRecord.origin -ne 'scoop') { throw 'updating a shared installation did not keep the Scoop origin' }
+if (@($updateRecord.environment | Where-Object name -eq 'FIXTURE_ENV').value -ne 'updated-value') { throw 'the update record omitted the declared environment exposure' }
 $updatedOutput = ((& "$adoptRoot/shims/legacy2.exe" --caller) -join "`n")
-if ($LASTEXITCODE -ne 0 -or $updatedOutput -notmatch '\[--two\]' -or $updatedOutput -notmatch '\[--caller\]' -or $updatedOutput -notmatch 'env=updated-value') { throw "adopted update did not forward arguments and environment: $updatedOutput" }
+if ($LASTEXITCODE -ne 0 -or $updatedOutput -notmatch '\[--two\]' -or $updatedOutput -notmatch '\[--caller\]' -or $updatedOutput -notmatch 'env=updated-value') { throw "shared update did not forward arguments and environment: $updatedOutput" }
 Assert-Shortcut $legacyLink "$adoptRoot/apps/Legacy/current/legacy.exe" ''
 $uninstall = & $CoopExe --root $adoptRoot uninstall Legacy --json
-Assert-Exit "adopted complex entry uninstall failed: $($uninstall -join "`n")"
-if (Test-Path -LiteralPath $legacyLink) { throw 'adopted uninstall left the owned shortcut behind' }
-if (Test-Path "$adoptRoot/shims/legacy.exe") { throw 'adopted uninstall left command entries behind' }
+Assert-Exit "shared complex entry uninstall failed: $($uninstall -join "`n")"
+if (Test-Path -LiteralPath $legacyLink) { throw 'shared uninstall left the owned shortcut behind' }
+if (Test-Path "$adoptRoot/shims/legacy.exe") { throw 'shared uninstall left command entries behind' }
 
-# A changed or missing legacy shortcut is not adopted as owned evidence.
+# A changed shared shortcut is refused by both preview and execution; a missing one is reported and
+# left alone; an unknown .shim key does not make the shared entry unmanageable.
 $changedRoot = New-TestRoot
 $changedPrograms = Join-Path $changedRoot 'programs'
 $env:COOP_PROGRAMS_DIR = $changedPrograms
@@ -509,15 +508,19 @@ $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($changedLink)
 $shortcut.TargetPath = "$changedRoot/apps/Changed/current/changed.exe"
 $shortcut.Arguments = '--different'
 $shortcut.Save()
-$changedPreview = Read-Json (& $CoopExe --root $changedRoot adopt changed --dry-run --json 2>&1)
-if ($changedPreview.eligibility -ne 'untested' -or 'shortcut-arguments-mismatch' -notin @($changedPreview.diagnostics.code)) { throw "changed legacy shortcut was not rejected: $($changedPreview.eligibility)" }
+$changedPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+if ($changedPreview.execution_available -ne $false) { throw "a changed shared shortcut was not refused by the preview: $($changedPreview.execution_available)" }
+if (@($changedPreview.diagnostics | Where-Object { $_.message -match 'Shared shortcut uses different arguments|Shortcut was modified externally' }).Count -eq 0) { throw "the changed shortcut refusal has no explanation: $($changedPreview.diagnostics | ConvertTo-Json -Compress)" }
+$changedExecution = & $CoopExe --root $changedRoot update changed --json 2>&1
+if ($LASTEXITCODE -eq 0) { throw 'execution accepted a changed shared shortcut the preview refused' }
 Remove-Item -LiteralPath $changedLink -Force
-$missingPreview = Read-Json (& $CoopExe --root $changedRoot adopt changed --dry-run --json 2>&1)
-if ($missingPreview.eligibility -ne 'untested' -or 'shortcut-evidence-missing' -notin @($missingPreview.diagnostics.code)) { throw "missing legacy shortcut was not reported: $($missingPreview.eligibility)" }
+$missingPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+if ($missingPreview.execution_available -ne $true -or $script:LASTEXITCODE -ne 0) { throw "a missing shared shortcut blocked the update: $($missingPreview.diagnostics | ConvertTo-Json -Compress)" }
+if (@($missingPreview.exposure.missing_shortcuts) -notcontains 'Changed 应用') { throw 'the missing shared shortcut was not reported' }
 [IO.File]::AppendAllText("$changedRoot/shims/changed.shim","future = value`r`n")
-$unknownPreview = Read-Json (& $CoopExe --root $changedRoot adopt changed --dry-run --json 2>&1)
-if ($unknownPreview.eligibility -ne 'untested' -or 'untested-shim-option' -notin @($unknownPreview.diagnostics.code)) { throw "unknown Scoop shim option was not surfaced: $($unknownPreview.eligibility)" }
-if ((Test-Path "$changedRoot/.coop") -or (Test-Path "$changedRoot/shims/changed.coop-shim.json")) { throw 'shortcut adoption preview changed state' }
+$unknownPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+if ($unknownPreview.execution_available -ne $true) { throw "an unknown .shim key made the shared entry unmanageable: $($unknownPreview.diagnostics | ConvertTo-Json -Compress)" }
+if ((Test-Path "$changedRoot/.coop") -or (Test-Path "$changedRoot/shims/changed.coop-shim.json")) { throw 'shared shortcut preview changed state' }
 
 # A Scoop-installed script-host package has only .cmd/sh wrappers, no .exe/.shim pair. Coop must
 # recognize that evidence, update it without requiring a private record, republish the Scoop wrapper

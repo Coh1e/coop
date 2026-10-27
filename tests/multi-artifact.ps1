@@ -94,9 +94,9 @@ for ($index = 0; $index -lt $expected.Count; $index++) {
         throw "artifact $index did not preserve the declared rename and algorithm: $($artifact | ConvertTo-Json -Compress)"
     }
 }
-$kinds = @($preview.operations | ForEach-Object kind)
+$kinds = @($preview.ir_operations | ForEach-Object { $_.operation })
 if (@($kinds | Where-Object { $_ -eq 'verify' }).Count -ne 3) { throw 'the preview did not plan one verification per download' }
-if (@($preview.operations | Where-Object { $_.kind -eq 'verify' -and $_.detail -notmatch 'sha512|sha1|md5' }).Count) { throw 'a verify operation lost its declared algorithm' }
+if (@($preview.ir_operations | Where-Object { $_.operation -eq 'verify' -and $_.effect -notmatch 'sha512|sha1|md5' }).Count) { throw 'a verify operation lost its declared algorithm' }
 
 $install = Invoke-Coop @('--root',$root,'install','test/multi','--arch','32bit','--json')
 if ($install.code -ne 0) { throw "multi-artifact install failed: $($install.text)" }

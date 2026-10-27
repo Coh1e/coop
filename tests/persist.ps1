@@ -37,8 +37,9 @@ function Persist-Hashes([string]$Base) {
     @(Get-ChildItem -LiteralPath $Base -Recurse -File -Force | ForEach-Object { "$($_.FullName):$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)" })
 }
 
-# In-place adoption, update and normal uninstall of a no-script sample with a directory
-# junction and a file hardlink. The sample program reads the persisted data from its own directory.
+# Shared installation with a directory junction and a file hardlink. The sample program reads the
+# persisted data from its own directory; Coop manages the shared state directly (no takeover), then
+# updates and uninstalls while the data stays in place.
 $root = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
 $app = "$root/apps/$name"
 $store = "$root/persist/$name"
@@ -65,70 +66,60 @@ Assert-Link "$app/1/config" "$store/config" 'Junction'
 Assert-Link "$app/1/sample.ini" "$store/sample.ini" 'HardLink'
 $unchanged = Persist-Hashes "$root/persist"
 
-$preview = & $CoopExe --root $root adopt $name --dry-run --json
-if ($LASTEXITCODE -ne 0) { throw 'persist adoption preview failed' }
+$preview = & $CoopExe --root $root update $name --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw 'persist update preview failed' }
 $plan = ($preview -join "`n") | ConvertFrom-Json
-if ($plan.eligibility -ne 'eligible') { throw "persist sample is not adoption eligible: $($plan.eligibility)" }
+if (-not $plan.execution_available) { throw "shared persist sample is not manageable: $($plan.diagnostics | ConvertTo-Json -Compress)" }
 if (@($plan.persistence).Count -ne 2) { throw 'preview omitted declared persistence' }
 $configPlan = @($plan.persistence | Where-Object source -eq 'config')[0]
 $filePlan = @($plan.persistence | Where-Object source -eq 'sample.ini')[0]
 if ($configPlan.link_type -ne 'junction' -or $filePlan.link_type -ne 'hardlink') { throw 'preview reported wrong persisted link types' }
-if ($configPlan.link -notlike "*$($name)\1\config" -or $filePlan.store -notlike "*$($name)\sample.ini") { throw 'preview reported wrong persistence paths' }
-if (Test-Path -LiteralPath "$root/.coop") { throw 'adoption preview wrote management state' }
-if (@(Compare-Object $unchanged (Persist-Hashes "$root/persist")).Count) { throw 'adoption preview changed persisted data' }
+if ($configPlan.link -notlike "*$($name)\2\config" -or $filePlan.store -notlike "*$($name)\sample.ini") { throw 'preview reported wrong persistence paths' }
+if (Test-Path -LiteralPath "$root/.coop") { throw 'a shared update preview wrote management state' }
+if (@(Compare-Object $unchanged (Persist-Hashes "$root/persist")).Count) { throw 'the update preview changed persisted data' }
 
-$adoptionOutput = & $guard $CoopExe --root $root adopt $name --json
-if ($LASTEXITCODE -ne 0) { throw "in-place adoption of persisted sample failed: $($adoptionOutput -join "`n")" }
-$adoption = ($adoptionOutput -join "`n") | ConvertFrom-Json
-if (@($adoption.persistence).Count -ne 2) { throw 'adoption result omitted persistence evidence' }
+$updateOutput = & $guard $CoopExe --root $root update $name --json
+if ($LASTEXITCODE -ne 0) { throw "shared update of persisted sample failed: $($updateOutput -join "`n")" }
+$updateResult = ($updateOutput -join "`n") | ConvertFrom-Json
 $record = Get-Content -LiteralPath "$root/.coop/packages/$name.json" -Raw | ConvertFrom-Json
 if (@($record.persistence).Count -ne 2) { throw 'management record omitted persistence ownership' }
-if (@(Compare-Object $unchanged (Persist-Hashes "$root/persist")).Count) { throw 'adoption moved or changed original persisted data' }
-Assert-Link "$app/1/config" "$store/config" 'Junction'
-Assert-Link "$app/1/sample.ini" "$store/sample.ini" 'HardLink'
-Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 1 config=owner-data-1 file=file-data-1'
+if (@($updateResult.persistence).Count -ne 2) { throw 'the update result omitted persistence evidence' }
+if (@($updateResult.persistence | Where-Object { $_.link -like "*$name\2\*" }).Count -ne 2) { throw 'update reported staging paths instead of published persistence links' }
+if ('1' -notin @($updateResult.retained_versions) -or $updateResult.data_rollback -ne 'none') { throw 'update mixed old-program retention with data rollback reporting' }
+if (@(Compare-Object $unchanged (Persist-Hashes "$root/persist")).Count) { throw 'the update moved or changed original persisted data' }
+Assert-Link "$app/2/config" "$store/config" 'Junction'
+Assert-Link "$app/2/sample.ini" "$store/sample.ini" 'HardLink'
+Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-data-1 file=file-data-1'
+Assert-Runs "$app/1/persist-fixture.exe" 'persist-fixture 1 config=owner-data-1 file=file-data-1'
+$items = & $CoopExe --root $root list --json | ConvertFrom-Json
+$item = @($items | Where-Object name -eq $name)[0]
+if ($item.version -ne '2' -or '1' -notin @($item.older_versions) -or @($item.persistence).Count -ne 2) { throw 'list did not separate current version, old program and persisted data' }
 
-# User data changes after adoption must be what the next version reads.
+# User data changes after the update must be what the next version reads.
 Set-Content -LiteralPath "$store/config/settings.ini" -Value 'owner-data-2' -NoNewline
 Set-Content -LiteralPath "$store/sample.ini" -Value 'file-data-2' -NoNewline
-Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 1 config=owner-data-2 file=file-data-2'
+Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-data-2 file=file-data-2'
 
 # A publication failure must roll back program/entry changes without touching persisted data.
+[IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '3' $fixture2 $mapping))
 $lock = [IO.File]::Open("$root/.coop/packages/$name.json",[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
     $failed = & $CoopExe --root $root update $name --json 2>&1
     if ($LASTEXITCODE -eq 0) { throw 'occupied management record unexpectedly allowed update publication' }
 } finally { $lock.Dispose() }
-if (Test-Path -LiteralPath "$app/2") { throw 'failed persist update left the new version published' }
-Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 1 config=owner-data-2 file=file-data-2'
-Assert-Link "$app/1/config" "$store/config" 'Junction'
-Assert-Link "$app/1/sample.ini" "$store/sample.ini" 'HardLink'
-Assert-Text "$store/config/settings.ini" 'owner-data-2'
-Assert-Text "$store/sample.ini" 'file-data-2'
-Assert-Text "$store/unrelated/keep.txt" 'unowned'
-
-$updateOutput = & $CoopExe --root $root update $name --json
-if ($LASTEXITCODE -ne 0) { throw "persist update failed: $($updateOutput -join "`n")" }
-$updated = ($updateOutput -join "`n") | ConvertFrom-Json
-if ($updated.status -ne 'success' -or @($updated.persistence).Count -ne 2) { throw 'update result omitted persistence evidence' }
-if (@($updated.persistence | Where-Object { $_.link -like "*$name\2\*" }).Count -ne 2) { throw 'update reported staging paths instead of published persistence links' }
-if ('1' -notin @($updated.retained_versions) -or $updated.data_rollback -ne 'none') { throw 'update mixed old-program retention with data rollback reporting' }
+if (Test-Path -LiteralPath "$app/3") { throw 'failed persist update left the new version published' }
 Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-data-2 file=file-data-2'
-Assert-Runs "$app/1/persist-fixture.exe" 'persist-fixture 1 config=owner-data-2 file=file-data-2'
 Assert-Link "$app/2/config" "$store/config" 'Junction'
 Assert-Link "$app/2/sample.ini" "$store/sample.ini" 'HardLink'
 Assert-Text "$store/config/settings.ini" 'owner-data-2'
 Assert-Text "$store/sample.ini" 'file-data-2'
 Assert-Text "$store/unrelated/keep.txt" 'unowned'
-$items = & $CoopExe --root $root list --json | ConvertFrom-Json
-$item = @($items | Where-Object name -eq $name)[0]
-if ($item.version -ne '2' -or '1' -notin @($item.older_versions) -or @($item.persistence).Count -ne 2) { throw 'list did not separate current version, old program and persisted data' }
 
 # A changed persist mapping is an explicit unverified operation, not a silent migration.
-[IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '3' $fixture1 'renamed'))
+[IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '4' $fixture1 'renamed'))
 $blocked = & $CoopExe --root $root update $name --json 2>&1
 if ($LASTEXITCODE -eq 0 -or ($blocked -join "`n") -notmatch 'Persistence mapping changes are not verified') { throw 'changed persist mapping was not explicitly refused' }
-if (Test-Path -LiteralPath "$app/3") { throw 'refused mapping change published a version' }
+if (Test-Path -LiteralPath "$app/4") { throw 'refused mapping change published a version' }
 Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-data-2 file=file-data-2'
 [IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '2' $fixture2 $mapping))
 
@@ -216,6 +207,35 @@ if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath "$root3/apps/persistfile/cur
 Assert-Text "$root3/persist/persistfile/blocked" 'not-a-directory'
 if (Test-Path -LiteralPath "$root3/.coop/packages/persistfile.json") { throw 'refused file-parent persist install left a management record' }
 
-@{adopted_root=$root;fresh_root=$root2;reparse_root=$root3;coop=$CoopExe} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'persist-evidence.json') -Encoding utf8
-Write-Output "PASS persisted data across adoption, update, uninstall, rollback and ownership conflicts: $TestRoot"
+# Purge derives its scope from the installation's own declarations and the verified links, so a
+# shared Scoop installation without any Coop private record can be uninstalled with --purge.
+$root4 = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
+$app4 = "$root4/apps/persistshared"
+$store4 = "$root4/persist/persistshared"
+New-Item -ItemType Directory -Path "$root4/buckets/test/bucket","$app4/1","$root4/shims","$store4/config","$store4/unrelated" -Force | Out-Null
+Copy-Item -LiteralPath $fixture1 -Destination "$app4/1/persist-fixture.exe"
+Set-Content -LiteralPath "$store4/config/settings.ini" -Value 'shared-data' -NoNewline
+Set-Content -LiteralPath "$store4/unrelated/keep.txt" -Value 'unowned' -NoNewline
+New-Item -ItemType Junction -Path "$app4/1/config" -Target "$store4/config" | Out-Null
+Copy-Item -LiteralPath $scoopShim -Destination "$root4/shims/persist-fixture.exe"
+[IO.File]::WriteAllText("$root4/shims/persist-fixture.shim",'path = "'+[IO.Path]::GetFullPath("$app4/1/persist-fixture.exe")+'"'+"`r`n")
+$sharedPair = [Collections.Generic.List[object]]::new()
+$sharedPair.Add([string[]]@('config','config'))
+[IO.File]::WriteAllText("$app4/1/scoop-manifest.json",(New-Manifest '1' $fixture1 $sharedPair))
+'{"bucket":"test","architecture":"64bit"}' | Set-Content -LiteralPath "$app4/1/scoop-install.json" -Encoding utf8
+New-Item -ItemType Junction -Path "$app4/current" -Target "$app4/1" | Out-Null
+[IO.File]::WriteAllText("$root4/buckets/test/bucket/persistshared.json",(New-Manifest '2' $fixture2 $sharedPair))
+if (Test-Path -LiteralPath "$root4/.coop/packages/persistshared.json") { throw 'the purged fixture unexpectedly had a private record' }
+$purgePreview = & $CoopExe --root $root4 uninstall persistshared --purge --dry-run --json
+if ($LASTEXITCODE -ne 0) { throw "shared purge preview failed: $($purgePreview -join "`n")" }
+$purgePlan = ($purgePreview -join "`n") | ConvertFrom-Json
+if ($purgePlan.purge.status -ne 'planned' -or @($purgePlan.purge.scope).Count -ne 1 -or $purgePlan.purge.scope[0].store -notlike "*persistshared\config") { throw "shared purge preview lost the declared scope: $($purgePreview -join "`n")" }
+if (-not (Test-Path -LiteralPath "$store4/config")) { throw 'the shared purge preview deleted stored data' }
+$purgeRun = & $CoopExe --root $root4 uninstall persistshared --purge --json
+if ($LASTEXITCODE -ne 0) { throw "shared purge failed: $($purgeRun -join "`n")" }
+if (Test-Path -LiteralPath "$store4/config") { throw 'shared purge did not delete the declared store' }
+Assert-Text "$store4/unrelated/keep.txt" 'unowned'
+
+@{shared_root=$root;fresh_root=$root2;reparse_root=$root3;purge_root=$root4;coop=$CoopExe} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'persist-evidence.json') -Encoding utf8
+Write-Output "PASS persisted data across shared update, uninstall, purge, rollback and ownership conflicts: $TestRoot"
 exit 0

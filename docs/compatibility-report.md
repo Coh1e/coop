@@ -19,9 +19,9 @@
 | 步骤 | 实际命令 | 退出码 | 观察到的状态 |
 | --- | --- | --- | --- |
 | 原有安装可运行 | `shims/jq.exe --version` | 0 | `jq-1.7.1`，原程序、Manifest、安装记录与 shim 摘要记录在案 |
-| 接管预览 | `coop --root ROOT adopt jq --dry-run --json` | 0 | `eligibility=eligible`，`update/uninstall=supported-path`，程序与入口未变，无管理记录 |
-| 原地接管 | `coop --root ROOT adopt jq --json` | 0 | `status=adopted`、`version=1.7.1`；原程序、Manifest、安装记录和命令入口摘要全部不变 |
-| 本地查询 | `coop --root ROOT list --json`、`info main/jq --json` | 0 | `management=managed`、`origin=scoop`、`version=1.7.1`；进程守卫只观察到 Coop 本身 |
+| 接管预览（历史） | `coop --root ROOT adopt jq --dry-run --json` | 0 | `eligibility=eligible`，`update/uninstall=supported-path`，程序与入口未变，无管理记录。R22（#43）已移除该命令，同一共享安装现在直接由 `update`/`uninstall` 管理 |
+| 原地接管（历史） | `coop --root ROOT adopt jq --json` | 0 | `status=adopted`、`version=1.7.1`；原程序、Manifest、安装记录和命令入口摘要全部不变。R22 后不再需要此步骤 |
+| 本地查询 | `coop --root ROOT list --json`、`info main/jq --json` | 0 | `management=managed`、`origin=scoop`、`version=1.7.1`；进程守卫只观察到 Coop 本身。当前实现中 Scoop 创建的安装无私有记录时为 `management=unadopted`，同样可更新/卸载 |
 | 显式更新 bucket | `coop --root ROOT bucket update main --json` | 0 | 本地来源刷新后可查询 jq 1.8.2 与 ripgrep 15.2.0；未启动 git.exe 或 PowerShell |
 | 更新预览 | `coop --root ROOT update jq --dry-run --json` | 0 | `previous_package.version=1.7.1`，目标 1.8.2，`execution_available=true`，安装状态和入口不变 |
 | 拒绝错误输入 | 将 bucket 中 jq 1.8.2 的 SHA256 改为全零后 `coop update jq --json` | 1 | 当前入口仍为 `jq-1.7.1`，没有 `apps/jq/1.8.2`；`list` 报 `last_operation=failed` 且仍为已安装、可查询 |

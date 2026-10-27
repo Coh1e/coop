@@ -11,7 +11,7 @@
 namespace coop {
 namespace {
 struct ResolvedEntry {
-    Persistence mapping;
+    ir::PersistenceMapping mapping;
     fs::path link;
     fs::path store;
     bool directory = false;
@@ -26,17 +26,17 @@ void validate_path(const fs::path& path, const char* field) {
     }
 }
 
-void validate_mapping(const Persistence& mapping) {
-    validate_path(mapping.source,"source");
-    validate_path(mapping.target,"target");
+void validate_mapping(const ir::PersistenceMapping& mapping) {
+    validate_path(fs::path(wide(mapping.source)),"source");
+    validate_path(fs::path(wide(mapping.target)),"target");
 }
 
-void require_unique(const Package& package) {
+void require_unique(const ir::Package& package) {
     for (std::size_t i = 0; i < package.persistence.size(); ++i) for (std::size_t j = i+1; j < package.persistence.size(); ++j) {
-        if (equal_name(path_text(package.persistence[i].source),path_text(package.persistence[j].source)))
-            throw std::runtime_error("Duplicate persist source: "+path_text(package.persistence[i].source));
-        if (equal_name(path_text(package.persistence[i].target),path_text(package.persistence[j].target)))
-            throw std::runtime_error("Duplicate persist target: "+path_text(package.persistence[i].target));
+        if (equal_name(package.persistence[i].source,package.persistence[j].source))
+            throw std::runtime_error("Duplicate persist source: "+package.persistence[i].source);
+        if (equal_name(package.persistence[i].target,package.persistence[j].target))
+            throw std::runtime_error("Duplicate persist target: "+package.persistence[i].target);
     }
 }
 
@@ -55,9 +55,9 @@ void require_ordinary(const fs::path& base, const fs::path& path, bool final_rep
     }
 }
 
-fs::path store_path(const Context& context, const Package& package, const fs::path& target) {
-    validate_component(package.name);
-    return context.root/L"persist"/wide(package.name)/target;
+fs::path store_path(const Context& context, const std::string& package_name, const fs::path& target) {
+    validate_component(package_name);
+    return context.root/L"persist"/wide(package_name)/target;
 }
 
 struct FileIdentity {
@@ -94,10 +94,12 @@ std::string normalized_path_text(const fs::path& path) {
     return text;
 }
 
-ResolvedEntry resolve_entry(const Context& context, const Package& package, const Persistence& mapping,
+ResolvedEntry resolve_entry(const Context& context, const std::string& package_name, const ir::PersistenceMapping& mapping,
                             const fs::path& version_directory) {
     validate_mapping(mapping);
-    ResolvedEntry result{mapping,version_directory/mapping.source,store_path(context,package,mapping.target),false};
+    const auto source = fs::path(wide(mapping.source));
+    const auto target = fs::path(wide(mapping.target));
+    ResolvedEntry result{mapping,version_directory/source,store_path(context,package_name,target),false};
     require_ordinary(context.root,result.store,false);
     require_ordinary(version_directory,result.link,true);
     const auto store_attributes = GetFileAttributesW(result.store.c_str());
@@ -152,12 +154,13 @@ void create_link(const fs::path& link, const fs::path& store, bool directory) {
         throw std::runtime_error("Cannot create persisted file link (Windows error "+std::to_string(GetLastError())+")");
 }
 }
-Json persistence_plan_json(const Context& context, const Package& package, const fs::path& version_directory) {
-    require_unique(package);
+Json persistence_plan_json(const Context& context, const std::string& package_name,
+                           const std::vector<ir::PersistenceMapping>& mappings, const fs::path& version_directory) {
     Json result = Json::array();
-    for (const auto& mapping : package.persistence) {
+    for (const auto& mapping : mappings) {
         validate_mapping(mapping);
-        const auto store = store_path(context,package,mapping.target);
+        const auto source = fs::path(wide(mapping.source));
+        const auto store = store_path(context,package_name,fs::path(wide(mapping.target)));
         const auto attributes = GetFileAttributesW(store.c_str());
         std::string link_type = "unresolved";
         if (attributes != INVALID_FILE_ATTRIBUTES) {
@@ -165,19 +168,19 @@ Json persistence_plan_json(const Context& context, const Package& package, const
             else if (attributes & FILE_ATTRIBUTE_DIRECTORY) link_type = "junction";
             else link_type = "hardlink";
         }
-        Json entry = {{"source",path_text(mapping.source)},{"target",path_text(mapping.target)},{"store",path_text(store)},
+        Json entry = {{"source",mapping.source},{"target",mapping.target},{"store",path_text(store)},
             {"store_exists",attributes != INVALID_FILE_ATTRIBUTES},{"link_type",link_type},{"data_retained",true}};
-        entry["link"] = version_directory.empty() ? Json(nullptr) : Json(path_text(version_directory/mapping.source));
+        entry["link"] = version_directory.empty() ? Json(nullptr) : Json(path_text(version_directory/source));
         result.push_back(std::move(entry));
     }
     return result;
 }
-Json prepare_persistence(const Context& context, const Package& package, const fs::path& stage_directory) {
+Json prepare_persistence(const Context& context, const ir::Package& package, const fs::path& stage_directory) {
     require_unique(package);
     for (const auto& mapping : package.persistence) {
         validate_mapping(mapping);
-        const auto link = stage_directory/mapping.source;
-        const auto store = store_path(context,package,mapping.target);
+        const auto link = stage_directory/wide(mapping.source);
+        const auto store = store_path(context,package.name,fs::path(wide(mapping.target)));
         require_ordinary(context.root,store,false);
         require_ordinary(stage_directory,link,true);
         const auto link_attributes = GetFileAttributesW(link.c_str());
@@ -212,26 +215,26 @@ Json prepare_persistence(const Context& context, const Package& package, const f
     }
     return verify_persistence(context,package,stage_directory);
 }
-Json verify_persistence(const Context& context, const Package& package, const fs::path& version_directory) {
+Json verify_persistence(const Context& context, const ir::Package& package, const fs::path& version_directory) {
     require_unique(package);
     Json result = Json::array();
     for (const auto& mapping : package.persistence) {
-        const auto resolved = resolve_entry(context,package,mapping,version_directory);
-        result.push_back({{"source",path_text(resolved.mapping.source)},{"target",path_text(resolved.mapping.target)},
+        const auto resolved = resolve_entry(context,package.name,mapping,version_directory);
+        result.push_back({{"source",resolved.mapping.source},{"target",resolved.mapping.target},
             {"link",path_text(resolved.link)},{"store",path_text(resolved.store)},
             {"type",resolved.directory ? "junction" : "hardlink"},{"ownership","verified"},{"data_retained",true}});
     }
     return result;
 }
-bool same_persistence(const Package& a, const Package& b) {
+bool same_persistence(const ir::Package& a, const ir::Package& b) {
     if (a.persistence.size() != b.persistence.size()) return false;
     std::vector<bool> matched(b.persistence.size(),false);
     for (const auto& left : a.persistence) {
         bool found = false;
         for (std::size_t i = 0; i < b.persistence.size(); ++i) {
             if (matched[i]) continue;
-            if (!equal_name(path_text(left.source),path_text(b.persistence[i].source))) continue;
-            if (!equal_name(path_text(left.target),path_text(b.persistence[i].target))) continue;
+            if (!equal_name(left.source,b.persistence[i].source)) continue;
+            if (!equal_name(left.target,b.persistence[i].target)) continue;
             matched[i] = true;
             found = true;
             break;
@@ -240,24 +243,16 @@ bool same_persistence(const Package& a, const Package& b) {
     }
     return true;
 }
-Json purge_scope(const Context& context, const Package& package, const fs::path& version_directory,
-                 const Json& recorded_persistence) {
+// The purge scope is the declared persistence of the installed package. Each entry is verified
+// against the actual link and store identity, so no Coop private ownership record is required and
+// a link that changed is still refused. `retained_versions`-style evidence is not used here.
+Json purge_scope(const Context& context, const ir::Package& package, const fs::path& version_directory) {
     require_unique(package);
-    if (!recorded_persistence.is_array())
-        throw std::runtime_error("Managed persistence ownership record is missing");
     Json result = Json::array();
     for (const auto& mapping : package.persistence) {
-        const auto resolved = resolve_entry(context,package,mapping,version_directory);
-        const auto recorded = std::find_if(recorded_persistence.begin(),recorded_persistence.end(),[&](const Json& item) {
-            return item.is_object() && equal_name(item.value("store",std::string{}),path_text(resolved.store)) &&
-                equal_name(item.value("target",std::string{}),path_text(resolved.mapping.target));
-        });
-        if (recorded == recorded_persistence.end())
-            throw std::runtime_error("Managed persistence ownership record is missing for: "+path_text(resolved.store));
-        if (recorded->value("ownership",std::string{}) != "verified")
-            throw std::runtime_error("Managed persistence ownership was not verified for: "+path_text(resolved.store));
+        const auto resolved = resolve_entry(context,package.name,mapping,version_directory);
         const auto identity = file_identity(resolved.store,"Persisted store target",resolved.directory);
-        result.push_back({{"source",path_text(resolved.mapping.source)},{"target",path_text(resolved.mapping.target)},
+        result.push_back({{"source",resolved.mapping.source},{"target",resolved.mapping.target},
             {"store",path_text(resolved.store)},{"link",path_text(resolved.link)},
             {"type",resolved.directory ? "junction" : "hardlink"},{"identity",identity_text(identity)}});
     }

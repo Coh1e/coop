@@ -131,7 +131,8 @@ ShimMetadata read_shim_metadata(const fs::path& path) {
         if (!keys.insert(key).second) throw std::runtime_error("Duplicate Scoop shim metadata key");
         if (key == "path") result.target = value;
         else if (key == "args") result.arguments = value;
-        else result.unknown_keys.push_back(key);
+        // Any other key a future Scoop version writes is accepted and ignored: it is not this
+        // reader's contract and must not turn a usable shared entry into an unusable one.
     }
     if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
         result.target = result.target.substr(1,result.target.size()-2);

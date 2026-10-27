@@ -45,10 +45,10 @@ coop --arch=64bit install main/ripgrep
 
 ## 4. 批量结果
 
-`install|update|uninstall|adopt` 一次接收多个包时，每个包独立规划、独立事务、按请求顺序执行：
+`install|update|uninstall|reset` 一次接收多个包时，每个包独立规划、独立事务、按请求顺序执行：
 
 - JSON 结果是数组，每项包含 `package`、`action`、`status`、`reason`（失败时）、该包的 `plan`（预览）或 `result`（执行）；执行项还带 `transaction_scope: per-package...`，不声称跨包全局事务或回滚。
-- `status` 为 `success`、`skipped`（已安装依赖、重复接管等明确跳过）、`failed`、`blocked`（预览无法执行）或 `partial`（如部分持久化数据删除失败）。
+- `status` 为 `success`、`skipped`（已安装依赖等明确跳过）、`failed`、`blocked`（预览无法执行）或 `partial`（如部分持久化数据删除失败）。
 - 前面的包成功不会阻止后面的包继续；后面的包失败不会回滚已完成的包。任一项失败时总体退出码为 1。
 - 文本模式每个包一行 `<包>: <status>`，失败原因写标准错误，最后一行给出总体计数，例如 `2 package(s): 1 succeeded, 0 skipped, 1 failed`。
 - 批量 `--dry-run` 不写安装状态；某项无法规划时该项为 `blocked`，整体退出码为 1。
@@ -58,7 +58,7 @@ coop --arch=64bit install main/ripgrep
 `--global-root`（或默认发现的系统级根）只作为安装事实来源：
 
 - `list --json` 的系统级项带 `"scope": "global"` 与 `"read_only": true`；查询、`info` 和预览可读取它们。
-- 仅存在于系统级根的包，`update`、`uninstall`、`reset`、`adopt` 在执行前被拒绝，错误包含稳定标记 `global-scope-readonly` 并给出该根路径；不会写入系统级根，也不会创建当前用户的 `.coop`。
+- 仅存在于系统级根的包，`update`、`uninstall`、`reset` 在执行前被拒绝，错误包含稳定标记 `global-scope-readonly` 并给出该根路径；不会写入系统级根，也不会创建当前用户的 `.coop`。
 - 对这类包执行当前用户级 `install` 仍是合法的用户范围写入：计划与结果带 `global_installation: {scope: global, read_only: true, directory: ...}`，安装只写当前用户根，系统级根保持逐字节不变。之后 `list` 仍同时显示两个范围，用户级卸载只影响用户级安装。
 - 批量卸载同时包含用户级包与仅系统级包时，用户级项可成功、系统级项以 `global-scope-readonly` 失败，整体退出码为 1，系统级根不变。
 - 没有 `--global` 写入开关；默认系统级软件管理仍不在产品范围内。
