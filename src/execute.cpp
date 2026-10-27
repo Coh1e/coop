@@ -22,6 +22,7 @@
 #include <iterator>
 #include <fstream>
 #include <map>
+#include <set>
 
 namespace coop {
 namespace {
@@ -1474,6 +1475,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
                 const auto scoop_shims = prefer_scoop_shim(package);
+                std::set<std::wstring> prepared_aliases;
                 for (const auto& command : package.entries) {
                     const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
                     const auto kind = launcher_kind(fs::path(wide(command.target)));
@@ -1484,24 +1486,28 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     // rm_shim only removes its own files). On a fresh install, metadata that still
                     // names this package and targets its current entry is the stale evidence of
                     // that removal, so it is moved aside for the fresh publish; a foreign package
-                    // or an unexpected target stays a conflict.
-                    for (const auto& stale : {shims/(wide(command.alias)+L".coop-shim.json"),
-                                              shims/(wide(command.alias)+L".coop-shim")}) {
-                        std::error_code stale_error;
-                        if (!fs::exists(stale,stale_error) || stale_error) continue;
-                        bool ours = false;
-                        try {
-                            const auto metadata = read_json(stale);
-                            const auto recorded_target = fs::path(wide(metadata.value("target",std::string{}))).lexically_normal();
-                            const auto expected_root = (context.root/L"apps"/wide(package.name)/L"current").lexically_normal();
-                            const auto relative = recorded_target.lexically_relative(expected_root);
-                            ours = plan.action == ir::Action::install &&
-                                equal_name(metadata.value("package",std::string{}),package.name) &&
-                                !relative.empty() && !relative.is_absolute() && *relative.begin() != L"..";
-                        } catch (const std::exception&) { ours = false; }
-                        if (!ours)
-                            throw std::runtime_error("Command entry conflicts with existing Coop metadata: "+path_text(stale));
-                        move(stale,transaction/(stale.filename().wstring()+L".stale"));
+                    // or an unexpected target stays a conflict. An alias declared for both the
+                    // executable and script families is only prepared once: the later declaration
+                    // publishes its wrappers while the first keeps the Coop metadata.
+                    if (prepared_aliases.insert(wide(command.alias)).second) {
+                        for (const auto& stale : {shims/(wide(command.alias)+L".coop-shim.json"),
+                                                  shims/(wide(command.alias)+L".coop-shim")}) {
+                            std::error_code stale_error;
+                            if (!fs::exists(stale,stale_error) || stale_error) continue;
+                            bool ours = false;
+                            try {
+                                const auto metadata = read_json(stale);
+                                const auto recorded_target = fs::path(wide(metadata.value("target",std::string{}))).lexically_normal();
+                                const auto expected_root = (context.root/L"apps"/wide(package.name)/L"current").lexically_normal();
+                                const auto relative = recorded_target.lexically_relative(expected_root);
+                                ours = plan.action == ir::Action::install &&
+                                    equal_name(metadata.value("package",std::string{}),package.name) &&
+                                    !relative.empty() && !relative.is_absolute() && *relative.begin() != L"..";
+                            } catch (const std::exception&) { ours = false; }
+                            if (!ours)
+                                throw std::runtime_error("Command entry conflicts with existing Coop metadata: "+path_text(stale));
+                            move(stale,transaction/(stale.filename().wstring()+L".stale"));
+                        }
                     }
                     command_targets.push_back({{"path",command.target},{"sha256",sha256_file(target)}});
                     const auto exposed_target = app/L"current"/wide(command.target);
