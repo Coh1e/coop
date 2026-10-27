@@ -1511,9 +1511,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             case ir::Operation::shortcuts: {
                 for (const auto& shortcut : package.shortcuts) {
                     const auto link = shortcut_link_path(context,shortcut.name);
-                    const auto target = app/L"current"/shortcut.target;
+                    // Scoop resolves the combined path as a FileInfo before creating the shortcut;
+                    // collapsing parent components here keeps the recorded identity identical.
+                    const auto target = (app/L"current"/shortcut.target).lexically_normal();
                     if (!fs::is_regular_file(target)) throw std::runtime_error("Shortcut target is missing after extraction: "+path_text(shortcut.target));
-                    const auto icon = shortcut.icon.empty() ? fs::path{} : app/L"current"/shortcut.icon;
+                    const auto icon = shortcut.icon.empty() ? fs::path{} : (app/L"current"/shortcut.icon).lexically_normal();
                     if (!icon.empty() && !fs::is_regular_file(icon)) throw std::runtime_error("Shortcut icon is missing after extraction: "+path_text(shortcut.icon));
                     const auto shortcut_arguments = expand_exposure_arguments(context,package.name,app/L"current",shortcut.arguments);
                     std::error_code error;

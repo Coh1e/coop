@@ -1,5 +1,7 @@
 # Main／Extras 全量兼容盘点（R20/#41）
 
+> **复测（2026-10-27，R27/#48）：** 同一盘点脚本重跑，读取 4149/4149、计划可执行 **4136**、阻塞 **11**、盘根内已安装 helper 2；`adapter/manifest-shape` 诊断与 `manifest-shape` 机制缺口 6 → **0**。剩余阻塞为依赖缺失 5、arm64 产物 3（64bit 下按设计拒绝）和 `external-host:python` 3（`main/retdec` 与原有 `main/vapoursynth`、`extras/pdd`，默认用户 PATH 无真实 `python.exe`）。本轮 Main 使用本机共用工作树在受权真机操作中由 Scoop 自行快进到的 `eebcee22…`（1701 份），Extras 仍固定 `0f8f4b5f…`（2448 份）；本轮只做只读盘点，真机验证集合仍为历史 15 个包，不重算为本轮运行。细则与证据见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
+
 > **复测（2026-10-27，R26/#47）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，使用正常用户 PATH：读取 4149/4149、计划可执行 **4131**、阻塞 **16**、盘根内已安装 helper 2。`adapter/unsupported-command-host` 诊断 13 → **0**，`command-entry-host` 机制缺口 11 → **0**；无扩展名计划可执行 1/8 → **8/8**、`.config` 0/1 → **1/1**。本机默认 PATH 没有真实 `python.exe`（Store 零长度别名被拒绝），`main/vapoursynth`、`extras/pdd` 计划按 `external-host:python` 阻塞并逐项列出，不是入口机制不支持；其余阻塞仍是 Manifest 形状 6、依赖缺失 5、arm64 产物 3。细则、真实运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
 
 > **复测（2026-10-27，R25/#46）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，结果为读取 4149/4149、计划可执行 **4123**、阻塞 **24**（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3）、盘根内已安装 helper 2。`capability:psmodule` 与 `dependency-unsupported` 缺口归零；真机验证集合仍为历史 15 个包且本页不将其重算为本轮运行。细则与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)。本页其余数字是 #41 当时的基线，不因复测而改写。

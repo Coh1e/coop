@@ -341,9 +341,11 @@ Json exposure_plan_json(const Context& context, const Package& package, const fs
     for (const auto& shortcut : package.shortcuts)
         result["shortcuts"].push_back({{"name",shortcut.name},{"kind","windows-shortcut"},
             {"link",path_text(programs/fs::path(wide(shortcut.name)+L".lnk"))},
-            {"target",path_text(base/shortcut.target)},
+            // Scoop combines the declared value with $dir and resolves it as a FileInfo, so parent
+            // components are already collapsed in the path that actually reaches the shortcut.
+            {"target",path_text((base/shortcut.target).lexically_normal())},
             {"arguments",expand_exposure_arguments(context,package.name,argument_base,shortcut.arguments)},
-            {"icon",shortcut.icon.empty() ? std::string{} : path_text(base/shortcut.icon)}});
+            {"icon",shortcut.icon.empty() ? std::string{} : path_text((base/shortcut.icon).lexically_normal())}});
     return result;
 }
 Json ps_module_plan_json(const Context& context, const std::string& name, const fs::path& target, bool removal) {

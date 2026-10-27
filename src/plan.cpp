@@ -603,7 +603,8 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     Json result = {{"action",action_name(action)},{"package",std::move(package_description)},
         {"manifest_sha256",plan.package.manifest_sha256},{"execution_available",plan.execution_available},
         {"external_tools",external_tools_json(context,plan.package)},
-        {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},{"diagnostics",Json::array()}};
+        {"artifacts",Json::array()},{"operations",Json::array()},{"preconditions",Json::array()},
+        {"diagnostics",Json::array()},{"warnings",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
     if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
         {"directory",path_text(*plan.global_installation)}};
@@ -810,6 +811,10 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     for (const auto& item : plan.preconditions) result["preconditions"].push_back({{"path",path_text(item.path)},{"sha256",item.sha256}});
     static const char* categories[] = {"syntax","adapter","ir","environment","capability","verification"};
     for (const auto& item : plan.diagnostics) result["diagnostics"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
+    // A warning is a source observation, not a gap: it never changes diagnostics, the exit code or
+    // execution_available, but it stays visible wherever a plan is reviewed.
+    for (const auto& item : plan.package.warnings)
+        result["warnings"].push_back({{"category",categories[static_cast<int>(item.kind)]},{"code",item.code},{"message",item.message}});
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) result["diagnostics"].push_back({{"category","capability"},{"code","execution-blocked"},{"message",blocker}});
     result["diagnostics"].push_back({{"category","verification"},{"code","lifecycle-verification"},{"message","Native lifecycle coverage: single-file, multi-artifact, renamed-artifact, ZIP, tar, 7z, MSI, Inno Setup and NSIS installer-payload archive packages, including packages that combine pre_install/installer/post_install scripts with declared installer/uninstaller programs; MSI artifacts are extracted from a read-only Windows Installer database view with the Windows cabinet decompression API (administrative image layout, no msiexec process, no product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external cabinets are reported as unsupported); Inno Setup .exe artifacts are unpacked by the separately installed innounp helper with Scoop's Expand-InnoArchive arguments and layout (the vendor installer is never executed, the helper is detected and never downloaded, and its own [Run]/[Registry]/service/shortcut effects are outside the extraction); an executable self-extractor declared as an archive payload is inspected by content after verification and, when it is an NSIS installer, unpacked by the separately installed 7-Zip helper with Scoop's Expand-7zipArchive arguments (ordinary 7z, ZIP and tar payloads stay native, the vendor setup.exe is never executed, and the helper is detected and never downloaded); declared SHA256, SHA512, SHA1 and MD5 digests, architecture-specific Manifest sections, persist mappings, installed dependencies, EXE/COM/BAT/CMD/PS1/JAR/PY command entries and Scoop's bash else-branch (extensionless, .config and other targets) with argument forwarding, Windows shortcuts and declared environment exposure in the current user's persistent environment plus Coop command processes are supported, while persist mapping changes remain unverified; every declared lifecycle hook (pre_install, installer, post_install, pre_uninstall, uninstaller, post_uninstall) runs as trusted script text in a real PowerShell host that loads the pinned Scoop compatibility library (v0.6.0) with the Scoop context and helpers, so script text is not whitelisted and a legitimate Manifest edit still executes, while declared installer/uninstaller programs run through the same real PowerShell host and pinned Scoop Invoke-Installer with the $dir/$global/$version argument substitution, keep semantics and external side effects Coop never claims to roll back"}});
@@ -824,6 +829,12 @@ struct PackageOutcome {
 std::string first_diagnostic(const std::vector<Diagnostic>& diagnostics) {
     return diagnostics.empty() ? std::string{} : diagnostics.front().message;
 }
+// Interactive output keeps the observation visible; JSON consumers read `warnings` instead so the
+// machine-readable contract is not mixed with human-readable lines.
+void print_warnings(const Context& context, const Package& package) {
+    if (context.json_output) return;
+    for (const auto& warning : package.warnings) std::cerr << "coop: warning: " << warning.message << '\n';
+}
 void print_json(const Json& value) {
     std::cout << value.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
 }
@@ -831,6 +842,7 @@ PackageOutcome install_preview(const Context& context, const std::string& reques
     PackageOutcome outcome;
     try {
         auto plan = make_plan(context,Action::install,request,architecture);
+        print_warnings(context,plan.package);
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
         outcome.reason = first_diagnostic(plan.diagnostics);
@@ -938,6 +950,7 @@ PackageOutcome simple_preview(const Context& context, Action action, const std::
         auto plan = prepared_simple_plan(context,action,request,architecture);
         plan.purge = purge;
         plan.execution_available = execution_blocker(context,plan).empty();
+        print_warnings(context,plan.package);
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
         outcome.reason = first_diagnostic(plan.diagnostics);
@@ -960,6 +973,7 @@ PackageOutcome simple_execute(const Context& context, Action action, const std::
     try {
         auto plan = prepared_simple_plan(context,action,request,architecture);
         plan.purge = purge;
+        print_warnings(context,plan.package);
         const auto blocker = execution_blocker(context,plan);
         if (!blocker.empty()) {
             outcome.failed = true;
@@ -990,6 +1004,7 @@ int install_single(const Context& context, const std::string& request, const std
         return outcome.failed ? 1 : 0;
     }
     auto plan = make_plan(context,Action::install,request,architecture);
+    print_warnings(context,plan.package);
     const auto blocker = execution_blocker(context,plan);
     if (!blocker.empty()) throw std::runtime_error(blocker);
     if (plan.dependencies.empty()) return execute_plan(context,plan);

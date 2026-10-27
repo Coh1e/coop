@@ -15,6 +15,12 @@ const char* layer_name(Layer layer);
 
 struct Diagnostic { Layer layer; std::string code; std::string message; };
 
+// Some source declarations are accepted by Scoop with semantics Coop must reproduce but that do not
+// describe a gap: a repeated derived command alias, for example, is overwritten by the last
+// declaration. Those observations are warnings, not diagnostics, so they stay visible in query and
+// preview without turning an executable package into a blocked one.
+struct Warning { Layer layer; std::string code; std::string message; };
+
 // Digests keep the declared algorithm instead of assuming SHA256. The validator decides which
 // algorithms the product can currently honor.
 enum class DigestAlgorithm { missing, sha256, sha512, sha1, md5, other };
@@ -93,6 +99,7 @@ struct Package {
     std::vector<Dependency> dependencies;
     std::vector<Capability> capabilities;
     std::vector<Diagnostic> diagnostics;
+    std::vector<Warning> warnings;
 
     // Adapter evidence: the source declared URL and hash as parallel arrays. The validator uses the
     // declared count to distinguish a missing hash from a malformed one.

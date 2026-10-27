@@ -262,6 +262,8 @@ if(BUILD_TESTING)
   # exactly like Scoop; a root with spaces cannot exercise that branch, so this test uses a plain path.
   add_test(NAME command_entry_host COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/command-entry-host.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/command-entry-host")
+  add_test(NAME manifest_shape COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/manifest-shape.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/manifest-shape")
   # These tests read and snapshot the real current-user environment. A shared resource lock keeps
   # ctest -j from interleaving their snapshots/writes; they must also not be run in parallel by
   # separate ctest invocations.

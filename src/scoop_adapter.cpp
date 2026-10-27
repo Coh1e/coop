@@ -84,6 +84,8 @@ Package project(const ir::Package& definition) {
     package.psmodule = definition.psmodule;
     for (const auto& item : definition.diagnostics)
         package.diagnostics.push_back({diagnostic_kind(item.layer),item.code,item.message});
+    for (const auto& item : definition.warnings)
+        package.warnings.push_back({diagnostic_kind(item.layer),item.code,item.message});
     package.definition = std::make_shared<const ir::Package>(definition);
     return package;
 }

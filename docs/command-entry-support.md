@@ -90,7 +90,7 @@ CTest `command_entry_host`（[`tests/command-entry-host.ps1`](../tests/command-e
 
 仍存在的宿主环境前提（逐项列出，未计为机制完成）：
 
-- `main/vapoursynth`（`vsrepo.py`）与 `extras/pdd`（`pdd.py`）在默认用户 PATH 下缺少 `python.exe`，计划被 `external-host:python` 阻塞；需要可用的 Python 3 解释器后才能在该盘点环境执行。两包均未在默认 PATH 环境安装。`main/retdec` 的 `.py` 入口尚未进入宿主判定，因为该 Manifest 仍先在 R27 的 `manifest-shape`（重复派生别名）处失败。
+- `main/vapoursynth`（`vsrepo.py`）与 `extras/pdd`（`pdd.py`）在默认用户 PATH 下缺少 `python.exe`，计划被 `external-host:python` 阻塞；需要可用的 Python 3 解释器后才能在该盘点环境执行。两包均未在默认 PATH 环境安装。`main/retdec` 的 `.py` 入口在 R26 当时尚未进入宿主判定，因为该 Manifest 仍先在 R27 的 `manifest-shape`（重复派生别名）处失败；R27/#48 修复后 retdec 的解析与计划通过，默认 PATH 下同样归入 `external-host:python`，见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
 - `main/git-filter-repo` 等无扩展名脚本的 bash 入口已可计划；脚本自身若通过 shebang 调用 `python3`，仍取决于宿主环境是否提供该名字，本票不额外伪造解释器别名。
 
 ### 证据与工具版本

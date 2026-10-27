@@ -227,7 +227,7 @@ static Json validation_json(const Context& context, const Json& item) {
         break;
     }
     Json validation = {{"architecture",architecture},{"manifest_digest",nullptr},
-        {"artifacts",Json::array()},{"diagnostics",Json::array()},{"capabilities",Json::array()}};
+        {"artifacts",Json::array()},{"diagnostics",Json::array()},{"warnings",Json::array()},{"capabilities",Json::array()}};
     try {
         auto validated = ir::adapt_manifest(fs::path(wide(item.at("path").get<std::string>())),
             item.at("name").get<std::string>(),item.at("bucket").get<std::string>(),architecture);
@@ -242,6 +242,9 @@ static Json validation_json(const Context& context, const Json& item) {
                 {"digest",download.digest.value},{"archive",ir::archive_format_name(download.format)}});
         for (const auto& diagnostic : validated.diagnostics)
             validation["diagnostics"].push_back({{"layer",ir::layer_name(diagnostic.layer)},{"code",diagnostic.code},{"message",diagnostic.message}});
+        // Non-blocking source observations stay beside the diagnostics; `info` never hides them.
+        for (const auto& warning : validated.warnings)
+            validation["warnings"].push_back({{"layer",ir::layer_name(warning.layer)},{"code",warning.code},{"message",warning.message}});
         for (const auto& capability : validated.capabilities)
             validation["capabilities"].push_back({{"id",capability.id},{"supported",capability.supported},{"detail",capability.detail}});
     } catch (const std::exception& error) {

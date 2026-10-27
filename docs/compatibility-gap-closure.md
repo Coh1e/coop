@@ -1,5 +1,7 @@
 # 全量盘点缺口闭合与子票（R21/#42）
 
+> **子票进展（2026-10-27）：** [R27/#48](https://github.com/Coh1e/coop/issues/48) 已完成并在当前实际 Main 修订上复测：`manifest-shape` 6 → **0**，计划可执行 4131 → **4136**，阻塞 16 → **11**；`main/retdec` 的重复别名不再阻塞，它的 `.py` 入口与原有 `vapoursynth`/`pdd` 一样在默认 PATH 下如实归为 `external-host:python` 环境前提。实现、六包逐项对照、真实共用根交替与证据见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。
+
 > **子票进展（2026-10-27）：** [R26/#47](https://github.com/Coh1e/coop/issues/47) 已完成并在同一固定修订上复测：`command-entry-host` 11 → **0**，13 条 `adapter/unsupported-command-host` 诊断 → **0**；计划可执行 4123 → **4131**，阻塞 24 → **16**。默认用户 PATH 无真实 `python.exe`，`main/vapoursynth`、`extras/pdd` 如实归为 `external-host:python` 2 项环境前提，不改成“不支持”。实现、真实共用根运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。
 
 > [R25/#46](https://github.com/Coh1e/coop/issues/46) 已完成并在同一固定修订上复测：`capability:psmodule` 28 → 0、`dependency-unsupported` 2 → 0，阻塞包 53 → 24（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3），计划可执行 4094 → 4123。实现与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)；本页下文的基线归因与子票提议保留为发现阶段记录，不因复测而改写。

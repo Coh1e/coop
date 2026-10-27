@@ -33,12 +33,21 @@ std::string lower(std::string text) {
 bool hexadecimal(const std::string& value) {
     return std::all_of(value.begin(),value.end(),[](unsigned char character) { return std::isxdigit(character) != 0; });
 }
-fs::path relative_path(const std::string& value, bool root_allowed = false) {
+fs::path relative_path(const std::string& value, bool root_allowed = false, bool parent_allowed = false) {
     fs::path path(wide(value));
     if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
         throw std::runtime_error("Manifest path must be relative to its package");
     for (const auto& component : path) {
-        if (component == L".") continue;
+        // Windows treats a repeated or trailing separator as the same directory, and Scoop accepts
+        // that spelling for env_add_path and shortcut targets (Join-Path + Get-AbsolutePath).
+        if (component.empty() || component == L".") continue;
+        // A parent component is not a write destination. Only the exposure fields Scoop resolves
+        // relative to the package (shortcut target and icon) may carry one; persist, extract and
+        // command targets keep rejecting it so no operation writes outside its managed directory.
+        if (component == L"..") {
+            if (!parent_allowed) validate_component(path_text(component));
+            continue;
+        }
         validate_component(path_text(component));
     }
     path = path.lexically_normal();
@@ -242,16 +251,34 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
         if (!bins.is_null()) {
             const auto items = bins.is_string() ? Json::array({bins}) : bins;
             if (!items.is_array()) throw std::runtime_error("bin must be a string or array");
-            std::set<std::string> aliases;
             for (const auto& item : items) {
                 const auto parts = strings(item,"bin entry");
-                if (parts.empty() || parts.size() > 3) throw std::runtime_error("Invalid bin entry");
+                if (parts.empty()) throw std::runtime_error("Invalid bin entry");
                 Entry entry;
                 entry.target = path_text(relative_path(parts[0]));
                 entry.alias = parts.size() > 1 ? parts[1] : path_text(fs::path(wide(entry.target)).stem());
                 validate_component(entry.alias);
-                if (!aliases.insert(lower(entry.alias)).second) throw std::runtime_error("Duplicate command alias");
-                if (parts.size() > 2) entry.arguments = parts[2];
+                // Scoop's shim_def keeps the whole tuple and only splits target, name and the
+                // remaining arguments. PowerShell interpolates that remaining array into the shim
+                // command line with spaces, so every element after the alias becomes part of one
+                // argument string (including an element that already contains quotes).
+                for (std::size_t index = 2; index < parts.size(); ++index) {
+                    if (index > 2) entry.arguments += ' ';
+                    entry.arguments += parts[index];
+                }
+                // Scoop's create_shims publishes every declaration in order, so a repeated derived
+                // alias is overwritten and the last declaration wins. Coop keeps that outcome with a
+                // visible warning instead of failing the Manifest or silently dropping an entry.
+                const auto key = lower(entry.alias);
+                const auto existing = std::find_if(package.entries.begin(),package.entries.end(),
+                    [&](const Entry& candidate) { return lower(candidate.alias) == key; });
+                if (existing != package.entries.end()) {
+                    package.warnings.push_back({Layer::adapter,"duplicate-command-alias",
+                        "Command alias '"+entry.alias+"' is declared by both '"+existing->target+"' and '"+entry.target+
+                        "'; Scoop overwrites the earlier shim while publishing, so the last declaration wins"});
+                    *existing = std::move(entry);
+                    continue;
+                }
                 // Every target has a Scoop host: EXE/COM, BAT/CMD, PS1, JAR, PY, or bash for the
                 // remaining targets. The adapter keeps the declared target; the exposure layer
                 // owns host selection and reports a missing external host before any write.
@@ -265,12 +292,14 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
             for (const auto& item : shortcuts) {
                 const auto parts = strings(item,"shortcut");
                 if (parts.size() < 2 || parts.size() > 4) throw std::runtime_error("Invalid shortcut");
-                Shortcut shortcut{path_text(relative_path(parts[0])),path_text(relative_path(parts[1])),{},{}};
+                Shortcut shortcut{path_text(relative_path(parts[0],false,true)),path_text(relative_path(parts[1])),{},{}};
                 // Scoop allows shortcut names such as "Git\\Git Bash" that create subfolders
                 // below its Start Menu folder; they are still package-independent relative names.
+                // Targets and icons, in contrast, are combined with $dir and resolved as FileInfo,
+                // so a Manifest may point them at a sibling directory such as the shared shims.
                 if (!names.insert(lower(shortcut.name)).second) throw std::runtime_error("Duplicate shortcut name");
                 if (parts.size() > 2) shortcut.arguments = parts[2];
-                if (parts.size() > 3) shortcut.icon = path_text(relative_path(parts[3]));
+                if (parts.size() > 3) shortcut.icon = path_text(relative_path(parts[3],false,true));
                 package.shortcuts.push_back(std::move(shortcut));
             }
         }
@@ -309,6 +338,10 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
             package.dependencies.push_back(std::move(resolved));
         }
         for (const auto& entry : strings(pick("env_add_path"),"env_add_path")) {
+            // Scoop filters empty elements before joining each remaining value to $dir and
+            // resolving it as an absolute path; ".", "./" and trailing separators therefore name
+            // the version directory or one of its children.
+            if (entry.empty()) continue;
             EnvironmentEntry setting;
             setting.variable = "PATH";
             setting.value = path_text(relative_path(entry,true));

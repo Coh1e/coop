@@ -52,6 +52,9 @@ struct Package {
     // the <root>/modules entry; the junction target is always apps/<name>/current.
     std::optional<ir::PsModule> psmodule;
     std::vector<Diagnostic> diagnostics;
+    // Non-blocking source observations (for example Scoop's last-wins alias overwrite). They stay
+    // visible in query and preview without turning an executable package into a blocked one.
+    std::vector<Diagnostic> warnings;
     // Normalized IR this record was projected from. Planning consumes it directly so the legacy
     // execution record cannot become a second source of package semantics.
     std::shared_ptr<const ir::Package> definition;
