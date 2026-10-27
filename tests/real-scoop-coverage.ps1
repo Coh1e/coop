@@ -115,7 +115,13 @@ function Get-DiagnosticMechanism([object]$Diagnostic) {
         'ir/dependency-missing' { return 'dependency-missing' }
         'capability/dependency-unsupported' { return 'dependency-unsupported' }
         'ir/missing-artifact' { return 'architecture-artifact' }
-        'capability/execution-blocked' { return $null }
+        'capability/execution-blocked' {
+            # A missing external command host is an environment prerequisite, not an unsupported
+            # entry mechanism. Keep it visible instead of folding it into an unclassified gap.
+            if ($Diagnostic.message -match '^Python interpreter not found') { return 'external-host:python' }
+            if ($Diagnostic.message -match '^bash not found') { return 'external-host:bash' }
+            return $null
+        }
         default { return 'other:'+$key }
     }
 }

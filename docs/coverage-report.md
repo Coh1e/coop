@@ -1,5 +1,7 @@
 # Main／Extras 全量兼容盘点（R20/#41）
 
+> **复测（2026-10-27，R26/#47）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，使用正常用户 PATH：读取 4149/4149、计划可执行 **4131**、阻塞 **16**、盘根内已安装 helper 2。`adapter/unsupported-command-host` 诊断 13 → **0**，`command-entry-host` 机制缺口 11 → **0**；无扩展名计划可执行 1/8 → **8/8**、`.config` 0/1 → **1/1**。本机默认 PATH 没有真实 `python.exe`（Store 零长度别名被拒绝），`main/vapoursynth`、`extras/pdd` 计划按 `external-host:python` 阻塞并逐项列出，不是入口机制不支持；其余阻塞仍是 Manifest 形状 6、依赖缺失 5、arm64 产物 3。细则、真实运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
+
 > **复测（2026-10-27，R25/#46）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，结果为读取 4149/4149、计划可执行 **4123**、阻塞 **24**（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3）、盘根内已安装 helper 2。`capability:psmodule` 与 `dependency-unsupported` 缺口归零；真机验证集合仍为历史 15 个包且本页不将其重算为本轮运行。细则与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)。本页其余数字是 #41 当时的基线，不因复测而改写。
 
 > 本页记录 2026-10-27 对官方 Main、Extras **完整分母**的一次盘点：固定实际 bucket 修订，逐份 Manifest 记录机制声明、读取状态、规划状态和真机验证状态。命令、逐包记录与缺口清单在 `.local/pi/tasks/41/evidence/coverage-fix2/coverage-20261026-220311/`；本页与 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 只做汇总与索引。**读取或规划成功不等于运行验证**：本轮只有 15 个包在同一修订上具有真机运行事实，其余保持“未运行”。

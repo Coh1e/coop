@@ -37,7 +37,7 @@ void ordinary_parents(const fs::path& root, const fs::path& path) {
             throw std::runtime_error("Managed destination contains a reparse point");
     }
 }
-void require_capabilities(const Context& context, const Package& package) {
+void require_capabilities(const Context& context, const Package& package, bool creating_command_entries = true) {
     if (!package.diagnostics.empty()) throw std::runtime_error("Manifest has unsupported or invalid requirements; inspect --dry-run");
     if (package.artifacts.empty()) throw std::runtime_error("Package has no install artifacts");
     // Hook scripts and installer/uninstaller programs share one host requirement: a real PowerShell
@@ -77,10 +77,19 @@ void require_capabilities(const Context& context, const Package& package) {
         }
         }
     }
-    for (const auto& command : package.commands)
-        if (!launcher_kind(command.target))
-            throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target)+
-                "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR");
+    // Scoop runs .py entries through Python and every other unrecognized target through bash.
+    // Those external programs must exist before the first entry is published; otherwise the
+    // operation would leave an unusable or half-published entry behind. Removing existing entries
+    // does not need the host, so uninstall and the replaced side of an update are not blocked by a
+    // host that is no longer installed.
+    if (creating_command_entries) {
+        for (const auto& command : package.commands) {
+            const auto kind = launcher_kind(command.target);
+            if (kind != LauncherKind::python && kind != LauncherKind::bash) continue;
+            if (!command_host_path(kind))
+                throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+" -> "+path_text(command.target)+")");
+        }
+    }
 }
 fs::path record_relative_path(const std::string& value) {
     fs::path path(wide(value));
@@ -387,12 +396,12 @@ bool shared_scoop_launcher(const Context& context, const std::string& name, cons
     return false;
 }
 // Direct EXE/COM entries have an exact Scoop-compatible representation (path + optional args).
-// Other host kinds need Coop's explicit launcher metadata, so they keep the .coop-shim.json form.
+// BAT/CMD/PS1/JAR entries use Coop's explicit launcher metadata. PY and bash entries are published
+// as Scoop's native .cmd/sh wrappers instead of a copied launcher.
 bool prefer_scoop_shim(const Package& package) {
     return package.environment.empty() && package.path_entries.empty() &&
         std::all_of(package.commands.begin(),package.commands.end(),[](const CommandExposure& command) {
-            const auto kind = launcher_kind(command.target);
-            return kind && *kind == LauncherKind::direct;
+            return launcher_kind(command.target) == LauncherKind::direct;
         });
 }
 struct InstalledEntry {
@@ -522,8 +531,9 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     }
     try {
-        require_capabilities(context,plan.package);
-        if (plan.previous) require_capabilities(context,*plan.previous);
+        const bool publishes_entries = plan.action == Action::install || plan.action == Action::update || plan.action == Action::reset;
+        require_capabilities(context,plan.package,publishes_entries);
+        if (plan.previous) require_capabilities(context,*plan.previous,false);
     } catch (const std::exception& error) { return error.what(); }
     if (plan.action == Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
         return "Persistence mapping changes are not verified; refusing to update declared data";
@@ -759,6 +769,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     } catch (const std::exception&) { /* Unreadable metadata stays a conflict. */ }
                 }
                 if (!stale_coop_metadata) throw std::runtime_error("Command entry conflicts with an existing file");
+            }
+            const auto kind = launcher_kind(command.target);
+            if (kind == LauncherKind::python || kind == LauncherKind::bash) {
+                const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
+                const auto shell_wrapper = shims/wide(command.name);
+                if (fs::exists(cmd_wrapper) || fs::exists(shell_wrapper))
+                    throw std::runtime_error("Command entry conflicts with an existing file");
             }
             continue;
         }
@@ -1429,18 +1446,35 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 for (const auto& command : package.commands) {
                     const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
                     const auto kind = launcher_kind(command.target);
-                    if (!kind) throw std::runtime_error("Command entry target type is not supported: "+path_text(command.target));
                     const auto target = version/command.target;
                     ordinary_parents(version,target);
                     if (!fs::is_regular_file(target)) throw std::runtime_error("Command entry target is missing after extraction: "+path_text(command.target));
                     command_targets.push_back({{"path",path_text(command.target)},{"sha256",sha256_file(target)}});
+                    if (kind == LauncherKind::python || kind == LauncherKind::bash) {
+                        // Scoop publishes these hosts as a .cmd plus an extensionless shell wrapper,
+                        // not as a copied launcher. The host was checked before the transaction; a
+                        // missing program here still fails before any wrapper is written.
+                        if (!command_host_path(kind))
+                            throw std::runtime_error(command_host_problem(kind)+" (entry "+command.name+")");
+                        const auto cmd_wrapper = shims/(wide(command.name)+L".cmd");
+                        const auto shell_wrapper = shims/wide(command.name);
+                        const auto exposed_target = app/L"current"/command.target;
+                        publish_text(cmd_wrapper,scoop_command_cmd(kind,exposed_target,command_arguments));
+                        publish_text(shell_wrapper,scoop_command_shell(kind,exposed_target,command_arguments));
+                        test_fault_point(context,"after-entry");
+                        command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
+                            {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",false},
+                            {"format","scoop-wrapper"},{"cmd_sha256",sha256_file(cmd_wrapper)},
+                            {"shell_sha256",sha256_file(shell_wrapper)}});
+                        continue;
+                    }
                     const auto exe = shims/(wide(command.name)+L".exe");
-                    const bool gui = *kind == LauncherKind::direct && is_gui_executable(target);
+                    const bool gui = kind == LauncherKind::direct && is_gui_executable(target);
                     const auto prepared = transaction/(wide(command.name)+L".prepared.exe");
                     fs::copy_file(fs::path(module.data()),prepared);
                     if (gui) mark_launcher_gui(prepared);
                     const auto launcher_hash = sha256_file(prepared);
-                    if (*kind == LauncherKind::direct && scoop_shims) {
+                    if (kind == LauncherKind::direct && scoop_shims) {
                         const auto metadata = shims/(wide(command.name)+L".shim");
                         std::string text = "path = \""+path_text(app/L"current"/command.target)+"\"\r\n";
                         if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
@@ -1454,7 +1488,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     } else {
                         const auto metadata = shims/(wide(command.name)+L".coop-shim.json");
                         publish_json(metadata,{{"package",package.name},{"target",path_text(app/L"current"/command.target)},
-                            {"launcher",launcher_text(*kind)},{"arguments",command_arguments},{"gui",gui},
+                            {"launcher",launcher_text(kind)},{"arguments",command_arguments},{"gui",gui},
                             {"environment",environment},{"path_entries",path_entries}});
                         // Publish Scoop's .shim view as well: it carries the same target and arguments so
                         // the other client can still recognize this shared entry, and its rm_shim is what
@@ -1467,7 +1501,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         create(exe,[&]() { publish_new(prepared,exe); });
                         test_fault_point(context,"after-entry");
                         command_records.push_back({{"name",command.name},{"target",path_text(command.target)},
-                            {"arguments",command_arguments},{"launcher",launcher_text(*kind)},{"gui",gui},{"format","coop"},
+                            {"arguments",command_arguments},{"launcher",launcher_text(kind)},{"gui",gui},{"format","coop"},
                             {"launcher_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)},
                             {"scoop_metadata_sha256",sha256_file(scoop_view)}});
                     }

@@ -422,14 +422,15 @@ $missingJournals = @(Get-ChildItem "$missingRoot/.coop/transactions" -Recurse -F
 if ($missingJournals.Count -lt 1 -or $missingMain -notin @($missingJournals[-1].shortcuts_already_absent)) { throw 'uninstall journal did not record the absent shortcut observation' }
 if (Test-Path (Join-Path $missingPrograms "MissingSub-$tag")) { throw 'uninstall left the empty sub-folder after revoking its last shortcut' }
 
-# Unsupported command target types are refused instead of being silently wrapped in a .cmd.
+# Unsafe command target paths are refused before any wrapper or entry is created. Every target
+# now has a Scoop host (the else branch is bash), so the remaining refusal is the path boundary.
 $badRoot = New-TestRoot
 $env:COOP_PROGRAMS_DIR = Join-Path $badRoot 'programs'
-$badManifest = @{version='1';url=((File-Uri $fixture1)+'#/tool.sh');hash=(Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower();bin='tool.sh'}
+$badManifest = @{version='1';url=((File-Uri $fixture1)+'#/tool.sh');hash=(Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower();bin='..\tool.sh'}
 Write-Manifest $badRoot 'badcmd' $badManifest
 $bad = (& $CoopExe --root $badRoot install test/badcmd --dry-run --json 2>&1) -join "`n"
-if ($bad -notmatch 'target type is not supported' -or ($bad | ConvertFrom-Json).execution_available -ne $false) { throw 'unsupported command target type was not refused explicitly' }
-if (Test-Path "$badRoot/shims") { throw 'unsupported command preview created an entry' }
+if ($bad -notmatch 'Invalid path component' -or ($bad | ConvertFrom-Json).execution_available -ne $false) { throw 'unsafe command target path was not refused explicitly' }
+if (Test-Path "$badRoot/shims") { throw 'unsafe command preview created an entry' }
 
 # Adoption: legacy Scoop shims with aliases/arguments, a legacy shortcut and declared environment
 # are verified before ownership is recorded; the update keeps argument forwarding and environment.

@@ -252,10 +252,9 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
                 validate_component(entry.alias);
                 if (!aliases.insert(lower(entry.alias)).second) throw std::runtime_error("Duplicate command alias");
                 if (parts.size() > 2) entry.arguments = parts[2];
-                if (!launcher_kind(fs::path(wide(entry.target))))
-                    package.diagnostics.push_back({Layer::adapter,"unsupported-command-host",
-                        "Command entry target type is not supported: "+entry.target+
-                        "; supported entries are EXE, COM, BAT, CMD, PS1 and JAR"});
+                // Every target has a Scoop host: EXE/COM, BAT/CMD, PS1, JAR, PY, or bash for the
+                // remaining targets. The adapter keeps the declared target; the exposure layer
+                // owns host selection and reports a missing external host before any write.
                 package.entries.push_back(std::move(entry));
             }
         }

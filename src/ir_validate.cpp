@@ -105,7 +105,7 @@ void validate(Package& package) {
     }
     if (!package.entries.empty()) {
         capability(package,"command-entry",true,
-            "Entry host and argument forwarding follow the target file type");
+            "Entry host and argument forwarding follow the fixed Scoop shim branches: EXE/COM run directly, BAT/CMD through cmd.exe, PS1 through PowerShell, JAR through the Java runtime, PY through python, and every other target through bash; the external Python/bash host is detected before any entry is published");
     }
     if (!package.environment.empty()) {
         std::set<std::string> names;

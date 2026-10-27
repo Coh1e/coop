@@ -3,8 +3,10 @@
 #include <shlobj.h>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <fstream>
 #include <stdexcept>
+#include <vector>
 
 namespace coop {
 namespace {
@@ -83,14 +85,17 @@ fs::path shortcut_relative_path(const std::string& name) {
     return path.lexically_normal();
 }
 }
-std::optional<LauncherKind> launcher_kind(const fs::path& target) {
+LauncherKind launcher_kind(const fs::path& target) {
     auto extension = path_text(target.extension());
     for (auto& character : extension) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
     if (extension == ".exe" || extension == ".com") return LauncherKind::direct;
     if (extension == ".cmd" || extension == ".bat") return LauncherKind::command_script;
     if (extension == ".ps1") return LauncherKind::power_shell;
     if (extension == ".jar") return LauncherKind::java;
-    return std::nullopt;
+    if (extension == ".py") return LauncherKind::python;
+    // Scoop's shim() has no unknown branch: every target not matched above is run through bash.
+    // That covers extensionless scripts, .config files and any other suffix.
+    return LauncherKind::bash;
 }
 const char* launcher_text(LauncherKind kind) {
     switch (kind) {
@@ -98,12 +103,103 @@ const char* launcher_text(LauncherKind kind) {
     case LauncherKind::command_script: return "cmd";
     case LauncherKind::power_shell: return "powershell";
     case LauncherKind::java: return "java";
+    case LauncherKind::python: return "python";
+    case LauncherKind::bash: return "bash";
     }
     return "unknown";
 }
 std::string command_launcher_name(const fs::path& target) {
-    const auto kind = launcher_kind(target);
-    return kind ? std::string(launcher_text(*kind)) : std::string("unsupported");
+    return launcher_text(launcher_kind(target));
+}
+std::optional<fs::path> command_host_path(LauncherKind kind) {
+    const wchar_t* name = kind == LauncherKind::python ? L"python.exe" :
+        kind == LauncherKind::bash ? L"bash.exe" : nullptr;
+    if (!name) return std::nullopt;
+    // Search only the current process PATH, the same lookup a user shell uses for Scoop's shim.
+    // SearchPathW would also find a system-directory bash.exe even with an empty PATH, which would
+    // hide a missing host instead of failing before an entry is written.
+    std::array<wchar_t,32768> buffer{};
+    const auto length = GetEnvironmentVariableW(L"PATH",buffer.data(),static_cast<DWORD>(buffer.size()));
+    if (!length || static_cast<std::size_t>(length) >= buffer.size()) return std::nullopt;
+    const std::wstring path(buffer.data(),length);
+    std::size_t begin = 0;
+    while (begin <= path.size()) {
+        const auto end = path.find(L';',begin);
+        auto directory = path.substr(begin,end == std::wstring::npos ? std::wstring::npos : end-begin);
+        if (directory.size() >= 2 && directory.front() == L'"' && directory.back() == L'"')
+            directory = directory.substr(1,directory.size()-2);
+        if (!directory.empty()) {
+            const auto candidate = fs::path(directory)/name;
+            std::error_code error;
+            const auto attributes = GetFileAttributesW(candidate.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY) &&
+                !(attributes & FILE_ATTRIBUTE_REPARSE_POINT) && fs::is_regular_file(candidate,error) && !error &&
+                fs::file_size(candidate,error) > 0 && !error) return candidate;
+        }
+        if (end == std::wstring::npos) break;
+        begin = end+1;
+    }
+    return std::nullopt;
+}
+std::string command_host_problem(LauncherKind kind) {
+    if (kind == LauncherKind::python)
+        return "Python interpreter not found for the .py command entry; install Python 3 or add python.exe to PATH before installing this package, because Scoop runs .py entries through python";
+    if (kind == LauncherKind::bash)
+        return "bash not found for the script command entry; install a bash implementation or add bash.exe to PATH before installing this package, because Scoop runs extensionless and .config entries through bash";
+    return {};
+}
+std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments) {
+    const auto path = path_text(target);
+    std::vector<std::string> lines;
+    if (kind == LauncherKind::python) {
+        lines = {"@rem "+path,"@python \""+path+"\" "+arguments+" %*"};
+    } else {
+        // Scoop quotes each declared argument element for the bash (else) branch.
+        const auto quoted = arguments.empty() ? std::string{} : "\""+arguments+"\"";
+        lines = {
+            "@rem "+path,
+            "@echo off",
+            "bash -c \"command -v wslpath >/dev/null\"",
+            "if %errorlevel% equ 0 (",
+            "  bash \"$(wslpath -u '"+path+"')\" "+quoted+" %*",
+            ") else (",
+            "  set args="+quoted+" %*",
+            "  setlocal enabledelayedexpansion",
+            "  if not \"!args!\"==\"\" set args=!args:\"=\"\"!",
+            "  bash -c \"$(cygpath -u '"+path+"') !args!\"",
+            ")"
+        };
+    }
+    std::string text;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        if (index) text += "\r\n";
+        text += lines[index];
+    }
+    return text;
+}
+std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments) {
+    const auto path = path_text(target);
+    std::vector<std::string> lines;
+    if (kind == LauncherKind::python) {
+        lines = {"#!/bin/sh","# "+path,"python.exe \""+path+"\" "+arguments+" \"$@\""};
+    } else {
+        lines = {
+            "#!/bin/sh",
+            "# "+path,
+            "if [ $WSL_INTEROP ]",
+            "then",
+            "  \"$(wslpath -u '"+path+"')\" "+arguments+" \"$@\"",
+            "else",
+            "  \"$(cygpath -u '"+path+"')\" "+arguments+" \"$@\"",
+            "fi"
+        };
+    }
+    std::string text;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+        if (index) text += "\n";
+        text += lines[index];
+    }
+    return text;
 }
 bool is_gui_executable(const fs::path& path) {
     const auto subsystem = pe_subsystem(path);

@@ -1,6 +1,8 @@
 # 全量盘点缺口闭合与子票（R21/#42）
 
-> **子票进展（2026-10-27）：** [R25/#46](https://github.com/Coh1e/coop/issues/46) 已完成并在同一固定修订上复测：`capability:psmodule` 28 → 0、`dependency-unsupported` 2 → 0，阻塞包 53 → 24（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3），计划可执行 4094 → 4123。实现与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)；本页下文的基线归因与子票提议保留为发现阶段记录，不因复测而改写。
+> **子票进展（2026-10-27）：** [R26/#47](https://github.com/Coh1e/coop/issues/47) 已完成并在同一固定修订上复测：`command-entry-host` 11 → **0**，13 条 `adapter/unsupported-command-host` 诊断 → **0**；计划可执行 4123 → **4131**，阻塞 24 → **16**。默认用户 PATH 无真实 `python.exe`，`main/vapoursynth`、`extras/pdd` 如实归为 `external-host:python` 2 项环境前提，不改成“不支持”。实现、真实共用根运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。
+
+> [R25/#46](https://github.com/Coh1e/coop/issues/46) 已完成并在同一固定修订上复测：`capability:psmodule` 28 → 0、`dependency-unsupported` 2 → 0，阻塞包 53 → 24（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3），计划可执行 4094 → 4123。实现与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)；本页下文的基线归因与子票提议保留为发现阶段记录，不因复测而改写。
 
 > 本页把 [R20/#41 全量盘点](coverage-report.md)暴露的 **53 个计划阻塞包（55 行，按机制去重前）**逐项归因，并给出可独立验收的后续子票。机器可核对账本是 [`tests/coverage/gaps.json`](../tests/coverage/gaps.json)，由 CTest `coverage_gaps` 守卫。本票只做发现闭合与拆票，不修改产品实现；子票需由调度方建票、建立原生阻塞关系并逐项完成后，本票才可能关闭。
 

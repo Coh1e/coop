@@ -6,11 +6,20 @@
 namespace coop {
 // Command entries are forwarded according to the target file type, matching the fixed
 // Scoop shim behavior: EXE/COM run directly, BAT/CMD through cmd.exe, PS1 through
-// PowerShell and JAR through the Java runtime. Other target types are not guessed.
-enum class LauncherKind { direct, command_script, power_shell, java };
-std::optional<LauncherKind> launcher_kind(const fs::path& target);
+// PowerShell, JAR through the Java runtime, PY through Python and every other target
+// through bash. Scoop has no "unknown" branch: its else branch is the bash host.
+enum class LauncherKind { direct, command_script, power_shell, java, python, bash };
+LauncherKind launcher_kind(const fs::path& target);
 const char* launcher_text(LauncherKind kind);
 std::string command_launcher_name(const fs::path& target);
+// Scoop entries for .py and the bash else-branch are native .cmd/sh wrappers instead of a
+// copied launcher executable. These host programs must exist before any entry is published.
+std::optional<fs::path> command_host_path(LauncherKind kind);
+std::string command_host_problem(LauncherKind kind);
+// The exact file contents Scoop's shim() writes for the .py and bash branches. The .cmd uses
+// CRLF and the shell wrapper uses LF with no trailing newline, like Out-UTF8File in Scoop.
+std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments);
+std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments);
 
 // Windows GUI targets are started without a console window by patching the copied
 // console launcher's PE subsystem, like Scoop does for GUI shims.

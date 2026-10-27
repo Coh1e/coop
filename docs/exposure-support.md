@@ -12,11 +12,14 @@
 | `.bat` / `.cmd` | `%ComSpec% /d /s /c` | 返回脚本退出码 |
 | `.ps1` | `pwsh.exe`，否则系统 `powershell.exe`，`-NoProfile -ExecutionPolicy Unrestricted -File` | 返回脚本退出码 |
 | `.jar` | `java.exe -jar`，工作目录为 JAR 所在目录；先查 `JAVA_HOME`，再查 `PATH` | 返回 Java 退出码；找不到运行时明确失败 |
+| `.py` | 生成 Scoop 同形的 `.cmd` + sh 包装，`.cmd` 用 `@python`，sh 用 `python.exe` | 参数与退出码由 python 解释器返回；找不到 python 时在执行前明确失败 |
+| 其他（无扩展名、`.config` 等） | 生成 Scoop 同形的 `.cmd` + sh 包装，走 Scoop 的 bash else 分支（`wslpath`/`cygpath`） | 参数与退出码由 bash 返回；找不到 bash 时在执行前明确失败；细则见[命令入口宿主扩展](command-entry-support.md) |
 
 - GUI 子系统 EXE 目标的启动器副本会改为 GUI 子系统（与 Scoop 的处理一致），避免控制台窗口；控制台程序仍等待并传播退出码。R07 已用真实 `red-view` GUI 程序启动并观察到 `Red Console` 窗口。
 - `bin` 的附加参数在预览、`.shim` 元数据、`.coop-shim.json` 与管理记录中使用与 Scoop 相同的 `$dir`、`$original_dir`、`$persist_dir` 展开值；展开发生在创建入口时，`$dir`/`$original_dir` 指向 `apps/<包>/current`。真实 `touch`（PS1）、`cfr`（JAR）、`lessmsi`（EXE）与 `spotbugs`（BAT）入口验证了参数转发、退出码和调用者/包目录语义。
-- 命令目标缺失、别名重复或目标类型不受支持（例如 `.sh`、无扩展名）在计划阶段报告，执行前拒绝，不静默猜测启动方式。
-- 入口归属记录在每个包的 `.coop-shim.json`（包名、目标、参数、启动类型、环境）和管理记录的命令摘要中。更新前核对目标、参数、启动类型与文件摘要；外部改动会拒绝更新或卸载。
+- 命令目标缺失、别名重复或目标路径越界/组件非法在计划阶段报告，执行前拒绝；未识别的后缀不再被当作“不支持”，而是按固定 Scoop 的 else 分支交给 bash。
+- `.py` 与 bash 入口按 Scoop 分支生成 `.cmd`/sh 包装而不是 Coop 启动器；宿主缺失、真实运行与卸载细则见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。
+- BAT/CMD、PS1、JAR 等使用 Coop 启动器的入口把归属记录在每个包的 `.coop-shim.json`（包名、目标、参数、启动类型、环境）中；`.py` 与 bash 入口在管理记录的 `commands` 中记录 `format=scoop-wrapper`、启动类型和 `.cmd`/sh 两份摘要。更新前核对目标、参数、启动类型与文件摘要；外部改动会拒绝更新或卸载。
 - 真实 `scoop reset` 会在 Coop 的启动器旁重建 Scoop 自己的 `.cmd`/`.ps1`/无扩展名 sh 包装。预览的 `scoop_entry_wrappers` 只列出内容确实指向 `apps/<包>/` 的包装；执行时重新核对内容后随 `remove-entries` 一起撤销，不删除同名但指向其他包的文件。Scoop 安装的脚本宿主包只有这些包装而没有 `.exe`/`.shim` 时，更新/卸载从同一内容与命令名证据识别；真实 `clink`（BAT）的更新与卸载预览均可执行（本轮未实际更新用户 clink）。接管保留原 Scoop 入口与路径关系；只有原入口是可识别且参数一致的 Scoop shim 才建立归属。更新后新入口指向 `apps/<包>/current`，卸载只撤销已核对摘要的入口。
 
 ## 快捷方式
@@ -109,6 +112,6 @@
 - Coop 在真实根创建**子目录**快捷方式与带参数快捷方式：本轮真机包只提供平铺/无参数声明，子目录与参数创建由 `tests/exposure.ps1` 在隔离根用真实 `.lnk` 验证；真实根只核对 Scoop 已有子目录/参数快捷方式不被误认领。
 - 快捷方式图标的像素级效果、开始菜单索引刷新和 Windows Shell 缓存行为。
 - `.com` 真实程序入口：本轮只有隔离 PE `.com` 证据；真实根覆盖 EXE、BAT、PS1、JAR 与 GUI。
-- 脚本宿主入口仍写 `.coop-shim.json` 与 Coop 启动器；真实 Scoop `reset` 重建的原生 `.cmd`/`.ps1`/sh 包装只在 Coop 卸载时按内容归属清理。Scoop 安装的纯包装入口已可识别、更新与卸载（隔离实际执行 + 真实 `clink` 预览），但 Coop 自身尚未直接生成这些 Scoop 原生包装。
-- `.py`、shell 脚本等 Scoop 会转交其他宿主的入口类型；首版明确拒绝而不是猜测。
+- BAT/CMD、PS1、JAR 入口仍写 `.coop-shim.json` 与 Coop 启动器；`.py` 与 bash else 分支已直接生成 Scoop 原生 `.cmd`/sh 包装（R26），不再写 Coop 启动器。真实 Scoop `reset` 重建的任何原生包装在 Coop 卸载时按内容归属清理。
+- `.py` 与无扩展名/`.config` 入口的真实 Package 运行、宿主缺失诊断、更新/卸载和全量盘点复测见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)；无扩展名 bash 的运行时仍依赖用户 PATH 中的 bash 与 `cygpath`/`wslpath`，本机真实运行使用 Git for Windows bash，未执行 WSL。
 - 依赖包自身的快捷方式/环境组合仍由本页与依赖页分别说明；`tests/dependencies.ps1` 不覆盖这些组合。

@@ -43,8 +43,8 @@ foreach ($entry in $order) {
 if (@($wget.diagnostics | Where-Object code -eq 'dependency-missing').Count) { throw 'available cacert dependency was reported missing' }
 if ((Test-Path "$root/apps") -or (Test-Path "$root/shims") -or (Test-Path "$root/.coop")) { throw 'dependency preview changed product state' }
 # Main/wget's lifecycle text is ordinary PowerShell now, so it is planned for execution. The
-# dependency-before-root rule is proven with a root Manifest that has an unsupported command entry
-# host, so the root is refused and its planned dependency is never installed first.
+# dependency-before-root rule is proven with a root Manifest whose command entry path escapes its
+# package, so the root is refused and its planned dependency is never installed first.
 if ($wget.execution_available -ne $true) { throw 'real Manifest with ordinary PowerShell text stayed blocked' }
 @'
 {
@@ -52,18 +52,19 @@ if ($wget.execution_available -ne $true) { throw 'real Manifest with ordinary Po
   "url": "https://invalid.example/blockedroot.pdf#/blockedroot.pdf",
   "hash": "0000000000000000000000000000000000000000000000000000000000000000",
   "depends": "cacert",
-  "bin": "blockedroot.pdf"
+  "bin": "..\\blockedroot.pdf"
 }
 '@ | Set-Content -LiteralPath "$root/buckets/main/bucket/blockedroot.json" -Encoding utf8
 $blockedPreview = & $CoopExe --root $root install main/blockedroot --dry-run --json 2>$null
 $blockedPlan = Read-Json $blockedPreview
 $blockedCodes = @($blockedPlan.diagnostics | ForEach-Object { $_.code })
-if ($blockedPlan.execution_available -ne $false -or 'unsupported-command-host' -notin $blockedCodes -or
+if ($blockedPlan.execution_available -ne $false -or 'manifest-shape' -notin $blockedCodes -or
+    @($blockedPlan.diagnostics | Where-Object { $_.message -match 'Invalid path component' }).Count -eq 0 -or
     @($blockedPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'unsupported or invalid' }).Count -eq 0) {
-    throw 'blocked root preview did not disclose the unsupported command entry'
+    throw 'blocked root preview did not disclose the unsafe command entry'
 }
 $blockedInstall = & $CoopExe --root $root install main/blockedroot --json 2>&1
-if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cacert") -or (Test-Path "$root/apps/blockedroot")) { throw 'unsupported real package installed its dependency before refusing the root' }
+if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cacert") -or (Test-Path "$root/apps/blockedroot")) { throw 'unsafe root package installed its dependency before refusing the root' }
 
 Write-Manifest $root 'test' 'base' '1' $fixture1 'base.exe' $null
 Write-Manifest $root 'test' 'leaf' '1' $fixture2 'leaf.exe' 'base'
@@ -80,9 +81,9 @@ Write-Manifest $root 'test' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'other' 'dup' '1' $fixture1 'dup.exe' $null
 Write-Manifest $root 'test' 'amb' '1' $fixture1 'amb.exe' 'dup'
 $blockedHash = (Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower()
-# A dependency whose remaining requirement is blocked (an unsupported command entry target), not
-# a script text.
-$blockedDependency = @{version='1';url=(File-Uri $fixture1)+'#/blockeddependency.pdf';hash=$blockedHash;bin='blockeddependency.pdf'} | ConvertTo-Json -Depth 5
+# A dependency whose remaining requirement is blocked (an unsafe command entry path), not a
+# script text.
+$blockedDependency = @{version='1';url=(File-Uri $fixture1)+'#/blockeddependency.pdf';hash=$blockedHash;bin='..\blockeddependency.pdf'} | ConvertTo-Json -Depth 5
 [IO.File]::WriteAllText("$root/buckets/test/bucket/blockeddependency.json",$blockedDependency,[Text.UTF8Encoding]::new($false))
 Write-Manifest $root 'test' 'needsscript' '1' $fixture1 'needsscript.exe' 'blockeddependency'
 

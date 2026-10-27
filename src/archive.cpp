@@ -1,5 +1,6 @@
 #include "archive.hpp"
 #include "data.hpp"
+#include "exposure.hpp"
 #include "inno.hpp"
 #include "msi.hpp"
 #include "nsis.hpp"
@@ -228,6 +229,31 @@ std::vector<ExternalTool> package_external_tools(const Context& context, const P
             database_api.has_value() && fdi_api.has_value(),database_api.has_value() && fdi_api.has_value(),
             "read-only database access only: no msiexec.exe process, no administrative installation or product registration, no elevation, no reboot and no %WINDIR%\\Installer machine-cache write; external, multi-part and vendor installer payloads are unsupported and fail with a named error",
             database_api.value_or(fs::path{})});
+    }
+    // Scoop's shim() runs .py entries through python and every other unrecognized target through
+    // bash. Both are external hosts detected before an entry is published, never bundled by Coop.
+    bool python_reported = false, bash_reported = false;
+    for (const auto& command : package.commands) {
+        const auto kind = launcher_kind(command.target);
+        if (kind == LauncherKind::python && !python_reported) {
+            python_reported = true;
+            const auto host = command_host_path(kind);
+            tools.push_back({"Python (command-entry host)",
+                "run the .py command entry "+path_text(command.target)+" with python.exe, like Scoop's .py shim branch",
+                "external program required by the package's declared entry; Coop detects it, never downloads, installs or bundles it",
+                host.has_value(),host.has_value(),
+                host ? "the entry is started by python.exe found on PATH" : command_host_problem(kind),
+                host.value_or(fs::path{})});
+        } else if (kind == LauncherKind::bash && !bash_reported) {
+            bash_reported = true;
+            const auto host = command_host_path(kind);
+            tools.push_back({"bash (command-entry host)",
+                "run the script command entry "+path_text(command.target)+" through bash, like Scoop's else shim branch (which also uses cygpath or wslpath for the path)",
+                "external program required by the package's declared entry; Coop detects it, never downloads, installs or bundles it",
+                host.has_value(),host.has_value(),
+                host ? "the entry is started by bash.exe found on PATH; the generated Scoop wrapper uses cygpath or wslpath at run time like Scoop" : command_host_problem(kind),
+                host.value_or(fs::path{})});
+        }
     }
     return tools;
 }

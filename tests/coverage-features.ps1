@@ -8,6 +8,8 @@ $cases = @(
     @{ name = 'space-exe'; json = '{"bin":"Plex Media Server.exe"}'; expected = 'command.exe'; forbidden = 'command.no-extension' },
     @{ name = 'space-bat'; json = '{"bin":"Puppet Labs\\Puppet\\bin\\facter.bat"}'; expected = 'command.bat'; forbidden = 'command.no-extension' },
     @{ name = 'bare-script'; json = '{"bin":"git-filter-repo"}'; expected = 'command.no-extension'; forbidden = $null },
+    @{ name = 'python-script'; json = '{"bin":"vsrepo.py"}'; expected = 'command.py'; forbidden = 'command.no-extension' },
+    @{ name = 'config-script'; json = '{"bin":[["bin\\tool.config","tool"]]}'; expected = 'command.config'; forbidden = 'command.no-extension' },
     @{ name = 'quoted-exe'; json = '{"bin":"\"C:\\Program Files\\Tool\\app.exe\""}'; expected = 'command.exe'; forbidden = 'command.no-extension' },
     @{ name = 'tuple-path'; json = '{"bin":[["C:\\Program Files\\Tool\\run.bat","--quiet"]]}'; expected = 'command.bat'; forbidden = 'command.no-extension' },
     @{ name = 'architecture-ps1'; json = '{"architecture":{"64bit":{"bin":"scripts/tool.ps1"}}}'; expected = 'command.ps1'; forbidden = 'command.no-extension' }

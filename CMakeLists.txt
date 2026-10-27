@@ -258,6 +258,10 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/user-environment 中文 space")
   add_test(NAME psmodule COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/psmodule.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/psmodule 中文 space")
+  # The generated Scoop bash wrapper substitutes its target without quoting the cygpath result,
+  # exactly like Scoop; a root with spaces cannot exercise that branch, so this test uses a plain path.
+  add_test(NAME command_entry_host COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/command-entry-host.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/command-entry-host")
   # These tests read and snapshot the real current-user environment. A shared resource lock keeps
   # ctest -j from interleaving their snapshots/writes; they must also not be run in parallel by
   # separate ctest invocations.
