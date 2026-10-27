@@ -309,9 +309,13 @@ ir::Package parse_package(const fs::path& path, const std::string& name, const s
                           const std::string& architecture) {
     return ir::adapt_manifest(path,name,bucket,architecture);
 }
-Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture) {
+Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture,
+               bool purge) {
     Plan plan;
     plan.action = action;
+    // --purge is part of the request the verdict describes, so it is attached before the blocker is
+    // computed at the end of this function.
+    plan.purge = purge;
     auto name = request;
     std::string bucket, version;
     const auto at = name.find('@');
@@ -810,14 +814,13 @@ PackageOutcome install_execute(const Context& context, const std::string& reques
         return outcome;
     }
 }
-Plan prepared_simple_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture) {
-    return make_plan(context,action,request,architecture);
+Plan prepared_simple_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
+    return make_plan(context,action,request,architecture,purge);
 }
 PackageOutcome simple_preview(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
-        auto plan = prepared_simple_plan(context,action,request,architecture);
-        plan.purge = purge;
+        auto plan = prepared_simple_plan(context,action,request,architecture,purge);
         print_warnings(context,plan.package);
         outcome.failed = !plan.diagnostics.empty();
         outcome.status = outcome.failed ? "blocked" : "planned";
@@ -839,8 +842,7 @@ PackageOutcome simple_preview(const Context& context, ir::Action action, const s
 PackageOutcome simple_execute(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
     PackageOutcome outcome;
     try {
-        auto plan = prepared_simple_plan(context,action,request,architecture);
-        plan.purge = purge;
+        auto plan = prepared_simple_plan(context,action,request,architecture,purge);
         print_warnings(context,plan.package);
         if (!plan.executable()) {
             outcome.failed = true;
@@ -929,8 +931,7 @@ int simple_single(const Context& context, ir::Action action, const std::string& 
         print_json(outcome.value);
         return outcome.failed ? 1 : 0;
     }
-    auto plan = prepared_simple_plan(context,action,request,architecture);
-    plan.purge = purge;
+    auto plan = prepared_simple_plan(context,action,request,architecture,purge);
     if (!plan.executable()) throw std::runtime_error(plan.blocker);
     return execute_plan(context,plan);
 }

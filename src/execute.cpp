@@ -681,8 +681,9 @@ int execute_plan(const Context& context, const Plan& plan) {
     return 0;
 }
 Json execute_plan_result(const Context& context, const Plan& plan) {
-    const auto blocker = execution_blocker(context,plan);
-    if (!blocker.empty()) throw std::runtime_error(blocker);
+    // Execution reads the one verdict the plan builder stored, exactly like the preview. The
+    // plan's inputs are still rechecked below before the first write.
+    if (!plan.executable()) throw std::runtime_error(plan.blocker);
     const auto& package = plan.package;
     const bool updating = plan.action == ir::Action::update;
     const bool resetting = plan.action == ir::Action::reset;

@@ -397,7 +397,7 @@ function Get-ItemFacts {
         persistence             = $persistence
         data_policy_directories = $dataPolicy
         ir_execution_available  = $ir.execution_available
-        ir_operations           = @($ir.operations | ForEach-Object { $_.kind })
+        ir_operations           = @($ir.ir_operations | ForEach-Object { $_.operation })
         diagnostics             = $diagnostics
     }
 
@@ -416,6 +416,9 @@ function Get-ItemFacts {
     Add-Check $scope 'persistence-intact' $persistenceOk (@($persistence | ForEach-Object { "$($_.source) link=$($_.link_matches) files=$($_.file_count)" }) -join '; ')
     Add-Check $scope 'data-policy-directories' $policyOk (@($dataPolicy.directories | ForEach-Object { "$($_.variable) exists=$($_.exists) files=$($_.file_count)" }) -join '; ')
     Add-Check $scope 'no-blocking-diagnostics' ($diagnostics.Count -eq 0) (@($diagnostics | ForEach-Object { $_.code }) -join ', ')
+    # The preview must carry the IR sequence: an empty list here would make every operation
+    # assertion below vacuous, so the harness fails instead of recording empty evidence.
+    Add-Check $scope 'ir-operations-planned' ($facts.ir_operations.Count -gt 0) (@($facts.ir_operations) -join ', ')
     $facts | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $logDir 'facts.json') -Encoding utf8
     return $facts
 }

@@ -20,8 +20,8 @@ devkit 提供实际使用场景：Git、Neovim、ripgrep、CMake 等工具的获
 | --- | --- |
 | `coop list` | 显示已接管、未接管及无法管理的安装及原因；本地读取，不启动 PowerShell |
 | `coop search <query>` / `info <package>` | 查询本地 bucket / 安装记录；不联网刷新，不启动 PowerShell；标明来源与同步时间 |
-| `coop adopt [package] --dry-run` | 展示识别结果、接管资格、将保留的路径和管理记录变更；不运行安装脚本，不取得管理权 |
-| `coop adopt [package]` | 重新检查输入，保存迁移前证据，逐包接管；不重新下载或安装该版本 |
+| ~~`coop adopt [package] --dry-run`~~ | 已退役（R22/#43 移除）：历史原型中的接管预检；现为未知命令（退出码 2），共享安装直接由 `update`/`uninstall` 管理 |
+| ~~`coop adopt [package]`~~ | 已退役（R22/#43 移除）：历史原型中的原地接管；不再有接管步骤或私有记录门槛 |
 | `coop install <package>` | 使用本地已同步 Manifest，按需联网下载软件产物；不隐式同步 bucket |
 | `coop update <package>` / `--all` | 依据本地 Manifest 更新软件；不更新 Coop 自身、不隐式同步 bucket |
 | `coop bucket update [name]` | 显式联网刷新允许的来源；显示成功、未变化或失败及本地快照是否仍可用 |

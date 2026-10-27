@@ -184,9 +184,16 @@ if ($purgePreview.value.purge.status -ne 'planned' -or $scope.Count -ne 2 -or
     @($scope | Where-Object { $_.store -eq $storeFile }).Count -ne 1) { throw "purge preview did not list the exact declared scope: $($purgePreview.text)" }
 if ([IO.File]::ReadAllText($recordPath) -ne $recordBefore -or -not (Test-Path $storeConfig) -or -not (Test-Path $storeFile)) { throw 'purge preview changed state or data' }
 
-# A retargeted persistence link must stop the dangerous deletion before uninstall.
+# A retargeted persistence link must stop the dangerous deletion before uninstall. The same
+# verdict is reported by the preview, so a purge-only refusal cannot look executable.
 Remove-Junction "$root2/apps/persistfixture/2/config"
 New-Item -ItemType Junction -Path "$root2/apps/persistfixture/2/config" -Target "$root2/persist/persistfixture/unrelated" | Out-Null
+$retargetPreview = Run-Json @('--root',$root2,'uninstall','persistfixture','--purge','--dry-run','--json')
+if ($retargetPreview.code -eq 0 -or $retargetPreview.value.execution_available -ne $false -or
+    $retargetPreview.value.purge.status -ne 'blocked' -or
+    @($retargetPreview.value.diagnostics | Where-Object { $_.code -eq 'execution-blocked' }).Count -ne 1) {
+    throw "purge preview did not report the retargeted link with the plan's own verdict: $($retargetPreview.text)"
+}
 $retarget = Run-Json @('--root',$root2,'uninstall','persistfixture','--purge','--json')
 if ($retarget.code -eq 0 -or -not (Test-Path "$root2/apps/persistfixture/current/persistfixture.exe") -or -not (Test-Path "$storeConfig/settings.ini")) { throw "retargeted persistence link did not stop purge: $($retarget.text)" }
 Remove-Junction "$root2/apps/persistfixture/2/config"

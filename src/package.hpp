@@ -51,7 +51,8 @@ std::string dependency_package_name(const std::string& specified);
 // Source adapter entry point used by planning and query: Scoop Manifest bytes -> validated IR.
 ir::Package parse_package(const fs::path& path, const std::string& name, const std::string& bucket,
                           const std::string& architecture);
-Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture);
+Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture,
+               bool purge = false);
 void recheck_plan(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);
 Json execute_plan_result(const Context& context, const Plan& plan);

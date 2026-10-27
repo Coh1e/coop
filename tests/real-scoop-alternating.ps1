@@ -39,14 +39,17 @@ function Snapshot([string]$name) {
     $lines | Sort-Object | Set-Content -LiteralPath (Join-Path $EvidenceDir ($name+'.snapshot.txt')) -Encoding utf8
 }
 function Assert-True([bool]$condition,[string]$message) { if (-not $condition) { throw $message } }
-function InstalledVersion([string]$name) {
-    $list = (Coop ($name+'-list-before') @('list','--json')).output | ConvertFrom-Json
-    $entry = @($list | Where-Object { $_.name -eq $name -and ($_.status -eq 'installed' -or $_.status -eq 'ready') })
+function InstalledVersion([string]$name,[string]$stage) {
+    $list = (Coop ($name+'-list-'+$stage) @('list','--json')).output | ConvertFrom-Json
+    # A shared Scoop installation has no Coop record and reports status=installed; after a Coop
+    # write the published management record carries status=ready. Both describe an installed
+    # package and neither is a retirement of the other.
+    $entry = @($list | Where-Object { $_.name -eq $name -and $_.status -in @('installed','ready') })
     if ($entry.Count -eq 0) { return $null }
     return $entry[0]
 }
 Snapshot 'before'
-$before = InstalledVersion $Package
+$before = InstalledVersion $Package 'before'
 Assert-True ($null -eq $before) "The selected real package is already installed; refusing to change an existing user installation: $Package"
 $inventoryBefore = (Coop 'coop-list-before' @('list','--json')).output | ConvertFrom-Json
 $scoopVersion = (Scoop 'scoop-version' @('--version')).output
@@ -56,7 +59,7 @@ $install = Scoop 'scoop-install-old' @('install',"$Package@$OldVersion")
 Assert-True ($install.exit -eq 0) "Scoop install $Package@$OldVersion failed: $($install.output)"
 $scoopRun = Run 'scoop-run-old' "$ScoopRoot/shims/$Package.exe" @('--version')
 Assert-True ($scoopRun.exit -eq 0 -and $scoopRun.output.Trim() -eq "jq-$OldVersion") "Scoop-installed program did not run as $OldVersion`: $($scoopRun.output)"
-$observed = InstalledVersion $Package
+$observed = InstalledVersion $Package 'after-scoop-install'
 Assert-True ($null -ne $observed -and $observed.version -eq $OldVersion) "Coop did not identify the Scoop installation: $($observed | ConvertTo-Json -Compress)"
 $privateRecordBefore = Test-Path -LiteralPath "$ScoopRoot/.coop/packages/$Package.json"
 Assert-True (-not $privateRecordBefore) "A Coop private record already existed before the shared update: $ScoopRoot/.coop/packages/$Package.json"
@@ -74,7 +77,7 @@ $journal = Get-Content -LiteralPath $updateJson.journal -Raw | ConvertFrom-Json
 Assert-True ((($journal.observed_steps) -join ',') -eq ($planned -join ',')) "Coop execution did not follow its displayed plan: planned=$planned observed=$($journal.observed_steps)"
 $coopRun = Run 'coop-run' "$ScoopRoot/shims/$Package.exe" @('--version')
 Assert-True ($coopRun.exit -eq 0 -and $coopRun.output.Trim() -eq 'jq-1.8.2') "Coop-updated program did not run: $($coopRun.output)"
-$afterUpdate = InstalledVersion $Package
+$afterUpdate = InstalledVersion $Package 'after-coop-update'
 Assert-True ($null -ne $afterUpdate -and $afterUpdate.version -eq '1.8.2') "Coop did not report the updated version: $($afterUpdate | ConvertTo-Json -Compress)"
 $scoopList = Scoop 'scoop-list-after-coop-update' @('list',$Package)
 Assert-True ($scoopList.exit -eq 0 -and $scoopList.output -match '1\.8\.2') "Scoop did not recognize the Coop-updated installation: $($scoopList.output)"
@@ -91,7 +94,7 @@ Assert-True ($cleanup.exit -eq 0) "Scoop cleanup failed: $($cleanup.output)"
 $remove = Coop 'coop-uninstall' @('uninstall',$Package,'--json')
 Assert-True ($remove.exit -eq 0) "Coop uninstall failed: $($remove.output)"
 Assert-True (-not (Test-Path "$ScoopRoot/apps/$Package/current") -and -not (Test-Path "$ScoopRoot/shims/$Package.exe")) 'Coop uninstall left the shared package visible'
-$gone = InstalledVersion $Package
+$gone = InstalledVersion $Package 'after-coop-uninstall'
 Assert-True ($null -eq $gone) 'Coop still listed the uninstalled package'
 $scoopListGone = Scoop 'scoop-list-after-coop-uninstall' @('list',$Package)
 Assert-True ($scoopListGone.output -notmatch [regex]::Escape($Package)) "Scoop still listed the Coop-uninstalled package: $($scoopListGone.output)"
@@ -106,12 +109,12 @@ $reset = Scoop 'scoop-reset' @('reset',$Package)
 Assert-True ($reset.exit -eq 0) "Scoop reset failed: $($reset.output)"
 $resetRun = Run 'scoop-run-after-reset' "$ScoopRoot/shims/$Package.exe" @('--version')
 Assert-True ($resetRun.exit -eq 0 -and $resetRun.output.Trim() -eq 'jq-1.8.2') "Scoop-reset entry did not run: $($resetRun.output)"
-$afterReset = InstalledVersion $Package
+$afterReset = InstalledVersion $Package 'after-scoop-reset'
 Assert-True ($null -ne $afterReset -and $afterReset.version -eq '1.8.2') "Coop did not re-identify the Scoop-reset installation: $($afterReset | ConvertTo-Json -Compress)"
 $removeAfterReset = Coop 'coop-uninstall-after-reset' @('uninstall',$Package,'--json')
 Assert-True ($removeAfterReset.exit -eq 0) "Coop uninstall after Scoop reset failed: $($removeAfterReset.output)"
 Assert-True (-not (Test-Path "$ScoopRoot/apps/$Package/current") -and -not (Test-Path "$ScoopRoot/shims/$Package.exe") -and -not (Test-Path "$ScoopRoot/shims/$Package.shim")) 'Coop uninstall after Scoop reset left published state'
-$finalGone = InstalledVersion $Package
+$finalGone = InstalledVersion $Package 'after-reverse-uninstall'
 Assert-True ($null -eq $finalGone) 'Coop still listed the package after the reverse flow'
 Snapshot 'after'
 $inventoryAfter = (Coop 'coop-list-after' @('list','--json')).output | ConvertFrom-Json
