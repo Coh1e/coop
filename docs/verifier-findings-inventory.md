@@ -122,9 +122,9 @@
 | #44/verifier-3-1 | P3 | Evidence / docs/performance-support.md | The real-root unchanged-refresh row parenthetical reads `最终运行 1,769.6/…`: it gives the final run's p50 but elides its p9… | 本轮修复或核对已解决 |
 | #44/verifier-3-2 | P3 | Evidence / .local/pi/tasks/44/evidence/commands-round3.txt | The round-3 command record states `Final head: 7a1ebec707449f8a4e02c85c80a37c967b6aafa7`, but the candidate head is 696c… | 本轮修复或核对已解决 |
 | #46/verifier-1-1 | P3 | Evidence / docs/psmodule-support.md | The shared-root run proves a full Coop-managed lifecycle plus Scoop read-side recognition (real install of main/gsudo in… | 保留为已知 P3（本轮未改，不阻塞验收） |
-| #46/verifier-1-2 | P3 | Evidence / docs/coverage-report.md | The R25 re-measurement note says 真机验证集合仍为历史 15 个包。The re-measurement summary actually records totals.verified_real_cohor… | 保留为已知 P3（本轮未改，不阻塞验收） |
-| #46/verifier-1-3 | P3 | Spec / docs/psmodule-support.md | The documented failure mode for an invalid declaration (`psmodule: true`, non-object, or missing/empty name -> adapter m… | 保留为已知 P3（本轮未改，不阻塞验收） |
-| #46/verifier-1-4 | P3 | Standards / src/execute.cpp | remove-ps-module decides retention with `fs::directory_iterator(modules) != end`, i.e. any surviving entry counts, while… | 保留为已知 P3（本轮未改，不阻塞验收） |
+| #46/verifier-1-2 | P3 | Evidence / docs/coverage-report.md | The R25 re-measurement note says 真机验证集合仍为历史 15 个包。The re-measurement summary actually records totals.verified_real_cohor… | 本轮修复或核对已解决（与 #46/verifier-2-2 同一问题） |
+| #46/verifier-1-3 | P3 | Spec / docs/psmodule-support.md | The documented failure mode for an invalid declaration (`psmodule: true`, non-object, or missing/empty name -> adapter m… | 本轮修复或核对已解决（与 #46/verifier-2-3 同一问题） |
+| #46/verifier-1-4 | P3 | Standards / src/execute.cpp | remove-ps-module decides retention with `fs::directory_iterator(modules) != end`, i.e. any surviving entry counts, while… | 本轮修复或核对已解决（与 #46/verifier-2-4 同一问题） |
 | #46/verifier-2-1 | P3 | Evidence / docs/psmodule-support.md | The shared-root run proves a Coop-managed lifecycle plus Scoop read-side recognition (real install of main/gsudo into C:… | 保留为已知 P3（本轮未改，不阻塞验收） |
 | #46/verifier-2-2 | P3 | Evidence / docs/coverage-report.md | The R25 re-measurement note says 真机验证集合仍为历史 15 个包, while the re-measurement summary records totals.verified_real_cohort=… | 本轮修复或核对已解决 |
 | #46/verifier-2-3 | P3 | Spec / docs/psmodule-support.md | The documented failure mode for an invalid declaration (`psmodule: true`, non-object, or missing/empty name -> adapter m… | 本轮修复或核对已解决 |

@@ -38,7 +38,7 @@ ctest --test-dir .local/build --output-on-failure
 
 ### 3.2 共用状态双向流程（最终构建）
 
-`tests/real-scoop-alternating.ps1` 在同一真实 Scoop 根上顺序执行：Scoop 安装 `jq@1.7.1` → Coop 识别且无私有记录前置 → Coop 预览并更新到 1.8.2（下载/校验/解压）→ 旧版本保留 → Scoop `list`/`update` 继续识别 → Coop 卸载 → Coop 安装 → Scoop `reset`/运行 → Coop 卸载。
+`tests/real-scoop-alternating.ps1` 在同一真实 Scoop 根上顺序执行：Scoop 安装 `jq@1.7.1` → Coop 识别且无私有记录前置 → Coop 预览并更新到 1.8.2（`jq` 是单文件产物，实际操作序列为 `download,verify,unlink-current,remove-entries,publish-current,entries,commit-state`，没有解压步骤）→ 旧版本保留 → Scoop `list`/`update` 继续识别 → Coop 卸载 → Coop 安装 → Scoop `reset`/运行 → Coop 卸载。
 
 - 25 条命令全部退出 0；预览的 `ir_operations` 与执行的 `observed_steps` 逐项相同：`download,verify,unlink-current,remove-entries,publish-current,entries,commit-state`。
 - Scoop 安装开始时 `management=unadopted` 且 `private_record_before=False`；Coop 更新后标准 `scoop-manifest.json` 版本为 1.8.2，旧版本 1.7.1 保留，反向流程结束后无残留。
@@ -52,7 +52,7 @@ ctest --test-dir .local/build --output-on-failure
 - 结果：**698 项检查，0 失败，15/15 包 `status=met`**（`pi-coding-agent` 只读，因为执行器正在使用它，`scoop-reset=not-run`）。
 - 本轮由此发现并修复了 §6 的共享元数据缺陷；第一次运行的唯一失败（clink 重装 exit 1）已定位、修复并在本次完整重跑中转为通过。
 
-证据：`.local/pi/tasks/45/evidence/cohort-a4d7ced/cohort-20261027-093907/summary.json`、`run.stdout.log` 与 `items/`、`lifecycle/` 逐命令日志。
+证据：`.local/pi/tasks/45/evidence/cohort-a4d7ced/cohort-20261027-093907/summary.json`、`.local/pi/tasks/45/evidence/cohort-a4d7ced/run.stdout.log` 与运行目录内的 `items/`、`lifecycle/` 逐命令日志。
 
 ### 3.4 无 Scoop 的独立初始化
 
@@ -100,8 +100,8 @@ ctest --test-dir .local/build --output-on-failure
 | 读取 | 4149/4149 |
 | 计划可执行 | 4141 |
 | 计划被阻塞 | 6：`architecture-artifact` 3（arm64-only）、`external-host:python` 3（`main/retdec`、`main/vapoursynth`、`extras/pdd`；默认用户 PATH 无真实 Python 3） |
-| 真机验证（分母口径） | R28 为 13（`gh`、`uv` 的安装副本与当轮分母不一致，标为 `cohort-manifest-mismatch`）；#41 基线为 15；本轮 15 个本机实际安装包全部通过 §3.3 |
-| 未运行 | 其余 4134 个包保持只读盘点，不因“计划可执行”算作生命周期验证 |
+| 真机验证（分母口径） | R28 为 13（`gh`、`uv` 的安装副本与当轮分母不一致，标为 `cohort-manifest-mismatch`，按未运行计）；#41 基线为 15；本轮 15 个本机实际安装包全部通过 §3.3。闭合计数为 13 verified + 0 historical + 4136 not run = 4149 |
+| 未运行 | 4136 个包（含上述 2 个 `cohort-manifest-mismatch`）保持只读盘点，不因“计划可执行”算作生命周期验证 |
 
 ### 4.2 逐机制证据
 
@@ -131,7 +131,7 @@ ctest --test-dir .local/build --output-on-failure
 ## 5. 未运行与剩余限制
 
 - **各机制的真机脚本没有在最终构建上逐个重跑**：归档/多产物、MSI/Inno/NSIS、Hook/installer 程序、持久化、入口/环境/快捷方式和依赖的真实样本运行仍是各自票的历史证据（本页 §4.2 链接）；它们在最终构建的默认套件中有对应夹具，且本轮 15 包真实生命周期覆盖了入口/环境/持久化/版本的通用路径。不把这两类证据混为一谈，也不声称每个机制的每个真实样本都在本轮重新运行。
-- 4134 个 Main/Extras 包只有只读读取与规划，没有逐包生命周期；Extras 软件没有在本机真实根实际运行（本机 Scoop 根未注册 Extras）。
+- 4136 个 Main/Extras 包（闭合计数：4149 − 13 已验证；含 2 个安装副本与分母不一致的包）只有只读读取与规划，没有逐包生命周期；Extras 软件没有在本机真实根实际运行（本机 Scoop 根未注册 Extras）。
 - 2 个 32bit/arm64 以外的架构边界：32bit 只执行了真实 `air` 包；arm64 只有批准例外中的规划与静态证据，没有生命周期。
 - `psmodule`：Scoop 自己卸载 Coop 安装的模块包（`uninstall_psmodule` 会递归删除 junction 目标）仍未运行；系统级模块与机器级 `PSModulePath` 未实现；这些在[psmodule 支持](psmodule-support.md)中保持未运行。
 - MSI 的外部/多段 cabinet、WiX/Dark 等厂商安装器结构仍明确拒绝；没有真实样本。Inno/NSIS 依赖 root 内已安装的 helper，helper 缺失时在执行阶段具名失败。
@@ -168,8 +168,8 @@ ctest --test-dir .local/build --output-on-failure
 
 # 2. 只读查看真实根，不做写入
 .local/build/coop.exe --root C:\Users\Neo\scoop list --json
-.local/build/coop.exe --root C:\Users\Neo\scoop info main\jq --json
-.local/build/coop.exe --root C:\Users\Neo\scoop update jq --dry-run --json
+.local/build/coop.exe --root C:\Users\Neo\scoop info main/jq --json
+.local/build/coop.exe --root C:\Users\Neo\scoop update git --dry-run --json
 
 # 3. 双向单文件流程（要求 jq 当前未安装；会临时安装、更新、卸载 jq）
 pwsh -NoProfile -File tests/real-scoop-alternating.ps1 `
