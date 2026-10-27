@@ -6,6 +6,8 @@
 
 > [R25/#46](https://github.com/Coh1e/coop/issues/46) 已完成并在同一固定修订上复测：`capability:psmodule` 28 → 0、`dependency-unsupported` 2 → 0，阻塞包 53 → 24（命令入口宿主 11、Manifest 形状 6、依赖缺失 5、arm64 产物 3），计划可执行 4094 → 4123。实现与证据见 [PowerShell 模块暴露（psmodule）](psmodule-support.md)；本页下文的基线归因与子票提议保留为发现阶段记录，不因复测而改写。
 
+> **子票进展（2026-10-27）：** [R28/#49](https://github.com/Coh1e/coop/issues/49) 已完成：官方 `versions` bucket 按 40 位修订 `8050ef41c72c2124b864692665ca62d34659b8bc` 固定在 [`tests/coverage/dependency-sources.json`](../tests/coverage/dependency-sources.json)，同一固定分母上重测 `dependency-missing` 5 → **0**，5 个包的 `versions/*` 依赖全部进入 `dependency_order` 首位且计划可执行，计划可执行 4136 → **4141**，阻塞 11 → **6**（arm64 产物 3、`external-host:python` 3）。真实共用根上完成固定修订注册、`versions/terraform011` 真实安装、`main/terraform-provider-ibm` 复用与安装、主动卸载与完整还原。实现、逐项验收与证据见[依赖安装与反向依赖保护](dependency-support.md)。
+
 > 本页把 [R20/#41 全量盘点](coverage-report.md)暴露的 **53 个计划阻塞包（55 行，按机制去重前）**逐项归因，并给出可独立验收的后续子票。机器可核对账本是 [`tests/coverage/gaps.json`](../tests/coverage/gaps.json)，由 CTest `coverage_gaps` 守卫。本票只做发现闭合与拆票，不修改产品实现；子票需由调度方建票、建立原生阻塞关系并逐项完成后，本票才可能关闭。
 
 ## 结论
@@ -84,7 +86,9 @@ Coop 的入口宿主只有 EXE/COM/BAT/CMD/PS1/JAR（`src/ir_adapter.cpp:252-255
 
 `main/buck` → `versions/python27`，`main/glslviewer` → `versions/ffmpeg-shared-4.4.1`，`main/terraform-provider-ibm` → `versions/terraform011`，`extras/node-compiler` → `versions/python27`，`extras/rabbitmqadmin` → `python27`。
 
-这些依赖包属于官方 `versions` bucket，本机共用根没有注册它，所以计划在写入前按缺失来源拒绝。Coop 的跨 bucket 解析本身可用：项目内 fixture 在 `buckets/versions/bucket/python27.json` 存在时给出 `versions/python27@2.7.18` 先于主包的顺序且计划可执行；移除该 bucket 后给出 `ir/dependency-missing`（证据见上表）。R28 负责用固定修订的官方 `versions` bucket 对该结论做真实规模验证；共享根是否注册 `versions` 仍由人类决定，不接受把环境前提写成“产品不支持”。
+这些依赖包属于官方 `versions` bucket，本机共用根没有注册它，所以计划在写入前按缺失来源拒绝。Coop 的跨 bucket 解析本身可用：项目内 fixture 在 `buckets/versions/bucket/python27.json` 存在时给出 `versions/python27@2.7.18` 先于主包的顺序且计划可执行；移除该 bucket 后给出 `ir/dependency-missing`（证据见上表）。
+
+**R28/#49 已完成（2026-10-27，代码提交 `ce49eff`）：** 官方 `versions` bucket 的来源与 40 位修订固定在 `tests/coverage/dependency-sources.json`，盘点脚本按它注册只读副本且不进入分母；同一 Main `eebcee22…`／Extras `0f8f4b5f…` 分母上 `dependency-missing` 归零，5 个包的解析结果为 `versions/python27@2.7.18`、`versions/ffmpeg-shared-4.4.1@4.4.1`、`versions/terraform011@0.11.15`，均排在请求包之前且 `execution_available=true`。真实共用根上注册固定修订后：三个可用的 Main 样本 dry-run 均可执行；`versions/terraform011` 真实安装并可运行，`main/terraform-provider-ibm` 复用该依赖（`installed=true`、`skipped/already-installed`）后安装成功，日志与预览一致；卸载主包不连带依赖，依赖显式卸载后移除本轮注册与克隆，注册文件逐字节还原、原有 bucket/本地修改/15 个安装包不变。依赖声明去重：同一 Manifest 重复声明同一依赖只报一条相同诊断（真实 Main/Extras 未出现重复声明，回归由 `tests/versions-bucket.ps1` 覆盖）。细则与证据见[依赖安装与反向依赖保护](dependency-support.md)。R28 负责用固定修订的官方 `versions` bucket 对该结论做真实规模验证；共享根是否注册 `versions` 仍由人类决定，不接受把环境前提写成“产品不支持”。
 
 ### 架构边界（3，不建子票）
 
@@ -128,9 +132,10 @@ Coop 的入口宿主只有 EXE/COM/BAT/CMD/PS1/JAR（`src/ir_adapter.cpp:252-255
 
 ### R28：跨 bucket 依赖来源（versions bucket）验证
 
-- **What to build**：用项目内固定的官方 `versions` bucket（只读修订）验证 5 个包的 `versions/*` 依赖顺序与环境诊断；若 bucket 限定名/版本化包名解析有缺陷才修核心。
-- **独立验收**：记录 `versions` bucket 40 位修订；5 个包计划依赖顺序正确且可执行（或对确实缺失项给出去重诊断）；至少一个样本验证已安装依赖复用；共享根注册与否由人类决定并如实记录环境前提；重新盘点 `dependency-missing` 归零或逐项环境前提；级联项不重复计数。
-- **依赖关系**：不依赖其他新票；blocks #42、#45。
+- **状态：** 已完成（[#49](https://github.com/Coh1e/coop/issues/49)，代码提交 `ce49eff`）；结果与证据见[依赖安装与反向依赖保护](dependency-support.md)。
+- **What to build（已交付）：** 项目内固定官方 `versions` bucket 的来源与 40 位修订（`tests/coverage/dependency-sources.json`，不入分母），用同一 Main/Extras 修订验证 5 个包的 `versions/*` 依赖顺序与缺失/环境影响；同一 Manifest 重复声明同一依赖的相同诊断去重；bucket 限定名与版本化包名（`python27`、`ffmpeg-shared-4.4.1`、`terraform011`）解析无缺陷，未改核心解析路径。
+- **独立验收结果：** 5 个包 `install --dry-run` 的 `dependency_order` 含 `versions/*` 且 `execution_available=true`；已安装依赖复用（`installed=true`、`ir_operations` 为空、执行记为 `skipped/already-installed`）与依赖先于主包顺序在项目内 fixture 和真实共用根上都得到；重新盘点 `dependency-missing` 为 0；级联项仍只归 R25，不重复计数。
+- **未运行/环境前提：** Extras 的两个包（`extras/node-compiler`、`extras/rabbitmqadmin`）只在项目内盘点根（同一固定修订）验证计划；本机共用 Scoop 根未注册 Extras，因此没有它们的真实安装结果。共用根只新增了本轮 `versions` 注册，并已连同克隆与依赖产物、`%APPDATA%\terraform.d` 测试新增文件一起还原。
 
 ### 建议的原生关系（调度方执行）
 
@@ -141,7 +146,7 @@ Coop 的入口宿主只有 EXE/COM/BAT/CMD/PS1/JAR（`src/ir_adapter.cpp:252-255
 
 ## 剩余风险与后续核对
 
-- 本票**未安装**这 53 个包，也未运行 arm64 真实程序、未在共享根注册 `versions` bucket；这些明确标为“未运行/环境前提”，由 R25–R28 和 #45 承担。
+- 本票**未安装**这 53 个包，也未运行 arm64 真实程序、未在共享根注册 `versions` bucket；这些明确标为“未运行/环境前提”，由 R25–R28 和 #45 承担。R28 已完成其中 `versions` 部分（固定修订注册、真实依赖安装/复用/卸载、注册与用户目录新增文件还原，注册与本地修改保持不变）；arm64 真实生命周期仍未运行。
 - 子票完成后需用同一 `tests/real-scoop-coverage.ps1` 重新盘点（固定修订），预期：`psmodule`、`dependency-unsupported`、`command-entry-host`、`manifest-shape` 归零；`dependency-missing` 归零或仅剩带环境前提的条目；3 个 arm64-only 在 64bit 下仍按设计拒绝。若盘点修订前移出现新机制，应再次走本票的“逐项归因 + 独立子票”流程，不能直接关闭 #42。
 - 守卫 `coverage_gaps` 固定在当前 6 个机制和 53 个包；盘点基线更新时必须同步账本，否则 CTest 失败——这是有意的，避免数字漂移后静默丢包。
 - 本轮证据都在 `.local/pi/tasks/42/evidence/closure-20261026-221524/`，不随仓库分发；重放需要项目内盘点根 `.local/coverage/root` 与同一轮 `coop.exe`，重放脚本已随证据保存。共享真实 Scoop 根本轮只读，未做写入。

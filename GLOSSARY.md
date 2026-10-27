@@ -20,6 +20,8 @@ Coop 是与 Scoop 共用安装与状态的 Windows 原生软件管理客户端�
 
 **依赖（Dependency）**：Manifest `depends` 明确声明的另一个软件包，可限定 bucket。安装时先解析并安装依赖，已安装依赖跳过；不从脚本、用户项目或 Coop 自身工具需求推断依赖。
 
+**依赖来源 bucket（Dependency Source Bucket）**：请求包所在 bucket 之外、只用于解析其声明依赖的官方 bucket（如 `versions`）。它按固定来源与 40 位修订登记，用于证明跨 bucket 依赖可解析，但不进入 Main/Extras 兼容分母，也不改变环境本身必须注册该 bucket 的前提。
+
 **反向依赖（Reverse Dependency）**：已安装包的保存 Manifest 声明依赖目标包的关系。包括由 Scoop 安装的软件在内，已知反向依赖方会阻止普通卸载，卸载保护不使用猜测或自动连带删除。
 
 **命令入口（Command Entry）**：软件包声明、供用户和其他程序启动该软件的命令及其参数约定，可由兼容客户端维护。

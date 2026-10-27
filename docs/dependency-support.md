@@ -14,12 +14,33 @@
 
 - 只读取 Manifest 明确声明的 `depends`。不推断用户项目、脚本运行期或自定义命令的真实依赖，也不把 Coop 自身不依赖 Git/7-Zip 误认为软件包不需要它们。
 - 依赖先于请求包安装；同一依赖只安装一次。已经安装的依赖记为 `skipped`，不会重新下载或覆盖。已安装事实来自共享 `apps/<包>/current`，不要求 Coop 私有记录。
-- 依赖可写作 `name` 或 `bucket/name`。显式 bucket 必须能找到对应 Manifest；未限定 bucket 且本地多个 bucket 同名时，Coop 要求显式限定而不是静默选择第一个来源。
+- 依赖可写作 `name` 或 `bucket/name`。显式 bucket 必须能找到对应 Manifest；未限定 bucket 且本地多个 bucket 同名时，Coop 要求显式限定而不是静默选择第一个来源。依赖来源不需要是请求包所在的 bucket：`versions/python27` 与未限定、且只在 `versions` 中存在的 `python27` 都按同一归一化身份解析，顺序与已安装事实仍由 Planner 决定。
+- 同一 Manifest 重复声明同一依赖时只保留一条相同的诊断；来源不同、被依赖方不同或循环链不同的诊断仍分别保留，不把不同问题合并成一条。
 - 依赖已安装但记录的 bucket 与显式声明冲突时拒绝安装。
 - 缺失依赖、循环依赖、同名跨 bucket 歧义、来源冲突和不可执行依赖都在写入前报告具体诊断。循环信息包含完整链，例如 `test/a -> test/b -> test/a`。
 - 带版本的依赖写法（如 `base@1`）仍明确拒绝；首版不猜测版本约束的解析结果。
 - `update` 和 `adopt` 不安装新依赖，只检查新 Manifest 或已安装 Manifest 声明的依赖确实已安装；缺失时拒绝。`adopt` 也不重新执行脚本或重新安装依赖。
 - 普通卸载不删除依赖，即使它看起来已无人使用；首版没有 autoremove，也不会连带卸载反向依赖方。
+
+## 跨 bucket 依赖来源（versions bucket）
+
+官方 `versions` bucket 是 Main/Extras 之外的依赖来源，不是兼容分母的一部分。[`tests/coverage/dependency-sources.json`](../tests/coverage/dependency-sources.json) 固定它的来源与 40 位修订（`https://github.com/ScoopInstaller/Versions`，`8050ef41c72c2124b864692665ca62d34659b8bc`，`git ls-remote HEAD` 先核对，629 份 Manifest），并由 CTest `coverage_gaps` 守卫：名称/URL/修订/角色缺一、被移出分母说明或与缺口账本不一致都会失败。盘点脚本按该清单注册只读副本，`-SkipDependencySources` 才回到“未注册”的环境前提。
+
+同一 Main 修订（`eebcee22…`）与 Extras 修订（`0f8f4b5f…`）下，带固定 `versions` 修订的盘点结果：
+
+| 包 | 声明来源 | 解析结果 | 计划 |
+| --- | --- | --- | --- |
+| main/buck | `versions/python27` | versions/python27@2.7.18 | `execution_available=true`，依赖先于主包 |
+| main/glslviewer | `versions/ffmpeg-shared-4.4.1` | versions/ffmpeg-shared-4.4.1@4.4.1 | 同上 |
+| main/terraform-provider-ibm | `versions/terraform011` | versions/terraform011@0.11.15 | 同上 |
+| extras/node-compiler | `versions/python27`（另有 `extras/squashfs-tools`） | versions/python27@2.7.18 → extras/squashfs-tools@43 | 同上 |
+| extras/rabbitmqadmin | `python27`（未限定，只在 versions 中存在） | versions/python27@2.7.18 | 同上 |
+
+盘点因此不再产生 `dependency-missing`：4149 份 Manifest 中计划可执行为 4141、阻塞 6（3 个 arm64-only 产物、3 个默认 PATH 无 `python.exe` 的环境前提），`dependency-missing` 为 0，与 [#49](https://github.com/Coh1e/coop/issues/49) 的验收一致。未注册 `versions` 的根仍会在写入前报 `ir/dependency-missing`（`tests/real-scoop-dependencies.ps1` 在共用根未注册 `versions` 时保留该断言）；这是环境前提，不是“不支持”。
+
+真实共用根（`C:\Users\Neo\scoop`，Before：`main`、`nerd-fonts`，未注册 `versions`）顺序执行并全部还原：注册固定 `versions` 修订 → 5 个可用的 Main 样本 `install --dry-run` 均可执行且依赖在前 → 安装 `versions/terraform011`（真实下载、校验、ZIP 解压，`terraform --version` 输出 `Terraform v0.11.15`）→ `main/terraform-provider-ibm` 预览把该依赖标为 `installed=true`、`status=satisfied`、`ir_operations` 为空，`planned_dependencies` 只有主包 → 实际安装中依赖记为 `skipped/already-installed`、主包随后成功，事务日志 `observed_steps` 与预览 `ir_operations` 完全一致 → 卸载主包后依赖仍在且可运行（不自动连带删除）→ 卸载依赖并移除本轮注册。还原包含 Coop `bucket remove` 刻意保留的共享工作树（只用本测试克隆、先核对 origin 与 HEAD）、`.coop/buckets.json` 的逐字节还原，以及依赖安装器与 `terraform` 程序在 `%APPDATA%\terraform.d` 写入的测试新增文件；结束状态为原有 bucket 目录、注册记录、本地修改、15 个安装包和 `scoop bucket list` 与开始一致。`versions` 真实注册期间 Scoop 自身 `bucket list` 也看到了该 bucket（629 份 Manifest），不属于 Coop 私有记录。
+
+回归用例 `tests/versions-bucket.ps1`（CTest `versions_bucket`）用项目内隔离根复现同一组身份形状：`versions/python27`、`versions/ffmpeg-shared-4.4.1`、`versions/terraform011`、未限定的 `python27`、跨 bucket 传递链、已安装依赖复用（`installed/satisfied`、记录不被重写、入口可运行）、另一 bucket 已安装同名依赖时的 `dependency-bucket-conflict`，以及缺少 `versions` 时的 `dependency-missing` 去重。真实共用根的一次性操作由 `tests/real-scoop-versions.ps1` 执行，它记录初始状态、命令与退出码，并在失败路径同样还原。
 
 ## 计划与执行结果
 
@@ -50,6 +71,7 @@
 | 已安装依赖 | 预览标为 `installed/satisfied` 且无安装操作；执行标为 `skipped/already-installed`，命令入口保持可用 |
 | 批量安装 | 逐包返回 success/failed；后续失败不删除先前成功安装的包；整体非零 |
 | 缺失/循环/歧义/带版本依赖 | 写入前失败，并给出对应诊断与依赖链或来源 |
+| 跨 bucket versions 来源 | 5 个真实包形状（含版本化名字与未限定 `python27`）解析为 versions 依赖、依赖先于主包；已安装依赖复用；同名异 bucket 冲突；缺 bucket 时去重诊断 |
 | 更新前检查 | 依赖缺失时更新预览失败；恢复后依赖显示为已满足 |
 | 反向依赖 | 已接管、未接管依赖方均阻止卸载；证据不可读也阻止卸载 |
 | 无 autoremove | 卸载依赖方后共享依赖仍安装且可运行，直到显式卸载 |
@@ -62,7 +84,10 @@
 | 真实依赖复用 | 真实 Main/git-tfs 声明 `depends: git`；预览把已安装 git 标为 `satisfied` 且无安装操作，git-tfs 标为 `planned`；实际安装只新增 git-tfs，git 记为 `skipped/already-installed`，git-tfs 程序可运行，Coop 记录保存 `git` |
 | 反向依赖保护 | Coop 安装的 git-tfs 使 `uninstall git` 在预览和实际执行中都被拒绝并列出 git-tfs；git 仍可运行，git-tfs 未被自动删除 |
 | 不连带清理 | 显式卸载 git-tfs 后 git 仍保持安装且可运行，列表仍识别；不会因为看起来无人使用而自动删除依赖 |
-| 真实缺失依赖 | Main/terraform-provider-ibm 的 `versions/terraform011` 不在本地 bucket，预览在写入前报告 `dependency-missing` |
+| 真实缺失依赖 | 未注册 `versions` 的根上，Main/terraform-provider-ibm 的 `versions/terraform011` 在写入前报告 `dependency-missing` |
+| 跨 bucket 依赖真实操作 | 本轮在共用根注册固定 `versions` 修订：`versions/terraform011` 真实安装并可运行，`main/terraform-provider-ibm` 复用该依赖（`installed=true`、`skipped/already-installed`）后安装成功，日志与预览一致；卸载主动、还原注册与用户目录新增文件 |
+
+证据：项目内盘点结果在 `.local/pi/tasks/49/evidence/coverage-versions-final/coverage-20261027-054326/`（`summary.json`、`cross-bucket-dependencies.json`、`manifests.json`、`shared-root-before/after.txt`，退出 0）；真实共用根为 `.local/pi/tasks/49/evidence/real-root-20261027-final/real-scoop-versions-evidence.json`（退出 0），逐条命令日志与 `%APPDATA%` 清理记录同目录，被忽略、不随仓库分发。本轮代码提交 `ce49eff`，`coop.exe` SHA256 `20e8fdb…`。
 
 证据只覆盖本轮实际执行的真机样本；完整 Main/Extras 覆盖仍由后续盘点与交付票跟踪。
 

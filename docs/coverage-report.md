@@ -1,5 +1,7 @@
 # Main／Extras 全量兼容盘点（R20/#41）
 
+> **复测（2026-10-27，R28/#49）：** 盘点脚本新增固定依赖来源清单 [`tests/coverage/dependency-sources.json`](../tests/coverage/dependency-sources.json)，按官方 `versions` bucket 的 40 位修订 `8050ef41c72c2124b864692665ca62d34659b8bc`（629 份 Manifest，不入分母）注册只读副本。同一 Main `eebcee22…`（1701）+ Extras `0f8f4b5f…`（2448）下重跑：读取 4149/4149、计划可执行 **4141**、阻塞 **6**、盘根内已安装 helper 2；`dependency-missing` 5 → **0**，5 个包的 `versions/*` 依赖全部解析为 `dependency_order` 首位且计划可执行。剩余 6 个阻塞为 arm64 产物 3（64bit 下按设计拒绝）与 `external-host:python` 3（默认用户 PATH 无真实 `python.exe`）。本轮 Main 工作树由 Scoop 在受权真机操作中自行快进到 `eebcee22…`，因此 `gh`、`uv` 的安装副本 Manifest SHA256 与分母不再一致，绑定规则把它们降为 `cohort-manifest-mismatch`：本轮真机验证为 **13**、未运行 4134，不把旧运行算作本修订的验证。真实共用根的跨 bucket 依赖操作、卸载与还原见[依赖安装与反向依赖保护](dependency-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
+
 > **复测（2026-10-27，R27/#48）：** 同一盘点脚本重跑，读取 4149/4149、计划可执行 **4136**、阻塞 **11**、盘根内已安装 helper 2；`adapter/manifest-shape` 诊断与 `manifest-shape` 机制缺口 6 → **0**。剩余阻塞为依赖缺失 5、arm64 产物 3（64bit 下按设计拒绝）和 `external-host:python` 3（`main/retdec` 与原有 `main/vapoursynth`、`extras/pdd`，默认用户 PATH 无真实 `python.exe`）。本轮 Main 使用本机共用工作树在受权真机操作中由 Scoop 自行快进到的 `eebcee22…`（1701 份），Extras 仍固定 `0f8f4b5f…`（2448 份）；本轮只做只读盘点，真机验证集合仍为历史 15 个包，不重算为本轮运行。细则与证据见[Manifest 形状、相对路径与重复别名兼容](manifest-shape-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
 
 > **复测（2026-10-27，R26/#47）：** 同一盘点脚本在相同固定修订（Main `5be7f8c7…` 1701 + Extras `0f8f4b5f…` 2448 = 4149）上重跑，使用正常用户 PATH：读取 4149/4149、计划可执行 **4131**、阻塞 **16**、盘根内已安装 helper 2。`adapter/unsupported-command-host` 诊断 13 → **0**，`command-entry-host` 机制缺口 11 → **0**；无扩展名计划可执行 1/8 → **8/8**、`.config` 0/1 → **1/1**。本机默认 PATH 没有真实 `python.exe`（Store 零长度别名被拒绝），`main/vapoursynth`、`extras/pdd` 计划按 `external-host:python` 阻塞并逐项列出，不是入口机制不支持；其余阻塞仍是 Manifest 形状 6、依赖缺失 5、arm64 产物 3。细则、真实运行与证据见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。本页下表数字是 #41 当时的基线，不因复测而改写。
@@ -194,9 +196,10 @@ pwsh -NoProfile -File tests/real-scoop-coverage.ps1 -CoopExe .local/build/coop.e
 ```
 
 - 首次运行会把官方 Main/Extras 克隆到项目内 `.local/coverage/root`（需要网络与磁盘）；之后重复运行沿用已固定修订。Main 默认取共用工作树实际 HEAD，并要求项目内副本与它逐字节一致；共用 bucket 的本地修改或修订移动时必须显式处理，脚本会拒绝静默换数据。
+- 依赖来源 bucket 按 [`tests/coverage/dependency-sources.json`](../tests/coverage/dependency-sources.json) 注册（当前为官方 `versions`，修订 `8050ef41…`），它们不進分母；`-SkipDependencySources` 可回到“未注册”的环境前提，`-VersionsRevision <40 位 commit>` 可临时换修订但会让依赖证据脱离清单。
 - 修订变化后加 `-ResetInventory` 重建项目内副本；该开关会先安全移除 helper junction，不会递归进入共用 Scoop 安装。Extras 可用 `-ExtrasRevision <40 位 commit>` 固定；不传时沿用已有项目内副本的 HEAD。
-- 脚本退出 0 表示盘点完成，不代表 4149 个包都可运行；被阻塞的包是结果。退出非零表示盘点自身失败（读取范围、修订或摘要不一致、共用根被写入、统计不闭合），不会被当作“不支持包”的正常结果。
-- 脚本内置断言：读取与计划状态必须覆盖全部 Manifest；验证状态不得超过 cohort 事实；Main 分母必须与共用工作树逐字节一致；共用根快照必须无变化。
+- 脚本退出 0 表示盘点完成，不代表 4149 个包都可运行；被阻塞的包是结果。退出非零表示盘点自身失败（读取范围、修订或摘要不一致、共用根被写入、统计不闭合、声明了 `versions/*` 的包未解析或仍报 `dependency-missing`），不会被当作“不支持包”的正常结果。
+- 脚本内置断言：读取与计划状态必须覆盖全部 Manifest；验证状态不得超过 cohort 事实；Main 分母必须与共用工作树逐字节一致；共用根快照必须无变化；注册的依赖来源必须命中每一个声明了 `versions/*` 的包。
 - 本轮命令、退出码与完整控制台输出在 `.local/pi/tasks/41/evidence/coverage-fix2-run.log`（退出 0）。
 
 ## 证据
@@ -211,16 +214,20 @@ pwsh -NoProfile -File tests/real-scoop-coverage.ps1 -CoopExe .local/build/coop.e
 | 每条真实命令与退出码 | `commands.log` |
 | Main 与共用工作树逐份 Manifest 的比对结果 | `shared-main-manifest-verification.json` |
 | 共用根前后快照（递归路径/长度/修改时间，两次快照相同，运行日志报告变化数 0） | `shared-root-before.txt`、`shared-root-after.txt` |
-| 所有阻塞包与 15 个验证包的完整 `info`/`plan` 原文（68 个包） | `samples/` |
+| 所有阻塞包与验证包的完整 `info`/`plan` 原文（68 个包） | `samples/` |
+| 跨 bucket 依赖来源的逐包结果（声明、`dependency_order`、版本、是否可执行） | `cross-bucket-dependencies.json` |
+
+R28/#49 的本轮重跑运行目录为 `.local/pi/tasks/49/evidence/coverage-versions-final/coverage-20261027-054326/`（代码提交 `ce49eff`，`coop.exe` SHA256 `20e8fdb…`，退出 0），其中 `summary.json.cross_bucket_dependencies` 与 `cross-bucket-dependencies.json` 记录 5 个包的 `versions/*` 解析结果，`gaps` 不再包含 `dependency-missing`，共用根快照仍为 0 变化。
 
 已提交的 [`tests/coverage/baseline.json`](../tests/coverage/baseline.json) 是同一脚本生成的紧凑投影：固定修订、分母、总数、逐机制状态、缺口包名、产物/摘要算法计数与 15 个验证包；完整逐包记录仍只保存在项目内被忽略的证据目录。`baseline.json` 内的 `project_head` 是生成时的代码提交，本页提交只增加文档和该投影，不改变测量逻辑。
 
 ## 未运行与限制
 
-- 本轮没有下载任何包产物、没有执行安装/更新/卸载或脚本；“计划可执行”不能当作生命周期验证。4134 个包保持未运行。
+- 本轮没有下载任何包产物、没有执行安装/更新/卸载或脚本（R28 的真实依赖操作是单独的 `tests/real-scoop-versions.ps1` 运行，不是本次只读盘点）；“计划可执行”不能当作生命周期验证。4134 个包保持未运行。
 - Extras 全部未运行；本机 Scoop 根也未注册 Extras，分母修订来自官方仓库克隆。
 - arm64、32bit 没有实际执行；64bit 规划不能证明其他架构的入口、脚本或安装器行为。
 - `pi-coding-agent` 只记录运行版本，不重写入口或切换版本（执行器自身正在运行）。
+- R28 重跑时 `gh`、`uv` 的安装副本 Manifest 与实际 `eebcee22…` 分母不同，按绑定规则标为 `cohort-manifest-mismatch` 而不是本修订验证；本轮真机验证为 13，不是 15。
 - Coop 注册表的 Main 修订落后于实际工作树。本轮按实际数据盘点并把该差异写入 `baseline.json`；下一次显式 `bucket update` 会核对 HEAD 与记录。把缓存记录当实际修订会让分母指错版本，因此这里不使用它。
 - `main/7zip` 与 `main/innounp` 在盘点根中因 helper junction 显示为“已安装”，其安装预览不是缺口的证据；两者已由 #40 真机覆盖。
 - 机制统计是“声明覆盖”，不是 Scoop 全部运行时语义的等价声明；例如企业安装器、系统级注册表/服务、私有 Git 来源、私有 PSModule 仓库仍不在本轮验证范围。
