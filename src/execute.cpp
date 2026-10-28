@@ -12,6 +12,7 @@
 #include "inno.hpp"
 #include "msi.hpp"
 #include "nsis.hpp"
+#include "publish.hpp"
 #include "faults.hpp"
 #include <windows.h>
 #include <cstdint>
@@ -1300,64 +1301,21 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     throw std::runtime_error("Plan extraction has no downloaded artifact");
                 ensure_stage();
                 const auto& artifact = package.downloads[step.index];
-                const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
-                const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
-                bool extracted_directly = false;
-                // Inno Setup extraction selects the declared Inno directory with innounp's own -c
-                // switch, so the merge below starts at the extracted root instead of applying
-                // extract_dir a second time.
-                fs::path merge_directory = artifact.extract_directory;
-                if (artifact.format == ir::ArchiveFormat::msi) {
-                    // MSI artifacts are extracted from a read-only view of the installer database and
-                    // its embedded cabinets. The journal records that no msiexec process, machine
-                    // cache entry, elevation or reboot is involved, next to what was actually read.
-                    const auto record = extract_msi_image(downloaded_files[step.index],raw,
-                        transaction/(L"msi-work-"+std::to_wstring(step.index)));
-                    if (!journal.contains("msi_extractions")) journal["msi_extractions"] = Json::array();
-                    auto entry = record;
-                    entry["index"] = step.index;
-                    entry["filename"] = artifact.filename;
-                    journal["msi_extractions"].push_back(std::move(entry));
-                    save();
-                } else if (artifact.format == ir::ArchiveFormat::inno_setup) {
-                    const auto helper = inno_helper(context);
-                    if (helper.path.empty()) throw std::runtime_error(helper.problem);
-                    auto entry = extract_inno_archive(context,helper.path,downloaded_files[step.index],raw,
-                        path_text(artifact.extract_directory),transaction,step.index);
-                    entry["index"] = step.index;
-                    entry["filename"] = artifact.filename;
-                    if (!journal.contains("inno_extractions")) journal["inno_extractions"] = Json::array();
-                    journal["inno_extractions"].push_back(std::move(entry));
-                    save();
-                    merge_directory.clear();
-                } else if ((artifact.format == ir::ArchiveFormat::zip || artifact.format == ir::ArchiveFormat::seven_zip) &&
-                           inspect_nsis_payload(downloaded_files[step.index]).detected) {
-                    // The declared suffix only describes the transport. An NSIS installer is
-                    // unpacked by the 7-Zip helper that Scoop's Expand-7zipArchive also uses; the
-                    // helper is detected in the selected root and never downloaded.
-                    const auto helper = nsis_helper(context);
-                    if (helper.path.empty()) throw std::runtime_error(helper.problem);
-                    auto entry = extract_nsis_archive(context,helper.path,downloaded_files[step.index],raw,
-                        path_text(artifact.extract_directory),transaction,step.index);
-                    entry["index"] = step.index;
-                    entry["filename"] = artifact.filename;
-                    if (!journal.contains("nsis_extractions")) journal["nsis_extractions"] = Json::array();
-                    journal["nsis_extractions"].push_back(std::move(entry));
-                    save();
-                } else {
-                    // The native extractor publishes straight into the package staging directory,
-                    // applying extract_dir on the way in. The tree is written once instead of being
-                    // unpacked into a temporary root and copied over afterwards.
-                    extract_archive(downloaded_files[step.index],destination,artifact.extract_directory);
-                    extracted_directly = true;
-                }
+                // Every artifact crosses the same seam: the publication decides how the payload is
+                // unpacked, whether extract_dir still has to be applied, and whether a working tree
+                // has to be merged. The journal write keeps its original position inside that seam
+                // so a crash between unpacking and merging still records what was unpacked.
+                publish_artifact(context,
+                    {artifact.format,downloaded_files[step.index],artifact.filename,
+                     artifact.extract_directory,artifact.extract_destination},
+                    stage,transaction,step.index,
+                    [&](const std::string& kind, Json entry) {
+                        const auto key = kind+"_extractions";
+                        if (!journal.contains(key)) journal[key] = Json::array();
+                        journal[key].push_back(std::move(entry));
+                        save();
+                    });
                 progress_stage("Extracting "+artifact.filename+"... Done.");
-                if (!extracted_directly) {
-                    // Installer-format extractors write their own working tree first, so only those
-                    // paths still need the merge.
-                    merge_archive_tree(raw,merge_directory,destination);
-                    erase_tree(raw);
-                }
                 test_fault_point(context,"after-extract");
                 break;
             }
