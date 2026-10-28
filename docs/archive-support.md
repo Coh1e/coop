@@ -40,9 +40,9 @@
 3. `extract_to` 只改变该归档产物的目标子目录；多产物按顺序合并，重名文件冲突失败，不覆盖其他包或用户数据。同一个归档内两个条目落到同一目标也失败（例如 `d/a.txt` 与 `d/A.TXT`，在 Windows 上是同一个文件），错误信息给出碰撞的相对路径；重复的目录条目是 tar 流的常态，仍然允许。
 4. `extract_dir`/`extract_to` 只由归档类下载项按 Manifest 顺序消费，直接文件产物不消费这些字段。
 
-真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录；判定按**选中条目数**，因此"目录存在但里面没有文件"与"目录根本不存在"走同一条失败路径，且这条失败不依赖包是否声明 `bin`——`tests/archive-lifecycle.ps1` 与 `tests/publish-contracts.ps1` 分别用真实 ripgrep 归档与同一场景断言安装非零退出、错误命名缺失目录、且不发布 `current`。
+真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录；判定按**是否发布了至少一个普通文件**，因此"目录存在但里面没有文件"与"目录根本不存在"走同一条失败路径——只有目录条目的选择同样等于空版本，不能让安装报成功。这条失败不依赖包是否声明 `bin`，`tests/publish-contracts.ps1` 用同一份归档分别覆盖了声明与未声明 `bin` 两种情况，以及只含目录条目的选择。
 
-解压失败时只撤销这次发布自己写入的路径（文件及其空出的上级目录），不会清除 staging 里同一包的其它产物已经发布的内容。这条由接缝的构造保证，`tests/publish-contracts.ps1` 用"第一个产物成功、第二个产物在解压中途失败"的多产物包验证第一个产物的内容仍在。
+解压失败时只撤销这次发布自己创建的路径：文件、这份产物建出的空目录，以及在创建前就不存在的上级目录。前一个产物已经发布的目录一律不动，即使它此刻是空的。这条由接缝的构造保证，`tests/publish-contracts.ps1` 用两个多产物包验证：第二个产物失败后第一个产物的内容仍在（含前一个产物的空目录），而本次写入的半成品被清掉。
 
 ## 执行与安全边界
 
@@ -96,8 +96,8 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 
 - `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 与 7z SFX 安装由 `process_guard` 观察，不能启动外部解压器。
 - `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、损坏 MSI 在数据库阶段失败、中断更新和当前版本保护。
-- `tests/publish-baseline.ps1`（CTest `publish_baseline`）：九份安装夹具（ZIP 带 `extract_dir`、tar.xz、tar.zst、tar.gz、MSI、Inno Setup、NSIS 载荷、7-Zip helper）与两份失败夹具的逐文件快照——路径、摘要、链接类型、`current` 目标与两条安装记录，提交在 `tests/baseline/publish`；`-Update` 重生成，默认模式比对。
-- `tests/publish-contracts.ps1`（CTest `publish_contracts`）：空的 `extract_dir` 选择必须失败并命名目录（含未声明 `bin` 的包）、同目标条目碰撞必须失败并给出路径、多产物包第二个产物失败不破坏第一个已发布内容。
+- `tests/publish-baseline.ps1`（CTest `publish_baseline`）：八份安装夹具（ZIP 带 `extract_dir`、tar.xz、tar.zst、tar.gz、MSI、Inno Setup、NSIS 载荷、7-Zip helper）与两份失败夹具的逐文件快照——路径、摘要、链接类型、`current` 目标，以及两份安装记录的可比对字段（bucket、architecture、version、bin），提交在 `tests/baseline/publish`；`-Update` 重生成，默认模式比对。两条记录本身按**存在**记录、不做逐字节比对：Coop 会把读到的 Manifest 原样写回，而它携带夹具的绝对 `file://` URL，逐字节哈希会随检出路径变化。
+- `tests/publish-contracts.ps1`（CTest `publish_contracts`）：空的 `extract_dir` 选择必须失败并命名目录（声明的与只含目录条目的两种、含未声明 `bin` 的包）、同目标条目碰撞必须失败并给出路径、多产物包第二个产物失败不破坏第一个已发布内容，且不删除前一个产物发布过的空目录。
 - `tests/publish-write-once.ps1`（CTest `publish_write_once`）：安装期间用文件系统监视器记录事务目录下创建的所有路径，断言从未出现第二棵解压树；同时要求监视器确实看到 staging，避免"什么都没看到"式空断言。
 - 人工步骤与"手测覆盖不到"的清单见[产物发布的人工验收步骤](manual-publish-acceptance.md)。
 - `tests/msi-lifecycle.ps1`（CTest `msi_lifecycle`）：真实 7-Zip 26.05/26.03 MSI 的只读预览、安装、更新、卸载、持久化保留与截断 MSI 失败；全程 `process_guard` 观察无 `msiexec`，Windows Installer 机器缓存不变。
