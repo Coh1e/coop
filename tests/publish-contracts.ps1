@@ -118,4 +118,49 @@ if ($survived.Count -eq 0) {
     throw 'the failed second artifact removed the first artifact''s published content from the staging directory'
 }
 
-Write-Output 'publish contracts: 4 cases verified'
+# 5. A selection that contains only directory entries publishes nothing runnable, so it fails the same
+#    way a missing directory does: "the directory exists but is empty" and "the directory is absent"
+#    share one failure path.
+$directoryOnly = Join-Path $root 'directory-only.zip'
+$zip = [IO.Compression.ZipFile]::Open($directoryOnly,'Create')
+try { [void]$zip.CreateEntry('d/sub/') } finally { $zip.Dispose() }
+Write-Manifest 'directory-only' @{version='1.0.0';url=(File-Uri $directoryOnly);hash=(File-Hash $directoryOnly);extract_dir='d'}
+$run = Invoke-Coop @('--root',$root,'install','test/directory-only','--json')
+$text = $run.error + $run.output
+if ($run.exit -eq 0) { throw "a directory-only extract_dir selection installed successfully: $text" }
+if ($text -notmatch 'extract_dir') { throw "the failure did not name the extract_dir contract: $text" }
+Assert-NoCurrent 'directory-only'
+
+# 6. A failure inside a directory that an earlier artifact published must not remove that directory.
+#    The first artifact publishes an empty `shared`; the second writes `shared/x.txt` and then fails on
+#    a traversal entry, so the cleanup has to remove its own file and stop there.
+$emptyDirectory = Join-Path $root 'empty-directory.zip'
+$zip = [IO.Compression.ZipFile]::Open($emptyDirectory,'Create')
+try { [void]$zip.CreateEntry('shared/') } finally { $zip.Dispose() }
+$nested = Join-Path $root 'nested-failure.zip'
+$zip = [IO.Compression.ZipFile]::Open($nested,'Create')
+try {
+    foreach ($entry in @('shared/x.txt','../escape.txt')) {
+        $writer = [IO.StreamWriter]::new($zip.CreateEntry($entry).Open())
+        $writer.Write($entry)
+        $writer.Dispose()
+    }
+} finally { $zip.Dispose() }
+Write-Manifest 'shared-scope' @{
+    version='1.0.0'
+    url=@((File-Uri $emptyDirectory),(File-Uri $nested))
+    hash=@((File-Hash $emptyDirectory),(File-Hash $nested))
+}
+$run = Invoke-Coop @('--root',$root,'install','test/shared-scope','--json')
+$text = $run.error + $run.output
+if ($run.exit -eq 0) { throw "the traversal artifact installed successfully: $text" }
+$staging = @(Get-ChildItem -LiteralPath "$root/.coop/transactions" -Directory -Force -ErrorAction SilentlyContinue |
+    ForEach-Object { Join-Path $_.FullName 'payload' } | Where-Object { Test-Path -LiteralPath $_ })
+if ($staging.Count -eq 0) { throw 'the failed install left no staging directory to inspect' }
+if (@($staging | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'shared') }).Count -eq 0) {
+    throw 'the failed publication removed the empty directory an earlier artifact had published'
+}
+if (@($staging | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'shared/x.txt') }).Count -ne 0) {
+    throw 'the failed publication left its own half-written file in the staging directory'
+}
+Write-Output 'publish contracts: 6 cases verified'

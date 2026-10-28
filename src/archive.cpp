@@ -9,7 +9,6 @@
 #include <archive_entry.h>
 #include <array>
 #include <cstdint>
-#include <cwctype>
 #include <memory>
 #include <optional>
 #include <set>
@@ -192,9 +191,17 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
                     throw std::runtime_error("Archive entries collide at "+path_text(relative));
                 directory_targets.insert(key);
             }
-            // Recorded only when this call actually created the target: a directory that an earlier
-            // artifact already published is not ours to remove if the publication later fails.
+            // Recorded only when this call actually created the object: a directory an earlier artifact
+            // already published is not ours to remove if the publication later fails.
             const auto existed = fs::exists(fs::symlink_status(target));
+            // Ancestors that do not exist yet are this call's to create and to undo. The ones already
+            // there belong to whoever published them, so they are never recorded.
+            std::vector<fs::path> missing_parents;
+            for (auto parent = target.parent_path();
+                 parent != destination && parent.has_parent_path() &&
+                 !fs::exists(fs::symlink_status(parent));
+                 parent = parent.parent_path())
+                missing_parents.push_back(parent);
             ensure_parents(destination,target);
             if (type == AE_IFDIR) {
                 ensure_directory(target);
@@ -207,6 +214,10 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
             } else {
                 throw std::runtime_error("Archive contains an unsupported entry type");
             }
+            // Shallowest first, so the reverse walk in the failure path removes the deepest object
+            // first and every directory is empty by the time it is reached.
+            for (auto parent = missing_parents.rbegin(); parent != missing_parents.rend(); ++parent)
+                created.push_back(*parent);
             if (!existed) created.push_back(target);
             if (type == AE_IFREG) ++published_files;
             archive_read_data_skip(source.get());
@@ -214,21 +225,13 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
         if (!extract_directory.empty() && published_files == 0)
             throw std::runtime_error("Archive does not contain the declared extract_dir: "+path_text(extract_directory));
     } catch (...) {
-        // Undo this call's own writes only: the destination is the package staging directory, which
-        // other artifacts of the same package may already have written into. Files go first, then the
-        // directories that held them, walking up towards - never including - the destination.
+        // Undo this call's own writes only, deepest object first: the destination is the package
+        // staging directory, which other artifacts of the same package may already have written into.
+        // Every path here was created by this call, and removing a directory succeeds only while it
+        // is empty, so nothing that predates this publication can be reached.
         while (!created.empty()) {
-            try {
-                auto path = created.back();
-                fs::remove(path);
-                // ensure_parents may have created the directories above the target. Removing each one
-                // succeeds only while it is empty, which is exactly when this call made it.
-                for (auto parent = path.parent_path(); parent != destination && parent.has_parent_path();
-                     parent = parent.parent_path()) {
-                    if (!fs::is_directory(fs::symlink_status(parent)) || !fs::is_empty(parent)) break;
-                    fs::remove(parent);
-                }
-            } catch (...) { /* Preserve the original archive failure. */ }
+            try { fs::remove(created.back()); }
+            catch (...) { /* Preserve the original archive failure. */ }
             created.pop_back();
         }
         throw;
