@@ -1,5 +1,6 @@
 #pragma once
 #include "data.hpp"
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,12 +14,15 @@ namespace coop {
 class Timings {
 public:
     void add(const std::string& operation,double seconds);
-    void reset();
+    // Attaches a byte count to a step that moved data, so a duration can be checked against
+    // "bytes divided by the transfer rate" instead of being taken on trust.
+    void add_bytes(const std::string& operation,std::uint64_t bytes);
     Json result() const;
 private:
     struct Entry {
         std::string operation;
         double seconds = 0.0;
+        std::uint64_t bytes = 0;
         std::size_t runs = 0;
     };
     std::vector<Entry> entries_;
@@ -27,5 +31,5 @@ private:
 void set_timings(Timings* timings);
 Timings* active_timings();
 void timings_add(const std::string& operation,double seconds);
-bool timings_is_download(const std::string& operation);
+void timings_add_bytes(const std::string& operation,std::uint64_t bytes);
 }

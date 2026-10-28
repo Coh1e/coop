@@ -93,4 +93,18 @@ $different = Invoke-Coop @('--root',$root,'install','test/tidy','--json')
 if ($different.exit -eq 0) { throw "installing a different version changed the package: $($different.output)" }
 if ($different.error -notmatch 'update') { throw "the refusal did not name the command that does the work: $($different.error)" }
 if (Test-Path -LiteralPath "$root/apps/tidy/5.8.1") { throw 'the refused install still wrote a version directory' }
-Write-Output 'reinstall refusal: 4 cases verified'
+# 5. A reinstall must not resolve dependencies at all: the no-op verdict is decided before dependency
+#    resolution, so a Manifest that names an absent dependency still installs nothing and warns.
+$ordered = [ordered]@{ version='5.8.0'; url=(File-Uri $tidy); hash=(File-Hash $tidy)
+    extract_dir='tidy-5.8.0-win64\bin'; bin='tidy.exe'; depends=@('ghost') }
+[IO.File]::WriteAllText("$root/buckets/test/bucket/tidy.json",
+    ($ordered | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+$before = Get-Fingerprint
+$reinstall = Invoke-Coop @('--root',$root,'install','test/tidy')
+if ($reinstall.exit -ne 0) { throw "the reinstall resolved the dependency and failed: $($reinstall.error)$($reinstall.output)" }
+$reinstallLines = @($reinstall.output -split "`r?`n" | Where-Object { $_ -ne '' })
+if (($reinstallLines -join "`n") -ne ($expectedLines -join "`n")) {
+    throw "the reinstall printed more than Scoop's two lines:`n$($reinstallLines -join "`n")"
+}
+if ((Get-Fingerprint) -ne $before) { throw 'the reinstall changed the installation root' }
+Write-Output 'reinstall refusal: 5 cases verified'

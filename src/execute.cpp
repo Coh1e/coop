@@ -664,8 +664,12 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
-    // Scoop reports the version move and the "one outdated app" heading before the package block.
-    if (plan.action == ir::Action::update && !context.json_output) {
+    // Scoop reports the version move and the "one outdated app" heading before the package block, but
+    // an update that changes nothing has no block: the verdict is decided before anything is printed.
+    const bool no_op_update = plan.action == ir::Action::update && plan.previous &&
+        plan.package.version == plan.previous->version &&
+        plan.package.manifest_digest == plan.previous->manifest_digest;
+    if (plan.action == ir::Action::update && !no_op_update && !context.json_output) {
         std::cout << plan.package.name << ": " << (plan.previous ? plan.previous->version : plan.package.version)
                   << " -> " << plan.package.version << '\n';
         std::cout << "Updating one outdated app:\n";
@@ -716,7 +720,13 @@ int execute_plan(const Context& context, const Plan& plan) {
     // Scoop's post-install text: one suggestion line per feature whose candidates are all missing,
     // then the Manifest's notes verbatim under a fixed heading.
     if (plan.action == ir::Action::install || plan.action == ir::Action::update) {
-        const auto installed = ir::read_installations(context.root);
+        auto installed = ir::read_installations(context.root);
+        // The system-level root is a read-only source of installation facts, and a suggestion the
+        // user already satisfied there is satisfied.
+        if (context.global_root) {
+            auto global = ir::read_installations(*context.global_root);
+            installed.insert(installed.end(),global.begin(),global.end());
+        }
         const auto is_installed = [&](const std::string& name) {
             return std::any_of(installed.begin(),installed.end(),
                 [&](const ir::InstalledFact& fact) { return equal_name(fact.name,name); });
@@ -1332,6 +1342,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto cache_directory = context.root/L"cache";
                 const auto cached_file = cache_directory/wide(artifact.filename);
                 bool from_cache = false;
+                {
+                // Reusing a cached file is local work: hashing the candidate and copying it must not
+                // be counted as time spent waiting on the network.
+                const StepScope cache_scope{"cache"};
                 if (fs::is_regular_file(cached_file)) {
                     try {
                         if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
@@ -1346,6 +1360,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         }
                     } catch (const std::exception&) { from_cache = false; }
                 }
+                }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
                 // Scoop says what it is about to do before the transfer line.
                 if (plan.action == ir::Action::update) progress_stage("Downloading new version");
@@ -1353,6 +1368,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 download_file(artifact.url,downloaded,
                     [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); });
                 progress_finish_stage();
+                // The bytes this step moved, so the duration can be checked against the transfer rate.
+                timings_add_bytes("download",fs::file_size(downloaded));
                 downloaded_files[step.index] = downloaded;
                 journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
                     {"filename",artifact.filename},{"renamed",artifact.renamed},
@@ -1711,6 +1728,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     const bool gui = kind == LauncherKind::direct && is_gui_executable(target);
                     const auto prepared = transaction/(wide(command.alias)+L".prepared.exe");
                     fs::copy_file(fs::path(module.data()),prepared);
+                    // Scoop reports the subsystem flip on its own line, right after the shim line.
+                    if (gui) progress_stage("Making "+path_text(exe)+" a GUI binary.");
                     if (gui) mark_launcher_gui(prepared);
                     const auto launcher_hash = sha256_file(prepared);
                     // shims/ carries only what Scoop itself writes: BAT/CMD, PS1 and JAR targets get

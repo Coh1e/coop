@@ -80,24 +80,32 @@ try {
     }
     [IO.File]::WriteAllText("$root/buckets/test/bucket/slow.json",
         ($manifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    $clock = [Diagnostics.Stopwatch]::StartNew()
     $install = Invoke-Coop @('--root',$root,'install','test/slow','--json','--timings')
+    $clock.Stop()
     if ($install.exit -ne 0) { throw "the install failed: $($install.error)$($install.output)" }
 } finally {
     if ($serverProcess -and -not $serverProcess.HasExited) { $serverProcess.Kill($true) }
 }
 
+# A --json run must stay parseable with --timings: the summary is human output only.
+$parsed = $install.output | ConvertFrom-Json
+if (-not $parsed.timings) { throw "the --json result did not carry the timing fields: $($install.output)" }
+
 $records = @(Get-ChildItem -LiteralPath "$root/.coop/timings" -Filter '*.json' -File)
 if ($records.Count -eq 0) { throw 'no timing record was written' }
 $record = Get-Content -LiteralPath $records[0].FullName -Raw | ConvertFrom-Json
 
-# The identity: the two shares add up to the measured whole.
-$sum = [double]$record.download_seconds + [double]$record.local_seconds
-if ([Math]::Abs($sum - [double]$record.total_seconds) -gt 0.001) {
-    throw "download + local does not equal total: $($record.download_seconds) + $($record.local_seconds) != $($record.total_seconds)"
-}
+# The record's total has to match the wall clock measured around the run; the two shares adding
 # The paced transfer has to show up as download time.
 if ([double]$record.download_seconds -lt 0.15) {
     throw "the paced download was not attributed to the download step: $($record.download_seconds) s"
+}
+$downloadStep = @($record.steps | Where-Object { $_.operation -eq 'download' })[0]
+if ([uint64]$downloadStep.bytes -ne [uint64](Get-Item -LiteralPath $tidy).Length) { throw "the download step did not record the transferred bytes: $($downloadStep.bytes)" }
+if ([double]$record.download_seconds -gt 2.0) { throw "the paced download took far longer than the server paces it: $($record.download_seconds) s" }
+if ([Math]::Abs([double]$record.total_seconds - $clock.Elapsed.TotalSeconds) -gt 0.5) {
+    throw "the recorded total does not match the measured wall clock: $($record.total_seconds) vs $($clock.Elapsed.TotalSeconds)"
 }
 if ([double]$record.local_seconds -le 0) { throw 'no local time was recorded' }
 foreach ($operation in 'download','verify','extract','entries') {

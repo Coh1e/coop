@@ -70,7 +70,7 @@ total    1.690 s
 | 卸载成功 | `'<包>' was uninstalled.` |
 | 清理 | `Removing <包>:`，版本行以空格开头，结尾固定句 `Everything is shiny now!` |
 | 更新 | `<包>: <旧> -> <新>` / `Updating one outdated app:` / `Updating '<包>' (<旧> -> <新>)` / `Downloading new version` / `Uninstalling '<包>' (<旧>)` / `Installing '<包>' (<新>) [<架构>] from '<bucket>' bucket` |
-| 建议 | `'<包>' suggests installing '<bucket>/<包>'.`（来自 Manifest 的 `suggest`，DarkYellow） |
+| 建议 | `'<包>' suggests installing '<bucket>/<包>'.`（来自 Manifest 的 `suggest`，DarkYellow；同一 feature 有多个候选用 `' or '` 连接，只在候选全部未安装时打印） |
 | 尾注 | 成功行之后按 Manifest 的 `notes` 回显 `Notes` / `-----` 块 |
 
 更新的一处**刻意偏离**：coop 在解链旧版本之前完成校验与解压，所以 `Checking hash` / `Extracting` 两行出现在 `Uninstalling` 之前。按 Scoop 的顺序（下载 → 卸载 → 从缓存安装），解压失败会把旧版本一起弄没；coop 的顺序保证失败时 `current` 仍指向可用版本。这一条由 `tests/update-lines.ps1` 的失败用例守着。
@@ -84,7 +84,7 @@ Scoop 在文件名两侧硬编码 ANSI 青色（`lib/download.ps1:735` 直接写
 - 产物校验通过后写入 `<根>/cache/<声明文件名>`，布局与 Scoop 相同，两个客户端共用同一份文件。
 - 命中前按 Manifest 声明的算法与摘要重新校验；摘要不符或文件损坏视为未命中并重新下载，缓存内容不被信任。
 - 命中时打印 `Loading <文件名> from cache`，随后仍执行同一套校验与解压步骤。
-- 缓存命中的可见场景是 **update**：Scoop 在同一根上重装同一版本不读缓存、直接拒绝。Coop 现在"重复安装走缓存"的行为与 Scoop 不一致，按票改为同样拒绝。
+- 缓存命中的可见场景是 **update**：Scoop 在同一根上重装同一版本不读缓存、直接拒绝，Coop 现在同样拒绝（`WARN` 两行 + 退出码 0），见 #56。
 
 ## 实测记录
 
@@ -94,4 +94,3 @@ Scoop 在文件名两侧硬编码 ANSI 青色（`lib/download.ps1:735` 直接写
 
 - 解压仍对每个文件 `FlushFileBuffers`；每个 IR 步骤仍单独 fsync；每个 exe 入口仍复制 4.2 MB 启动器。前两项与启动器共享分别由 #52、#53 跟踪。
 - 依赖安装路径的逐包输出与批量命令共用同一格式，但尚未单独验收（#54）。
-- `suggest`、`notes` 已在 `src/ir_adapter.cpp:92` 的已知字段里，但没有建模，读完即丢。

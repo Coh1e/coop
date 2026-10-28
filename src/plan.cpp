@@ -448,7 +448,11 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         if (!version.empty() && version != plan.package.version)
             plan.diagnostics.push_back({ir::Layer::environment,"installed-version-mismatch","Requested version is not the current local installation"});
     }
-    if (action != ir::Action::uninstall) {
+    // Installing what is already current changes nothing, not even a missing dependency: the no-op
+    // verdict is decided before dependency resolution so a reinstall never installs anything.
+    plan.already_installed = action == ir::Action::install && plan.local.exists &&
+        plan.local.directory.filename().wstring() == wide(plan.package.version);
+    if (action != ir::Action::uninstall && !plan.already_installed) {
         // The IR planner resolves the declared dependency graph once. The plan carries the ordered
         // result, so preview, execution and the saved evidence cannot disagree about it.
         auto resolution = resolve_package_dependencies(context,plan.package,action != ir::Action::install);
@@ -521,10 +525,6 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
             if (fs::is_regular_file(record)) plan.preconditions.push_back({record,sha256_file(record)});
         }
     }
-    // The version directory `current` publishes is the installed version, so the comparison needs no
-    // second record: the same name on disk means the request would change nothing.
-    plan.already_installed = action == ir::Action::install && plan.local.exists &&
-        plan.local.directory.filename().wstring() == wide(plan.package.version);
     plan.blocker = execution_blocker(context,plan);
     return plan;
 }

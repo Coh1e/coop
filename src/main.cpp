@@ -123,7 +123,11 @@ int wmain(int argc, wchar_t** argv) {
                 coop::set_timings(&timings);
                 struct ResetTimings { ~ResetTimings() { coop::set_timings(nullptr); } } reset_timings;
                 const auto exit = coop::package_command(context,command,arguments,architecture);
-                if (context.timings) {
+                // The summary is human output: a --json run already carries the same numbers as a
+                // field, and prose after the JSON would break every consumer. A run that executed no
+                // step (a preview, or a failure before the first write) writes no record, so it
+                // prints no summary either.
+                if (context.timings && !context.json_output && !timings.result().at("steps").empty()) {
                     const auto result = timings.result();
                     std::cout << "Timings\n-------\n"
                               << "download " << result.at("download_seconds").get<double>() << " s\n"
