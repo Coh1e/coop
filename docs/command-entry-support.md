@@ -2,6 +2,8 @@
 
 > R26 / #47。本页记录 Coop 对固定 Scoop `shim()` 中 `.py` 与 else（bash）分支的实现、宿主缺失诊断、生成的入口文件形状、计划/执行/卸载行为，以及项目内和真实共用根验证。相关缺口归因见[全量盘点缺口闭合](compatibility-gap-closure.md)，入口、快捷方式与环境的其余规则见[复杂命令入口、快捷方式与环境暴露](exposure-support.md)。
 
+> **2026-10-28 变更（[ADR-0004](adr/0004-scoop-shaped-shims-only.md)）：** BAT/CMD、PS1、JAR 入口也改为只写 Scoop 形态的 `.cmd`/`.ps1`/sh 包装，不写 `.shim`（Scoop 只为 exe/com 写它）、不再复制 `<别名>.exe` 启动器、不再写 `.coop-shim.json`；参数按 `%*` 原样转发，退出码由包装返回，宿主缺失由包装在执行前诊断。下文描述“Coop 启动器 + 元数据”的段落是该变更之前的行为。
+
 ## 结论
 
 - Coop 的命令宿主不再只有 EXE/COM、BAT/CMD、PS1、JAR：`.py` 走 python，其他未匹配后缀（无扩展名、`.config`、`.sh` 等）走固定 Scoop 的 else bash 分支。
@@ -19,7 +21,7 @@
 | `.py` | `<别名>.cmd`、`<别名>`（sh） | `.cmd` 为 `@python "<target>" <args> %*`；sh 为 `python.exe "<target>" <args> "$@"` |
 | 其他（无扩展名、`.config`、`.sh` 等） | `<别名>.cmd`、`<别名>`（sh） | `.cmd` 先检测 `wslpath`，有则用 `bash "$(wslpath -u ...)"`，否则用 `cygpath` 并处理参数引号；sh 按 `$WSL_INTEROP` 选择 `wslpath`/`cygpath` |
 | EXE/COM | `<别名>.exe` + `<别名>.shim` | 直接启动（沿用既有实现） |
-| BAT/CMD、PS1、JAR | Coop 启动器 + 元数据 | 沿用既有实现（R07/#28） |
+| BAT/CMD、PS1、JAR | `<别名>.cmd`（PS1 另写 `.ps1`）+ 无扩展名 sh | 分别经 cmd.exe / PowerShell / java 启动；按 ADR-0004 不复制启动器、不写 `.shim` |
 
 Coop 与 Scoop 的差异只在入口目标：Scoop 写具体版本目录，Coop 写 `apps/<包>/current`，更新后同一入口继续指向新版本；两者文件类型、分支选择和参数/退出码转发的可观察行为一致。
 

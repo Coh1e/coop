@@ -200,11 +200,11 @@ if (-not $record.user_environment -or $record.user_environment.scope -ne 'HKCU\E
 if ((Get-UserRaw 'FIXTURE_ENV').value -ne 'declared-value') { throw 'install did not write the declared user environment value' }
 if (-not (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/current/bin'))) { throw 'install did not add the declared user PATH entry' }
 
-$cmdOutput = ((& "$root/shims/cmd-tool.exe" hello 'two words') -join "`n")
+$cmdOutput = ((& "$root/shims/cmd-tool.cmd" hello 'two words') -join "`n")
 if ($LASTEXITCODE -ne 0 -or $cmdOutput -notmatch 'cmd-args:' -or $cmdOutput -notmatch '--default' -or $cmdOutput -notmatch 'two words' -or $cmdOutput -notmatch 'cmd-1') { throw "CMD entry did not forward arguments: $cmdOutput" }
-$failOutput = ((& "$root/shims/fail-tool.exe") 2>&1) -join "`n"
+$failOutput = ((& "$root/shims/fail-tool.cmd") 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 7 -or $failOutput -notmatch '--boom') { throw "CMD entry did not propagate the exit code: $failOutput" }
-$batOutput = ((& "$root/shims/bat-tool.exe" hello) -join "`n")
+$batOutput = ((& "$root/shims/bat-tool.cmd" hello) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $batOutput -notmatch 'bat-args:' -or $batOutput -notmatch '--bat') { throw "BAT entry did not forward arguments: $batOutput" }
 $comOutput = ((& "$root/shims/com-tool.exe") -join "`n")
 if ($LASTEXITCODE -ne 0 -or $comOutput -notmatch 'fixture 1') { throw 'COM entry did not run' }
@@ -212,16 +212,16 @@ $plainOutput = ((& "$root/shims/plain-tool.exe") -join "`n")
 if ($LASTEXITCODE -ne 0 -or $plainOutput -notmatch 'fixture 1') { throw 'direct EXE entry did not run' }
 $unicodeOutput = ((& "$root/shims/工具.exe") -join "`n")
 if ($LASTEXITCODE -ne 0 -or $unicodeOutput -notmatch 'fixture 1') { throw 'Unicode command alias did not run' }
-$showOutput = ((& "$root/shims/show-tool.exe" first 'two words') -join "`n")
+$showOutput = ((& "$root/shims/show-tool.cmd" first 'two words') -join "`n")
 if ($LASTEXITCODE -ne 0 -or $showOutput -notmatch 'env=declared-value' -or $showOutput -notmatch ('data='+[regex]::Escape((Join-Path $root 'persist/envapp/data'))) -or $showOutput -notmatch 'version=1') { throw "declared environment was not applied: $showOutput" }
-if ($showOutput -notmatch 'args="first" "two words"') { throw "caller arguments were not forwarded: $showOutput" }
-$expandOutput = ((& "$root/shims/expand-tool.exe") -join "`n")
+if ($showOutput -notmatch 'args=first "two words"') { throw "caller arguments were not forwarded: $showOutput" }
+$expandOutput = ((& "$root/shims/expand-tool.cmd") -join "`n")
 if ($LASTEXITCODE -ne 0) { throw "expanded-argument entry failed: $expandOutput" }
 $expandedData = Join-Path $root 'persist/envapp/data'
 $expandedCurrent = Join-Path $root 'apps/envapp/current'
 if ($expandOutput -notmatch [regex]::Escape("args=--data=$expandedData --dir=$expandedCurrent --original=$expandedCurrent")) { throw "entry arguments were not expanded like Scoop: $expandOutput" }
 if ($showOutput -notmatch [regex]::Escape((Join-Path $root 'apps/envapp/current/bin')) -or $showOutput -notmatch [regex]::Escape("$env:SystemRoot\System32")) { throw 'PATH exposure did not prepend package entries nor keep the existing PATH' }
-$psOutput = ((& "$root/shims/ps-tool.exe" one 'two words') 2>&1) -join "`n"
+$psOutput = ((& "$root/shims/ps-tool.cmd" one 'two words') 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 3) { throw "PS1 entry did not propagate the exit code: $psOutput" }
 $psMarker = Get-Content -LiteralPath "$root/apps/envapp/current/ps1-marker.txt" -Raw
 if ($psMarker -notmatch '--flag' -or $psMarker -notmatch 'one' -or $psMarker -notmatch 'two words') { throw "PS1 entry did not forward arguments: $psMarker" }
@@ -231,7 +231,7 @@ if (-not $gui.WaitForExit(30000)) { throw 'GUI launcher did not finish' }
 if ($gui.ExitCode -ne 5) { throw "GUI launcher did not propagate the exit code: $($gui.ExitCode)" }
 if (-not (Test-Path -LiteralPath "$root/apps/envapp/current/gui-marker.txt")) { throw 'GUI target did not run' }
 if ($jarAvailable) {
-    $jarOutput = ((& "$root/shims/jar-tool.exe" x 'y z') 2>&1) -join "`n"
+    $jarOutput = ((& "$root/shims/jar-tool.cmd" x 'y z') 2>&1) -join "`n"
     if ($LASTEXITCODE -ne 4) { throw "JAR entry did not propagate the exit code: $jarOutput" }
     if ($jarOutput -notmatch 'jar-args=--jar-default\|x\|y z') { throw "JAR entry did not forward arguments: $jarOutput" }
     if ($jarOutput -notmatch 'jar-cwd=.*\\java$') { throw "JAR entry did not use the package directory: $jarOutput" }
@@ -242,7 +242,7 @@ $savedJava = $env:JAVA_HOME
 try {
     $env:JAVA_HOME = $null
     $env:PATH = "$env:SystemRoot\System32"
-    $jarOutput = ((& "$root/shims/jar-tool.exe") 2>&1) -join "`n"
+    $jarOutput = ((& "$root/shims/jar-tool.cmd") 2>&1) -join "`n"
     $jarCode = $LASTEXITCODE
 } finally { $env:PATH = $savedPath; $env:JAVA_HOME = $savedJava }
 if ($jarCode -eq 0 -or $jarOutput -notmatch 'Java runtime') { throw "JAR entry without a runtime did not fail explicitly: $jarOutput" }
@@ -269,9 +269,9 @@ $shortcuts = @(@('tool.exe',$mainShortcut),@('tool.exe',$subShortcut),@('bin/sho
 Build-EnvironmentPackage $root '2' $jarPath 'declared-v2' $shortcuts $bin
 $update = & $CoopExe --root $root update envapp --json
 Assert-Exit "complex command update failed: $($update -join "`n")"
-$cmdOutput = ((& "$root/shims/cmd-tool.exe" hello) -join "`n")
+$cmdOutput = ((& "$root/shims/cmd-tool.cmd" hello) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $cmdOutput -notmatch 'cmd-2') { throw 'updated CMD entry did not run the new version' }
-$showOutput = ((& "$root/shims/show-tool.exe") -join "`n")
+$showOutput = ((& "$root/shims/show-tool.cmd") -join "`n")
 if ($showOutput -notmatch 'env=declared-v2' -or $showOutput -notmatch 'version=2') { throw 'updated environment exposure is wrong' }
 if ((Get-UserRaw 'FIXTURE_ENV').value -ne 'declared-v2') { throw 'update did not replace the persistent user environment value' }
 if (-not (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/current/bin'))) { throw 'update removed the persistent user PATH entry' }
@@ -288,7 +288,7 @@ $lock = [IO.File]::Open($mainLink,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.
 try {
     $failed = & $CoopExe --root $root uninstall envapp --json 2>&1
     if ($LASTEXITCODE -eq 0) { throw 'locked shortcut was removed' }
-    if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.exe")) { throw 'failed shortcut removal did not roll back the installation' }
+    if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.cmd")) { throw 'failed shortcut removal did not roll back the installation' }
     $blockedJournals = @(Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json } | Where-Object { $_.action -eq 'uninstall' -and $_.state -eq 'rolled-back' })
     if ($blockedJournals.Count -lt 1 -or -not ($blockedJournals[-1].moves | Where-Object { $_.error })) { throw 'failed uninstall journal did not record the blocking error' }
 } finally { $lock.Dispose() }
@@ -297,7 +297,7 @@ $original = [Convert]::ToBase64String([IO.File]::ReadAllBytes($mainLink))
 [IO.File]::WriteAllBytes($mainLink,[Text.Encoding]::UTF8.GetBytes('not a shortcut'))
 $failed = & $CoopExe --root $root uninstall envapp --json 2>&1
 if ($LASTEXITCODE -eq 0) { throw 'externally modified shortcut was removed' }
-if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.exe")) { throw 'refused uninstall damaged the installation' }
+if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.cmd")) { throw 'refused uninstall damaged the installation' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($mainLink)) -ne [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('not a shortcut'))) { throw 'externally modified shortcut was overwritten' }
 [IO.File]::WriteAllBytes($mainLink,[Convert]::FromBase64String($original))
 # Scoop reset recreates its own .cmd/.ps1/sh wrappers beside Coop's launcher. The plan lists the
@@ -318,7 +318,7 @@ $expandUninstall = @($uninstallPreview.exposure.shortcuts | Where-Object name -e
 if ($expandUninstall.arguments -ne "--data=$expandedData --dir=$expandedCurrent") { throw "uninstall preview did not keep expanded shortcut arguments: $($expandUninstall.arguments)" }
 $uninstall = & $CoopExe --root $root uninstall envapp --json
 Assert-Exit "complex command uninstall failed: $($uninstall -join "`n")"
-if ((Test-Path "$root/apps/envapp/current") -or (Test-Path "$root/apps/envapp/2") -or (Test-Path "$root/shims/cmd-tool.exe") -or (Test-Path -LiteralPath $mainLink)) { throw 'uninstall left published entries or shortcuts' }
+if ((Test-Path "$root/apps/envapp/current") -or (Test-Path "$root/apps/envapp/2") -or (Test-Path "$root/shims/cmd-tool.cmd") -or (Test-Path -LiteralPath $mainLink)) { throw 'uninstall left published entries or shortcuts' }
 if ((Test-Path "$root/shims/cmd-tool.cmd") -or (Test-Path "$root/shims/cmd-tool.ps1") -or (Test-Path "$root/shims/cmd-tool")) { throw 'uninstall left Scoop-created wrappers for the removed package' }
 if (-not (Test-Path $foreignWrapper)) { throw 'uninstall removed a Scoop-style wrapper that does not belong to the package' }
 Remove-Item -LiteralPath $foreignWrapper -Force
@@ -328,10 +328,9 @@ if ((Test-Path (Join-Path $programs "Coop $tag")) -or (Test-Path (Join-Path $pro
 if (-not (Test-Path -LiteralPath $foreignLink)) { throw 'uninstall removed a shortcut Coop does not own' }
 Remove-Item -LiteralPath $foreignLink -Force
 
-# Coop publishes both a Scoop-readable .shim view and its richer .coop-shim.json for packages that
-# need host or environment details. The other client republishes its .shim view (for example after
-# `scoop reset`), and version switching must keep accepting that shared entry and republish both
-# views instead of refusing it as conflicting metadata.
+# Coop publishes Scoop's own .shim view and nothing else in shims/ for an executable entry. The
+# other client may republish that view (for example after `scoop reset`); version switching must
+# keep accepting the shared entry and republish the Scoop view instead of refusing it.
 $sharedRoot = New-TestRoot
 $env:COOP_PROGRAMS_DIR = Join-Path $sharedRoot 'programs'
 Build-EnvironmentPackage $sharedRoot '1' $jarPath 'declared-v1' @() @(@('tool.exe','tool'),@('tool.exe','tool-alt'))
@@ -342,7 +341,8 @@ $sharedUpdate = & $CoopExe --root $sharedRoot update envapp --json
 Assert-Exit "shared entry fixture update failed: $($sharedUpdate -join "`n")"
 $sharedScoopView = Join-Path $sharedRoot 'shims/tool.shim'
 $sharedCoopView = Join-Path $sharedRoot 'shims/tool.coop-shim.json'
-if (-not (Test-Path -LiteralPath $sharedScoopView) -or -not (Test-Path -LiteralPath $sharedCoopView)) { throw 'Coop did not publish both shared command views for an environment-declaring package' }
+if (-not (Test-Path -LiteralPath $sharedScoopView)) { throw 'Coop did not publish the Scoop command view for an environment-declaring package' }
+if (Test-Path -LiteralPath $sharedCoopView) { throw 'Coop published its own metadata file into shims/' }
 $sharedScoopText = 'path = "' + (Join-Path $sharedRoot 'apps/envapp/current/tool.exe') + '"' + "`r`n"
 [IO.File]::WriteAllText($sharedScoopView,$sharedScoopText)
 $sharedResetOne = & $CoopExe --root $sharedRoot reset envapp@1 --json
@@ -356,10 +356,11 @@ Assert-Exit "reset back with a coexisting Scoop shim view failed: $($sharedReset
 $null = & (Join-Path $sharedRoot 'shims/tool.exe')
 if ($LASTEXITCODE -ne 0) { throw 'reset back with a coexisting Scoop shim view left a broken entry' }
 if ((Get-Item -LiteralPath (Join-Path $sharedRoot 'apps/envapp/current')).Target -notmatch '\\2$') { throw 'reset back with a coexisting Scoop shim view did not publish the current version' }
-if (-not (Test-Path -LiteralPath $sharedScoopView) -or -not (Test-Path -LiteralPath $sharedCoopView)) { throw 'Coop did not republish both shared views after the version switch' }
+if (-not (Test-Path -LiteralPath $sharedScoopView)) { throw 'Coop did not republish the Scoop view after the version switch' }
+if (Test-Path -LiteralPath $sharedCoopView) { throw 'Coop published its own metadata file into shims/' }
 $sharedUninstall = & $CoopExe --root $sharedRoot uninstall envapp --json
 Assert-Exit "shared entry uninstall failed: $($sharedUninstall -join "`n")"
-foreach ($sharedEntry in @('tool.exe','tool.shim','tool.coop-shim.json')) {
+foreach ($sharedEntry in @('tool.exe','tool.shim')) {
     if (Test-Path -LiteralPath (Join-Path $sharedRoot "shims/$sharedEntry")) { throw "shared entry uninstall left $sharedEntry" }
 }
 
@@ -545,7 +546,7 @@ Assert-Exit 'Scoop script-host update preview failed'
 if ($scriptPreview.execution_available -ne $true -or @($scriptPreview.scoop_entry_wrappers).Count -ne 2) { throw 'Scoop script-host wrappers were not recognized in the update plan' }
 $scriptUpdate = & $CoopExe --root $scriptRoot update scopebat --json
 Assert-Exit "Scoop script-host update failed: $($scriptUpdate -join "`n")"
-$scriptOutput = ((& "$scriptRoot/shims/scopebat-run.exe" one) -join "`n")
+$scriptOutput = ((& "$scriptRoot/shims/scopebat-run.cmd" one) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $scriptOutput -notmatch 'wrapper-v2' -or $scriptOutput -notmatch 'one') { throw "updated Scoop script-host entry did not run: $scriptOutput" }
 if (-not (Test-Path "$scriptRoot/shims/scopebat-run.cmd") -or -not (Test-Path "$scriptRoot/shims/scopebat-run")) { throw 'update did not republish the Scoop script-host wrappers beside the launcher' }
 $scriptWrapperTarget = Join-Path $scriptRoot 'apps/scopebat/current/tool.bat'

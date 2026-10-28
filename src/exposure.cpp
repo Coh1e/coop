@@ -148,7 +148,32 @@ std::string command_host_problem(LauncherKind kind) {
         return "bash not found for the script command entry; install a bash implementation or add bash.exe to PATH before installing this package, because Scoop runs extensionless and .config entries through bash";
     return {};
 }
-std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments) {
+std::vector<std::string> entry_environment_lines(const Json& environment, const Json& path_entries, bool shell) {
+    std::vector<std::string> lines;
+    for (const auto& setting : environment) {
+        if (!setting.is_object()) continue;
+        const auto name = setting.value("name",std::string{});
+        const auto value = setting.value("value",std::string{});
+        if (name.empty()) continue;
+        lines.push_back(shell ? "export "+name+"='"+value+"'" : "@set \""+name+"="+value+"\"");
+    }
+    if (!shell) {
+        // A cmd wrapper runs in the caller's cmd process when invoked from an interactive prompt, so
+        // the declarations are scoped with setlocal and disappear when the wrapper exits.
+        std::string joined;
+        for (const auto& entry : path_entries) {
+            if (!entry.is_string()) continue;
+            joined += joined.empty() ? entry.get<std::string>() : ";"+entry.get<std::string>();
+        }
+        if (!joined.empty()) lines.push_back("@set \"PATH="+joined+";%PATH%\"");
+        if (!lines.empty()) lines.insert(lines.begin(),"@setlocal");
+    }
+    // The POSIX PATH cannot carry Windows entries (a drive letter already contains ':'); the shell
+    // wrapper exports the declared variables and leaves PATH to the caller's environment.
+    return lines;
+}
+std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments,
+                              const Json& environment, const Json& path_entries) {
     const auto path = path_text(target);
     std::vector<std::string> lines;
     if (kind == LauncherKind::python) {
@@ -169,9 +194,19 @@ std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const s
     } else if (kind == LauncherKind::java) {
         lines = {
             "@rem "+path,
+            // Scoop's branch runs popd last, which resets the caller's exit code, and it does not
+            // diagnose a missing runtime. The product requires an explicit failure before the target
+            // runs, the caller's working directory preserved and the target's status propagated.
+            "@setlocal",
+            "@set \"coop_java=java.exe\"",
+            "@if defined JAVA_HOME if exist \"%JAVA_HOME%\\bin\\java.exe\" set \"coop_java=%JAVA_HOME%\\bin\\java.exe\"",
+            "@\"%coop_java%\" -version >nul 2>&1",
+            "@if errorlevel 1 (echo Java runtime not found for the JAR command entry; set JAVA_HOME or add java.exe to PATH 1>&2 & endlocal & exit /b 1)",
             "@pushd "+path_text(target.parent_path()),
-            "@java -jar \""+path+"\" "+arguments+" %*",
-            "@popd"
+            "@\"%coop_java%\" -jar \""+path+"\" "+arguments+" %*",
+            "@set \"coop_exit=%errorlevel%\"",
+            "@popd",
+            "@endlocal & exit /b %coop_exit%"
         };
     } else {
         // Scoop quotes each declared argument element for the bash (else) branch.
@@ -190,6 +225,8 @@ std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const s
             ")"
         };
     }
+    const auto preamble = entry_environment_lines(environment,path_entries,false);
+    lines.insert(lines.begin()+1,preamble.begin(),preamble.end());
     std::string text;
     for (std::size_t index = 0; index < lines.size(); ++index) {
         if (index) text += "\r\n";
@@ -197,7 +234,8 @@ std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const s
     }
     return text;
 }
-std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments) {
+std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments,
+                                const Json& environment, const Json& path_entries) {
     const auto path = path_text(target);
     std::vector<std::string> lines;
     if (kind == LauncherKind::python) {
@@ -239,6 +277,8 @@ std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const
             "fi"
         };
     }
+    const auto preamble = entry_environment_lines(environment,path_entries,true);
+    lines.insert(lines.begin()+2,preamble.begin(),preamble.end());
     std::string text;
     for (std::size_t index = 0; index < lines.size(); ++index) {
         if (index) text += "\n";

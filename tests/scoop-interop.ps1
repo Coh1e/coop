@@ -210,9 +210,9 @@ if (-not $siblingEntry.execution_available) { throw "shared-sibling launcher pre
 $siblingUpdate = & $CoopExe --root $siblingRoot update shared --json
 if ($LASTEXITCODE -ne 0) { throw "shared-sibling launcher update failed: $siblingUpdate" }
 if ((Get-Content -LiteralPath "$siblingRoot/apps/shared/current/scoop-manifest.json" -Raw | ConvertFrom-Json).version -ne '2') { throw 'shared-sibling launcher update did not publish version 2' }
-# Scoop's uninstall removes only its own shim files, so Coop's .coop-shim.json (and a legacy
-# .coop-shim copy) can survive while the version directory and current link are gone. A fresh
-# Coop install must replace that stale evidence instead of failing to publish over it.
+# A Coop install publishes Scoop's own entry set only: <alias>.cmd, the extensionless shell
+# wrapper and <alias>.shim, with no copied launcher and no Coop metadata file in shims/. A leftover
+# .coop-shim.json from an older Coop version must not block a fresh install and must be cleaned.
 $staleRoot = Join-Path $session 'stale-coop-metadata'
 New-Item -ItemType Directory -Path "$staleRoot/buckets/test/bucket","$staleRoot/shims" -Force | Out-Null
 $bat = Join-Path $session 'shared.bat'
@@ -221,17 +221,22 @@ $staleManifest = @{version='1';url=([Uri][IO.Path]::GetFullPath($bat)).AbsoluteU
 [IO.File]::WriteAllText("$staleRoot/buckets/test/bucket/shared.json",$staleManifest)
 $staleInstall = & $CoopExe --root $staleRoot install shared --json
 if ($LASTEXITCODE -ne 0) { throw "stale-metadata seed install failed: $staleInstall" }
-if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json")) { throw 'seed install did not publish Coop metadata' }
+foreach ($entry in @('shared.cmd','shared')) {
+    if (-not (Test-Path "$staleRoot/shims/$entry")) { throw "seed install did not publish shims/$entry" }
+}
+if ((Test-Path "$staleRoot/shims/shared.exe") -or (Test-Path "$staleRoot/shims/shared.shim") -or (Test-Path "$staleRoot/shims/shared.coop-shim.json")) { throw 'a script entry published a launcher or metadata into shims/' }
+# Simulate an older Coop leaving its metadata behind while its version tree is gone.
+$legacyJson = @{package='shared';target=[IO.Path]::GetFullPath("$staleRoot/apps/shared/current/shared.bat");launcher='cmd'} | ConvertTo-Json -Compress
+[IO.File]::WriteAllText("$staleRoot/shims/shared.coop-shim.json",$legacyJson)
 Copy-Item -LiteralPath "$staleRoot/shims/shared.coop-shim.json" -Destination "$staleRoot/shims/shared.coop-shim"
-# Simulate the Scoop-side removal: Scoop deletes apps/<name>/<version>, current and its own shims.
 Remove-Item -LiteralPath "$staleRoot/apps/shared/current" -Force
 Remove-Item -LiteralPath "$staleRoot/apps/shared/1" -Recurse -Force
-foreach ($left in @('shared.exe','shared.shim','shared.cmd','shared')) { Remove-Item -LiteralPath "$staleRoot/shims/$left" -Force -ErrorAction SilentlyContinue }
-if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json")) { throw 'the simulated Scoop removal also removed Coop metadata' }
+foreach ($left in @('shared.cmd','shared.shim','shared')) { Remove-Item -LiteralPath "$staleRoot/shims/$left" -Force -ErrorAction SilentlyContinue }
 $staleReinstall = & $CoopExe --root $staleRoot install shared --json
 if ($LASTEXITCODE -ne 0) { throw "reinstall over stale Coop metadata failed: $staleReinstall" }
-if (Test-Path "$staleRoot/shims/shared.coop-shim") { throw 'the reinstall left the legacy .coop-shim metadata behind' }
-if (-not (Test-Path "$staleRoot/shims/shared.coop-shim.json") -or -not (Test-Path "$staleRoot/shims/shared.cmd") -or -not (Test-Path "$staleRoot/shims/shared.exe")) { throw 'the reinstall did not publish the complete entry set' }
+if ((Test-Path "$staleRoot/shims/shared.coop-shim.json") -or (Test-Path "$staleRoot/shims/shared.coop-shim")) { throw 'the reinstall left legacy Coop metadata behind' }
+if (Test-Path "$staleRoot/shims/shared.exe") { throw 'the reinstall published a launcher for a script entry' }
+if (-not (Test-Path "$staleRoot/shims/shared.cmd") -or -not (Test-Path "$staleRoot/shims/shared")) { throw 'the reinstall did not publish the Scoop entry set' }
 if ((& "$staleRoot/shims/shared.cmd") -notmatch 'stale-metadata-ok') { throw 'the reinstalled script entry did not run' }
 $staleRemove = & $CoopExe --root $staleRoot uninstall shared --json
 if ($LASTEXITCODE -ne 0) { throw "stale-metadata uninstall failed: $staleRemove" }

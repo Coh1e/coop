@@ -753,8 +753,8 @@ if ($Lifecycle) {
             $currentEntry = (Get-CoopEntry $ScoopRemovePackage $logDir).entry
             $expected = $currentEntry.version
             $currentPath = Join-Path $ScoopRoot ('apps\' + $ScoopRemovePackage + '\current')
-            $coopMetadata = Join-Path $ScoopRoot ('shims\' + $descriptor.freshCommand + '.coop-shim.json')
-            Add-Check 'lifecycle/scoop-remove' 'coop-published-shared-entry' (Test-Path -LiteralPath $coopMetadata) "$coopMetadata version=$expected"
+            $coopEntry = @('.cmd','.shim') | Where-Object { Test-Path -LiteralPath (Join-Path $ScoopRoot ('shims\' + $descriptor.freshCommand + $_)) } | Select-Object -First 1
+            Add-Check 'lifecycle/scoop-remove' 'coop-published-shared-entry' ($null -ne $coopEntry) "$($descriptor.freshCommand)$coopEntry version=$expected"
             $remove = Scoop 'scoop-uninstall' @('uninstall', $ScoopRemovePackage) $logDir
             $remainingShims = @(Get-ShimVariants $descriptor.freshCommand)
             Add-Check 'lifecycle/scoop-remove' 'scoop-uninstall-removes-shared-entry' ($remove.exit -eq 0 -and -not (Test-Path -LiteralPath $currentPath) -and $remainingShims.Count -eq 0) "exit=$($remove.exit) current=$(Test-Path -LiteralPath $currentPath) shims=$($remainingShims.Count)"

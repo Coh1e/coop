@@ -190,7 +190,7 @@ $infoWarnings = @(@($duplicateInfo)[0].validation.warnings)
 Check ($infoWarnings.Count -eq 1 -and $infoWarnings[0].code -eq 'duplicate-command-alias') 'info does not report the alias warning'
 if ($hasPython) {
     $null = CoopJson @('--root',$root,'install','test/duplicate-alias','--json') $pythonPath
-    foreach ($entry in @('probe.exe','probe.shim','probe.coop-shim.json','probe.cmd','probe')) {
+    foreach ($entry in @('probe.exe','probe.shim','probe.cmd','probe')) {
         Check (Test-Path -LiteralPath "$root/shims/$entry") "the cross-family install is missing shims/$entry"
     }
     $byName = Invoke-Program $env:ComSpec @('/d','/c','probe','--via-name') "$root/shims;$pythonPath"
@@ -198,7 +198,7 @@ if ($hasPython) {
     $byWrapper = Invoke-Program "$root/shims/probe.cmd" @() $pythonPath
     Check ($byWrapper.code -eq 0 -and $byWrapper.text -match 'python-entry') "the retained .cmd wrapper did not run the python entry: code=$($byWrapper.code) output=$($byWrapper.text)"
     $null = CoopJson @('--root',$root,'uninstall','duplicate-alias','--json')
-    foreach ($entry in @('probe.exe','probe.shim','probe.coop-shim.json','probe.cmd','probe')) {
+    foreach ($entry in @('probe.exe','probe.shim','probe.cmd','probe')) {
         Check (-not (Test-Path -LiteralPath "$root/shims/$entry")) "uninstall left shims/$entry"
     }
 } else {
@@ -231,8 +231,8 @@ Check ([bool]$jarPlan.execution_available) 'the JAR entry with a Scoop .cmd shor
 $jarShortcutTarget = [IO.Path]::GetFullPath([string]@($jarPlan.exposure.shortcuts)[0].target)
 Check ($jarShortcutTarget -eq [IO.Path]::GetFullPath("$root/shims/mqtt-spy.cmd")) "the planned shortcut target is '$jarShortcutTarget'"
 $null = CoopJson @('--root',$root,'install','test/jar-shortcut','--json')
-Check ((Test-Path -LiteralPath "$root/shims/mqtt-spy.cmd") -and (Test-Path -LiteralPath "$root/shims/mqtt-spy") -and (Test-Path -LiteralPath "$root/shims/mqtt-spy.exe")) 'the JAR install did not publish both Scoop wrappers and the Coop launcher'
-Check ([IO.File]::ReadAllText("$root/shims/mqtt-spy.cmd") -match '(?s)java -jar') 'the JAR .cmd wrapper does not use the Scoop java branch'
+Check ((Test-Path -LiteralPath "$root/shims/mqtt-spy.cmd") -and (Test-Path -LiteralPath "$root/shims/mqtt-spy") -and -not (Test-Path -LiteralPath "$root/shims/mqtt-spy.exe") -and -not (Test-Path -LiteralPath "$root/shims/mqtt-spy.shim")) 'the JAR install did not publish Scoop wrappers only'
+Check ([IO.File]::ReadAllText("$root/shims/mqtt-spy.cmd") -match '(?s)-jar "') 'the JAR .cmd wrapper does not use the Scoop java branch'
 $jarLink = Join-Path $programs 'Jar Probe.lnk'
 Check (Test-Path -LiteralPath $jarLink) 'the JAR shortcut was not created'
 Check (Test-Path -LiteralPath ([IO.Path]::GetFullPath((New-Object -ComObject WScript.Shell).CreateShortcut($jarLink).TargetPath))) 'the JAR shortcut target does not exist'

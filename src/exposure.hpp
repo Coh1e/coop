@@ -22,8 +22,10 @@ std::string command_host_problem(LauncherKind kind);
 // because Scoop's shortcut declarations can target them (for example mqtt-spy points a shortcut at
 // shims/mqtt-spy.cmd) and because an alias declared for two shim families must keep both families
 // on disk exactly like Scoop.
-std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments);
-std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments);
+std::string scoop_command_cmd(LauncherKind kind, const fs::path& target, const std::string& arguments,
+    const Json& environment = Json(), const Json& path_entries = Json());
+std::string scoop_command_shell(LauncherKind kind, const fs::path& target, const std::string& arguments,
+    const Json& environment = Json(), const Json& path_entries = Json());
 // The .ps1 file of Scoop's power-shell branch; the .cmd and shell wrappers come from the two
 // functions above.
 std::string scoop_command_ps1(const fs::path& target, const std::string& arguments);

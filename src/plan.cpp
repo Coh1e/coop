@@ -479,6 +479,28 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         std::vector<std::string> names;
         for (const auto& command : installed_facts.entries) names.push_back(command.alias);
         plan.scoop_entry_wrappers = scoop_entry_wrappers(context,installed_facts.name,names);
+        // Entry files an older Coop build published for script aliases (its own launcher metadata
+        // and the .shim view it used to write) are retired by this operation. They are added here
+        // so the preview lists them and the preconditions cover them, instead of the executor
+        // discovering them behind the plan's back.
+        for (const auto& command : installed_facts.entries) {
+            if (launcher_kind(fs::path(wide(command.target))) == LauncherKind::direct) continue;
+            const bool shares_alias_with_direct = std::any_of(installed_facts.entries.begin(),installed_facts.entries.end(),
+                [&](const ir::Entry& other) {
+                    return equal_name(other.alias,command.alias) &&
+                        launcher_kind(fs::path(wide(other.target))) == LauncherKind::direct;
+                });
+            for (const auto& suffix : {std::wstring(L".shim"),std::wstring(L".coop-shim.json"),std::wstring(L".coop-shim")}) {
+                // The .shim of a shared alias belongs to the executable family and is removed as
+                // that entry's metadata, not as a script wrapper.
+                if (suffix == L".shim" && shares_alias_with_direct) continue;
+                const auto legacy = context.root/L"shims"/(wide(command.alias)+suffix);
+                std::error_code error;
+                if (!fs::is_regular_file(legacy,error) || error) continue;
+                if (!scoop_wrapper_belongs_to_package(legacy,installed_facts.name)) continue;
+                plan.scoop_entry_wrappers.push_back(legacy);
+            }
+        }
         for (const auto& wrapper : plan.scoop_entry_wrappers)
             plan.preconditions.push_back({wrapper,sha256_file(wrapper)});
     }

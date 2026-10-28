@@ -2,6 +2,8 @@
 
 本页记录 Coop 对 Scoop 实际接受、但此前被 `adapter/manifest-shape` 硬拒绝的四类 Manifest 形状的归一化、计划/执行行为、安全边界、真机验证和仍未运行的项。缺口归因见[全量盘点缺口闭合](compatibility-gap-closure.md#manifest-形状相对路径与重复别名6--r27)，本页是该票的实现与证据入口。
 
+> **2026-10-28 变更（[ADR-0004](adr/0004-scoop-shaped-shims-only.md)）：** 跨家族同名的脚本入口不再复制 `<别名>.exe` 启动器，只保留 Scoop 形态的包装与 `.shim`；因此“两套文件”现在是 `.exe`/`.shim`（可执行家族）与 `.cmd`/sh（脚本家族），没有 `.coop-shim.json`。下文相关段落是变更前的描述。
+
 ## 结论
 
 - Adapter 接受四类形状，并在计划中给出与固定 Scoop v0.6.0（`e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f`）语义逐项一致的结果：

@@ -2,6 +2,8 @@
 
 本页记录 Coop 对 Manifest `bin`、`shortcuts`、`env_add_path`、`env_set` 的实际支持范围、归属规则、隔离与真机验证方式和未验证项。行为依据固定提交 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f` 的 [`shim`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/core.ps1#L949-L1107)、[`create_shims`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L170-L193)、[`env_add_path/env_set`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/install.ps1#L309-L350) 与 [`shortcuts.ps1`](https://github.com/ScoopInstaller/Scoop/blob/e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f/lib/shortcuts.ps1#L1-L94)，并以项目内真实程序和本机共用 Scoop 根的真机操作验证，不把解析 Manifest 等同于完整兼容。
 
+> **2026-10-28 变更（[ADR-0004](adr/0004-scoop-shaped-shims-only.md)）：** `shims/` 只写 Scoop 形态的文件——脚本入口只写 `<别名>.cmd`、`.ps1`、无扩展名 sh 包装（Scoop 只为 exe/com 写 `.shim`），不复制同名 `.exe` 启动器，也不写 `.coop-shim.json`；声明的环境与 PATH 由包装在调用目标前注入（cmd 包装用 `setlocal` 限定作用域，sh 包装只导出变量），`%*` 原样转发参数，退出码由包装返回。下文提到“Coop 启动器 / `.coop-shim.json`”的段落是该变更之前的历史描述。
+
 ## 命令入口
 
 `bin` 支持字符串或数组，每项可声明目标、别名和附加参数：`["目标","别名","附加参数"]`。附加参数排在调用者参数之前转发，与 Scoop 一致。入口类型按目标文件决定，不使用一个 `.cmd` 包装所有场景：
@@ -19,7 +21,7 @@
 - `bin` 的附加参数在预览、`.shim` 元数据、`.coop-shim.json` 与管理记录中使用与 Scoop 相同的 `$dir`、`$original_dir`、`$persist_dir` 展开值；展开发生在创建入口时，`$dir`/`$original_dir` 指向 `apps/<包>/current`。真实 `touch`（PS1）、`cfr`（JAR）、`lessmsi`（EXE）与 `spotbugs`（BAT）入口验证了参数转发、退出码和调用者/包目录语义。
 - 命令目标缺失、别名重复或目标路径越界/组件非法在计划阶段报告，执行前拒绝；未识别的后缀不再被当作“不支持”，而是按固定 Scoop 的 else 分支交给 bash。
 - `.py` 与 bash 入口按 Scoop 分支生成 `.cmd`/sh 包装而不是 Coop 启动器；宿主缺失、真实运行与卸载细则见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)。
-- BAT/CMD、PS1、JAR 等使用 Coop 启动器的入口把归属记录在每个包的 `.coop-shim.json`（包名、目标、参数、启动类型、环境）中；`.py` 与 bash 入口在管理记录的 `commands` 中记录 `format=scoop-wrapper`、启动类型和 `.cmd`/sh 两份摘要。更新前核对目标、参数、启动类型与文件摘要；外部改动会拒绝更新或卸载。
+- BAT/CMD、PS1、JAR 入口的归属记录在管理记录的 `commands`（启动类型与包装摘要）中；按 [ADR-0004](adr/0004-scoop-shaped-shims-only.md) 不再写 `.coop-shim.json`、不再复制启动器。`.py` 与 bash 入口同样记录 `format=scoop-wrapper`、启动类型和 `.cmd`/sh 两份摘要。更新前核对目标、参数、启动类型与文件摘要；外部改动会拒绝更新或卸载。
 - 真实 `scoop reset` 会在 Coop 的启动器旁重建 Scoop 自己的 `.cmd`/`.ps1`/无扩展名 sh 包装。预览的 `scoop_entry_wrappers` 只列出内容确实指向 `apps/<包>/` 的包装；执行时重新核对内容后随 `remove-entries` 一起撤销，不删除同名但指向其他包的文件。Scoop 安装的脚本宿主包只有这些包装而没有 `.exe`/`.shim` 时，更新/卸载从同一内容与命令名证据识别；真实 `clink`（BAT）的更新与卸载预览均可执行（本轮未实际更新用户 clink）。共享安装保留原 Scoop 入口与路径关系；只有原入口是内容与参数可核对的 Scoop 入口才建立归属。更新后新入口指向 `apps/<包>/current`，卸载只撤销已核对归属的入口。
 
 ## 快捷方式
@@ -112,6 +114,6 @@
 - Coop 在真实根创建**子目录**快捷方式与带参数快捷方式：本轮真机包只提供平铺/无参数声明，子目录与参数创建由 `tests/exposure.ps1` 在隔离根用真实 `.lnk` 验证；真实根只核对 Scoop 已有子目录/参数快捷方式不被误认领。
 - 快捷方式图标的像素级效果、开始菜单索引刷新和 Windows Shell 缓存行为。
 - `.com` 真实程序入口：本轮只有隔离 PE `.com` 证据；真实根覆盖 EXE、BAT、PS1、JAR 与 GUI。
-- BAT/CMD、PS1、JAR 入口仍写 `.coop-shim.json` 与 Coop 启动器；`.py` 与 bash else 分支已直接生成 Scoop 原生 `.cmd`/sh 包装（R26），不再写 Coop 启动器。真实 Scoop `reset` 重建的任何原生包装在 Coop 卸载时按内容归属清理。
+- BAT/CMD、PS1、JAR 入口按 ADR-0004 只写 Scoop 形状的包装，`.py` 与 bash 分支同样；旧版本留下的 `.coop-shim.json` 与脚本别名启动器在下次发布入口或卸载时清理。真实 Scoop `reset` 重建的任何原生包装在 Coop 卸载时按内容归属清理。
 - `.py` 与无扩展名/`.config` 入口的真实 Package 运行、宿主缺失诊断、更新/卸载和全量盘点复测见[命令入口宿主扩展（.py、无扩展名、.config）](command-entry-support.md)；无扩展名 bash 的运行时仍依赖用户 PATH 中的 bash 与 `cygpath`/`wslpath`，本机真实运行使用 Git for Windows bash，未执行 WSL。
 - 依赖包自身的快捷方式/环境组合仍由本页与依赖页分别说明；`tests/dependencies.ps1` 不覆盖这些组合。

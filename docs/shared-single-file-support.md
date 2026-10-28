@@ -2,6 +2,8 @@
 
 本文件记录 R03 建立的单文件包共用路径：Scoop 安装后由 Coop 更新，以及 Coop 安装后由 Scoop 继续管理，都不要求先执行接管或存在 Coop 私有管理记录。正式规格见 [Issue #21](https://github.com/Coh1e/coop/issues/21)，IR 与执行边界见 [包管理 IR、校验与计划路径](ir-pipeline.md)。
 
+> **2026-10-28 变更（[ADR-0004](adr/0004-scoop-shaped-shims-only.md)）：** 直接 EXE 入口仍是 `<别名>.exe` + `<别名>.shim`，但现在所有入口都不再写 `.coop-shim.json`；脚本入口改为一律发布 Scoop 形态的包装。下文描述“带环境声明、脚本宿主或 JAR 入口仍使用 `.coop-shim.json`”的段落已被该决定取代。
+
 ## 事实来源
 
 - 安装身份以 `apps/<包>/current` 指向的版本目录为准；Manifest 与安装记录使用 Scoop 的 `scoop-manifest.json`/`scoop-install.json`（兼容读取旧的 `manifest.json`/`install.json`）。

@@ -166,8 +166,10 @@ try {
     # Script-host entries: a real BAT entry runs through cmd.exe and a real JAR entry runs through
     # java.exe. The JAR deliberately receives a relative class name that exists only in the package
     # directory, proving Scoop's JAR working-directory behaviour.
-    Assert-True (Test-Path "$ScoopRoot/shims/spotbugs.coop-shim.json") 'the BAT entry did not record its host metadata'
-    $spotbugsRun = Run 'spotbugs-version' "$ScoopRoot/shims/spotbugs.exe" @('-version') $work
+    Assert-True (Test-Path "$ScoopRoot/shims/spotbugs.cmd") 'the BAT entry did not publish a Scoop-shaped wrapper'
+    Assert-True (-not (Test-Path "$ScoopRoot/shims/spotbugs.coop-shim.json")) 'the BAT entry wrote Coop-only metadata into shims/'
+    Assert-True (-not (Test-Path "$ScoopRoot/shims/spotbugs.exe")) 'the BAT entry published a launcher that shadows the .cmd wrapper'
+    $spotbugsRun = Run 'spotbugs-version' "$ScoopRoot/shims/spotbugs.cmd" @('-version') $work
     Assert-True ($spotbugsRun.exit -eq 0 -and $spotbugsRun.output.Trim() -match '^\d+\.\d+') "the real BAT entry did not run SpotBugs: $($spotbugsRun.output)"
     Assert-Shortcut (Join-Path $programs 'SpotBugs.lnk') "$ScoopRoot/apps/spotbugs/current/bin/spotbugs.bat" '' "$ScoopRoot/apps/spotbugs/current/bin" "$ScoopRoot/apps/spotbugs/current/bin/spotbugs.ico" | Out-Null
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -177,12 +179,13 @@ try {
         Assert-True ($null -ne $classEntry) 'the real cfr.jar has no usable class entry'
         [IO.Compression.ZipFileExtensions]::ExtractToFile($classEntry,$jarClass,$true)
     } finally { $archive.Dispose() }
-    $cfrRun = Run 'cfr-jar-relative' "$ScoopRoot/shims/cfr.exe" @('probe-class.class') $work
+    $cfrRun = Run 'cfr-jar-relative' "$ScoopRoot/shims/cfr.cmd" @('probe-class.class') $work
     Assert-True ($cfrRun.exit -eq 0) "the real JAR entry did not resolve its relative argument from the package directory: $($cfrRun.output)"
     Assert-True ($cfrRun.output -match 'public|class|package') "the real JAR entry did not decompile the class: $($cfrRun.output)"
     Remove-Item -LiteralPath $jarClass -Force
-    Assert-True (Test-Path "$ScoopRoot/shims/touch.coop-shim.json") 'the PowerShell entry did not record its host metadata'
-    $touchRun = Run 'touch-ps1-relative' "$ScoopRoot/shims/touch.exe" @('created-by-ps1.txt') $work
+    Assert-True (Test-Path "$ScoopRoot/shims/touch.cmd") 'the PowerShell entry did not publish a Scoop-shaped wrapper'
+    Assert-True (-not (Test-Path "$ScoopRoot/shims/touch.coop-shim.json")) 'the PowerShell entry wrote Coop-only metadata into shims/'
+    $touchRun = Run 'touch-ps1-relative' "$ScoopRoot/shims/touch.cmd" @('created-by-ps1.txt') $work
     Assert-True ($touchRun.exit -eq 0) "the real PowerShell entry failed: $($touchRun.output)"
     Assert-True (Test-Path (Join-Path $work 'created-by-ps1.txt')) 'the real PowerShell entry did not create its argument relative to the caller directory'
 
