@@ -99,6 +99,7 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 - `tests/publish-baseline.ps1`（CTest `publish_baseline`）：九份安装夹具（ZIP 带 `extract_dir`、tar.xz、tar.zst、tar.gz、MSI、Inno Setup、NSIS 载荷、7-Zip helper）与两份失败夹具的逐文件快照——路径、摘要、链接类型、`current` 目标与两条安装记录，提交在 `tests/baseline/publish`；`-Update` 重生成，默认模式比对。
 - `tests/publish-contracts.ps1`（CTest `publish_contracts`）：空的 `extract_dir` 选择必须失败并命名目录（含未声明 `bin` 的包）、同目标条目碰撞必须失败并给出路径、多产物包第二个产物失败不破坏第一个已发布内容。
 - `tests/publish-write-once.ps1`（CTest `publish_write_once`）：安装期间用文件系统监视器记录事务目录下创建的所有路径，断言从未出现第二棵解压树；同时要求监视器确实看到 staging，避免"什么都没看到"式空断言。
+- 人工步骤与"手测覆盖不到"的清单见[产物发布的人工验收步骤](manual-publish-acceptance.md)。
 - `tests/msi-lifecycle.ps1`（CTest `msi_lifecycle`）：真实 7-Zip 26.05/26.03 MSI 的只读预览、安装、更新、卸载、持久化保留与截断 MSI 失败；全程 `process_guard` 观察无 `msiexec`，Windows Installer 机器缓存不变。
 - `tests/nsis-lifecycle.ps1`（CTest `nsis_lifecycle`）：真实 apngasm 3.1.3/3.1.1 NSIS 载荷的只读预览、安装、更新、截断失败、缺失 helper 与普通卸载；helper 来自同一 root 的普通 7-Zip 26.05 安装并断言逐文件不变，全程 `process_guard` 观察无 `setup.exe`。
 - `tests/real-scoop-nsis.ps1`：真实共用根上 Main/apngasm 的 Coop↔Scoop 双向交替与客户端间版本目录逐文件 SHA256 对比。
