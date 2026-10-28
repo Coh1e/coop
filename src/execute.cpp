@@ -1749,23 +1749,12 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     std::string text = "path = \""+path_text(app/L"current"/wide(command.target))+"\"\r\n";
                     if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
                     publish_text(metadata,text);
-                    // One launcher per root, hard-linked into every entry that can share it: the
-                    // executable is only a loader, so N entries do not need N copies of it. A GUI
-                    // entry keeps its own copy because the subsystem byte differs per target.
-                    if (gui) {
-                        create(exe,[&]() { publish_new(prepared,exe); });
-                    } else {
-                        const auto shared_launcher = state/L"launcher.exe";
-                        if (!fs::is_regular_file(shared_launcher)) {
-                            create(shared_launcher,[&]() {
-                                fs::copy_file(fs::path(module.data()),shared_launcher,fs::copy_options::overwrite_existing);
-                            });
-                        }
-                        create(exe,[&]() {
-                            if (!CreateHardLinkW(exe.c_str(),shared_launcher.c_str(),nullptr))
-                                fs::copy_file(shared_launcher,exe,fs::copy_options::overwrite_existing);
-                        });
-                    }
+                    // Every entry gets its own launcher file. Sharing one through hard links was tried
+                    // and reverted: the ownership evidence is per file identity, so a shared inode makes
+                    // "this entry was modified" and the atomic-publication conflict checks meaningless
+                    // (lifecycle_race and recovery_matrix both failed). Correct conflict detection
+                    // outranks saving a few megabytes.
+                    create(exe,[&]() { publish_new(prepared,exe); });
                     test_fault_point(context,"after-entry");
                     legacy_shims[command.alias] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
                     Json record = {{"name",command.alias},{"target",command.target},
