@@ -33,6 +33,8 @@ std::string ansi_cyan(const std::string& text);
 std::string ansi_dark_yellow(const std::string& text);
 
 bool stdout_is_terminal();
+// Human-readable byte size, the way Scoop prints one: one decimal place above a kilobyte.
+std::string human_bytes(std::uint64_t bytes);
 
 // Writes stage lines to stdout and renders download progress with a carriage-return line.
 class TextProgress final : public Progress {

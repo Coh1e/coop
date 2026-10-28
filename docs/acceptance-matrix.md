@@ -21,7 +21,7 @@ Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-
 | 行 | Scoop（历史） | Coop（本轮） | 对齐 |
 | --- | --- | --- | --- |
 | 安装开始 | `Installing 'ripgrep' (15.2.0) [64bit] from 'main' bucket` | 同形（无结尾句点） | 逐字 |
-| 下载 | `Downloading <url> (<大小>)...` | `Downloading <url>` | **未对齐**：缺大小与 `...`，见 #72 |
+| 下载 | `Downloading <url> (<大小>)...` | 同形（本地夹具报 `(1.3 MB)`，取不到大小时省略括号） | 逐字 |
 | 校验 | `Checking hash of <文件>... ` / `OK.` | 同形，含青色 | 逐字 |
 | 解压 | `Extracting <文件>... ` / `Done.` | 同形，含青色 | 逐字 |
 | 链接 | `Linking <根>\apps\<包>\current => <根>\apps\<包>\<版本>` | 同形 | 逐字 |
@@ -94,7 +94,7 @@ coop --root <根> install test/<包>
 | --- | --- |
 | **本轮运行** | 上表九个场景的 Coop 输出与退出码；缓存损坏重下；离线复用；冷装与缓存命中的计时 |
 | **历史结果** | Scoop 侧的全部原文（Scoop 0.6.0 实录，本次未重跑 Scoop）；`docs/cli-feedback.md` 里被撤下的旧耗时表不再引用 |
-| **未运行** | 与 Scoop 的耗时比值（#71）；`Downloading` 行的大小（#72）；真实网络下的下载进度条（非终端不显示，源码层面已确定） |
+| **未运行** | 与 Scoop 的耗时比值（#71）；真实网络下的下载进度条（非终端不显示，源码层面已确定） |
 
 ## 复现
 

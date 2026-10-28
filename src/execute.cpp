@@ -663,17 +663,25 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     }
     return {};
 }
+// The two announcements around a package block, shared by the single-command path and the batch path so
+// both print the same shape: the version move and heading before it, the closing line after it.
+void announce_update_move(const Context& context, const Plan& plan) {
+    if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
+    if (plan.package.version == plan.previous->version &&
+        plan.package.manifest_digest == plan.previous->manifest_digest) return;
+    std::cout << plan.package.name << ": " << plan.previous->version << " -> " << plan.package.version << '\n';
+    std::cout << "Updating one outdated app:\n";
+}
+void announce_success_line(const Context& context, const Plan& plan) {
+    if (context.json_output) return;
+    if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
+    else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
+    else std::cout << "'"+plan.package.name+"' ("+plan.package.version+") was installed successfully!\n";
+}
 int execute_plan(const Context& context, const Plan& plan) {
-    // Scoop reports the version move and the "one outdated app" heading before the package block, but
-    // an update that changes nothing has no block: the verdict is decided before anything is printed.
-    const bool no_op_update = plan.action == ir::Action::update && plan.previous &&
-        plan.package.version == plan.previous->version &&
-        plan.package.manifest_digest == plan.previous->manifest_digest;
-    if (plan.action == ir::Action::update && !no_op_update && !context.json_output) {
-        std::cout << plan.package.name << ": " << (plan.previous ? plan.previous->version : plan.package.version)
-                  << " -> " << plan.package.version << '\n';
-        std::cout << "Updating one outdated app:\n";
-    }
+    // Scoop reports the version move and the heading before the package block, and a no-op
+    // update has no block at all.
+    announce_update_move(context,plan);
     // Nothing to do, and nothing may be written: the same verdict reaches text mode, --json and
     // --dry-run, so a script and a person see one answer.
     if (plan.already_installed) {
@@ -714,9 +722,7 @@ int execute_plan(const Context& context, const Plan& plan) {
     }
     // Scoop's closing line differs per command: an uninstall names what went away, a reset says
     // nothing, and an install or update reports the version that is now published.
-    if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
-    else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
-    else std::cout << "'"+plan.package.name+"' ("+plan.package.version+") was installed successfully!\n";
+    announce_success_line(context,plan);
     // Scoop's post-install text: one suggestion line per feature whose candidates are all missing,
     // then the Manifest's notes verbatim under a fixed heading.
     if (plan.action == ir::Action::install || plan.action == ir::Action::update) {
@@ -1364,7 +1370,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
                 // Scoop says what it is about to do before the transfer line.
                 if (plan.action == ir::Action::update) progress_stage("Downloading new version");
-                progress_stage("Downloading "+artifact.url);
+                // Scoop names the size before the transfer starts; when it cannot be known the line stays
+                // as it was rather than printing a made-up number.
+                const auto announced = artifact_size(artifact.url);
+                progress_stage("Downloading "+artifact.url+(announced ? " ("+human_bytes(*announced)+")..." : ""));
                 download_file(artifact.url,downloaded,
                     [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); });
                 progress_finish_stage();

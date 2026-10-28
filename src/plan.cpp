@@ -889,8 +889,10 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
             outcome.value = Json{{"package",plan.package.name},{"action",action_name(action)},{"status","failed"},{"reason",outcome.reason}};
             return outcome;
         }
+        announce_update_move(context,plan);
         auto result = execute_plan_result(context,plan);
         const auto partial = result.value("status",std::string{}) == "partial";
+        if (!partial) announce_success_line(context,plan);
         outcome.failed = partial;
         outcome.status = partial ? "partial" : "success";
         if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
@@ -963,9 +965,9 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
         if (!dry_run) item["transaction_scope"] = "per-package; completed operations are not rolled back when a later package fails";
         results.push_back(std::move(item));
         failed = failed || outcome.failed;
-        // A batch reports each package as it finishes; a buffered batch looks hung for the whole run.
+        // Each command prints its own Scoop-shaped closing line as it finishes, so the batch only
+        // has to surface a failure; an extra status line would be output Scoop never writes.
         if (!context.json_output) {
-            std::cout << request << ": " << outcome.status << '\n';
             if (!outcome.reason.empty()) std::cerr << "coop: " << outcome.reason << '\n';
             std::cout.flush();
         }

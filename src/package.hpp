@@ -63,6 +63,9 @@ Json execute_plan_result(const Context& context, const Plan& plan);
 // The one executability judgement. The plan builder stores its result in Plan::blocker; the same
 // function is used for a standalone package (for example a planned dependency).
 std::string execution_blocker(const Context& context, const Plan& plan);
+// The announcements around a package block, shared by the single-command path and the batch path.
+void announce_update_move(const Context& context, const Plan& plan);
+void announce_success_line(const Context& context, const Plan& plan);
 std::string capability_blocker(const Context& context, const ir::Package& package);
 // Recovery of a package transaction is only automatic when every journaled path is still
 // owned by Coop and can be reverted without guessing. Scripts recorded by the journal are

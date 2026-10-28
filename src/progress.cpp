@@ -20,6 +20,14 @@ bool stdout_is_terminal() {
 }
 
 // The escapes are written unconditionally, exactly as Scoop does: a redirected run keeps them.
+std::string human_bytes(std::uint64_t bytes) {
+    char text[32]{};
+    if (bytes >= 1024ull*1024*1024) std::snprintf(text,sizeof(text),"%.1f GB",bytes/1073741824.0);
+    else if (bytes >= 1024ull*1024) std::snprintf(text,sizeof(text),"%.1f MB",bytes/1048576.0);
+    else if (bytes >= 1024) std::snprintf(text,sizeof(text),"%.1f KB",bytes/1024.0);
+    else std::snprintf(text,sizeof(text),"%llu B",static_cast<unsigned long long>(bytes));
+    return text;
+}
 std::string ansi_cyan(const std::string& text) { return "\x1b[36m"+text+"\x1b[0m"; }
 std::string ansi_dark_yellow(const std::string& text) { return "\x1b[33m"+text+"\x1b[0m"; }
 

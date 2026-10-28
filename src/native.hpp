@@ -1,11 +1,15 @@
 #pragma once
 #include "app.hpp"
 #include <functional>
+#include <optional>
 namespace coop {
 // Downloads one artifact. The optional callback reports (received, total) bytes while the body
 // streams; total is 0 when the server did not declare a Content-Length.
 void download_file(const std::string& url, const fs::path& destination,
     const std::function<void(std::uint64_t,std::uint64_t)>& on_progress = {});
+// Size of an artifact before the transfer starts, when it can be known: a local file can be measured,
+// a server is asked with a HEAD request. nullopt means "unknown", never an error.
+std::optional<std::uint64_t> artifact_size(const std::string& url);
 void make_junction(const fs::path& link, const fs::path& target);
 // Reads the target of an NTFS directory junction (mount point). Used wherever a managed link must
 // be proven to belong to Coop's own object instead of being followed or deleted blindly.
