@@ -100,7 +100,8 @@ void write_entry(archive* source, const fs::path& destination) {
             break;
         }
     }
-    if (!FlushFileBuffers(handle)) success = false;
+    // The extracted tree lives in the transaction and is discarded on failure, so per-entry
+    // write-through buys nothing: durability is owed at the commit points, not to every file.
     CloseHandle(handle);
     if (!success) {
         DeleteFileW(destination.c_str());

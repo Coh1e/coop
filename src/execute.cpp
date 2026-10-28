@@ -2024,6 +2024,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     if (auto* timings = active_timings()) {
         auto record = timings->result();
         record["package"] = package.name;
+        record["durable_syncs"] = durable_syncs();
         record["version"] = package.version;
         record["action"] = plan.action == ir::Action::install ? "install" :
             plan.action == ir::Action::update ? "update" :
@@ -2033,7 +2034,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             const auto directory = context.root/L".coop"/L"timings";
             fs::create_directories(directory);
             const auto name = std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64())+L".json";
-            write_json(directory/name,record);
+            // Re-derivable: a crash can rebuild this record, so it does not pay for a write-through.
+            write_json(directory/name,record,false,false);
         } catch (const std::exception&) { /* A timing record never fails the install. */ }
     }
     return result;
