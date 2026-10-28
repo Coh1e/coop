@@ -195,6 +195,8 @@ if(BUILD_TESTING)
     add_test(NAME cli_no_children_${option} COMMAND process_guard "$<TARGET_FILE:coop>" "--${option}")
   endforeach()
   find_program(POWERSHELL_EXECUTABLE NAMES pwsh REQUIRED)
+  add_test(NAME source_hygiene COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/scripts/check-source-hygiene.ps1"
+    -Root "${PROJECT_SOURCE_DIR}")
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
   add_test(NAME coverage_gaps COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-gaps.ps1")
   add_test(NAME query COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/query.ps1"

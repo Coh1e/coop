@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $baselinePath = Join-Path $PSScriptRoot 'coverage/baseline.json'
 $ledgerPath = Join-Path $PSScriptRoot 'coverage/gaps.json'

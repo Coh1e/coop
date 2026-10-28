@@ -127,7 +127,10 @@ function Get-Snapshot([string]$name) {
 function Assert-Matches([string]$name,[string]$actual) {
     $file = Join-Path $baseline "$name.json"
     if ($Update) {
-        [IO.File]::WriteAllText($file,$actual+"`n",[Text.UTF8Encoding]::new($false))
+        # One consistent line ending: the JSON serialiser emits CRLF, so an appended bare LF would
+        # leave the file mixed and trip the source hygiene check.
+        $normalised = ($actual -replace "`r`n","`n") -replace "`n","`r`n"
+        [IO.File]::WriteAllText($file,($normalised+"`r`n"),[Text.UTF8Encoding]::new($false))
         return $null
     }
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing baseline $file; rerun with -Update" }

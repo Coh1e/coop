@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 # #66: the contracts the publish seam owns, asserted through the real CLI.
 #  1. A declared extract_dir that selects nothing must fail. It must not publish a version that
 #     merely looks installed: with no `bin` declared, a silent skip produced a successful install

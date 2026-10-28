@@ -49,7 +49,10 @@ Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop
 ./scripts/build.ps1                      # 配置、构建并运行默认测试
 ctest --test-dir .local/build --output-on-failure
 ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|bucket|plan|adopt|archive_lifecycle|hooks|installers|persistence|dependencies|recovery)$'
+./scripts/install-hooks.ps1              # 每个克隆一次：安装 pre-commit 钩子（编码与空白快检查）
 ```
+
+测试通过 `scripts/build.ps1` 或 `ctest` 运行，不要直接调用 `tests/*.ps1`：CTest 记录的 PowerShell 路径不一定在 `PATH` 里。`scripts/install-hooks.ps1` 只安装秒级检查——源码里的 UTF-8 BOM、同一文件混用 CRLF/LF、`git diff --check` 的空白错误；完整 48 项测试仍然是有意执行的一步（`./scripts/build.ps1 -Action test`），因为慢钩子会被 `--no-verify` 绕过。
 
 `fetch-deps.ps1` 获取 nlohmann/json 3.12.0、libgit2 1.9.7、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 / zstd 1.5.7 / bzip2 1.0.8 源码，以及真实 jq 1.7.1/1.8.2、ripgrep、air、nodejs 7z、luajit tar.zst、tidy ZIP、curl tar.xz、unzip 7z SFX 和 7-Zip MSI 测试归档；全部只写入被忽略的 `.local`。构建产物在 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。构建会把仓库内固定的 Scoop 兼容库 `assets/scoop-lib` 复制为 `coop.exe` 旁的 `scoop-lib/`；生命周期脚本需要真实 PowerShell（默认 `pwsh.exe`，可用 `COOP_POWERSHELL` 指定），显式 `COOP_SCOOP_LIB` 可换用另一份同布局兼容库。`tests/acceptance.ps1` 用固定 20 份真实 Manifest 和真实程序完成首版整体验收，结果写入项目内测试根。
 
