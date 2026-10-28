@@ -649,6 +649,12 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
+    // Scoop reports the version move and the "one outdated app" heading before the package block.
+    if (plan.action == ir::Action::update && !context.json_output) {
+        std::cout << plan.package.name << ": " << (plan.previous ? plan.previous->version : plan.package.version)
+                  << " -> " << plan.package.version << '\n';
+        std::cout << "Updating one outdated app:\n";
+    }
     // Nothing to do, and nothing may be written: the same verdict reaches text mode, --json and
     // --dry-run, so a script and a person see one answer.
     if (plan.already_installed) {
@@ -691,7 +697,7 @@ int execute_plan(const Context& context, const Plan& plan) {
     // nothing, and an install or update reports the version that is now published.
     if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
     else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
-    else std::cout << plan.package.name << ": success\n";
+    else std::cout << "'"+plan.package.name+"' ("+plan.package.version+") was installed successfully!\n";
     // Scoop's post-install text: one suggestion line per feature whose candidates are all missing,
     // then the Manifest's notes verbatim under a fixed heading.
     if (plan.action == ir::Action::install || plan.action == ir::Action::update) {
@@ -740,16 +746,23 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             plan.action == ir::Action::uninstall ? "Uninstalling" :
             plan.action == ir::Action::reset ? "Resetting" : "Processing";
         // Scoop's uninstall and reset lines carry no architecture and no bucket, and reset does not
-        // quote the package name. Install and update keep both because Scoop prints them there.
+        // quote the package name. Install and update keep both, and those two lines end without a
+        // period while uninstall and reset carry one.
         std::string line;
+        bool terminated = true;
         if (plan.action == ir::Action::reset) line = std::string(verb)+" "+package.name+" ("+package.version+")";
         else if (plan.action == ir::Action::uninstall) line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
-        else {
+        else if (plan.action == ir::Action::update) {
+            line = std::string(verb)+" '"+package.name+"' ("+
+                (plan.previous ? plan.previous->version : package.version)+" -> "+package.version+")";
+            terminated = false;
+        } else {
             line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
             if (!package.architecture.empty()) line += " ["+package.architecture+"]";
             if (!package.bucket.empty()) line += " from '"+package.bucket+"' bucket";
+            terminated = false;
         }
-        progress->package(line+".");
+        progress->package(terminated ? line+"." : line);
     }
     const bool updating = plan.action == ir::Action::update;
     const bool resetting = plan.action == ir::Action::reset;
@@ -1269,9 +1282,25 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (!output) throw std::runtime_error("Cannot write command metadata");
             create(destination,[&]() { publish_new(temporary,destination); });
         };
+        bool previous_phase = false;
         // Every package action is driven by the IR sequence the plan carries. The switch below is
         // the execution backend for each operation, never a second source of package ordering.
         for (const auto& step : plan.steps) {
+            // An update runs two visible phases. Scoop prints their headers; coop extracts before the
+            // old version is unpublished, which is why the extract lines appear above the uninstall
+            // block (see #57: a failed extract must leave `current` on the old version).
+            if (plan.action == ir::Action::update && step.previous != previous_phase) {
+                previous_phase = step.previous;
+                if (step.previous)
+                    progress_stage("Uninstalling '"+package.name+"' ("+
+                        (plan.previous ? plan.previous->version : package.version)+")");
+                else {
+                    std::string header = "Installing '"+package.name+"' ("+package.version+")";
+                    if (!package.architecture.empty()) header += " ["+package.architecture+"]";
+                    if (!package.bucket.empty()) header += " from '"+package.bucket+"' bucket";
+                    progress_stage(header);
+                }
+            }
             journal["stage"] = ir::operation_name(step.operation);
             if (!journal.contains("observed_steps")) journal["observed_steps"] = Json::array();
             journal["observed_steps"].push_back(ir::operation_name(step.operation));
@@ -1290,7 +1319,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (fs::is_regular_file(cached_file)) {
                     try {
                         if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
-                            progress_stage("Loading "+artifact.filename+" from cache.");
+                            progress_stage("Loading "+artifact.filename+" from cache");
                             fs::copy_file(cached_file,downloaded,fs::copy_options::overwrite_existing);
                             from_cache = true;
                             journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
@@ -1302,6 +1331,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     } catch (const std::exception&) { from_cache = false; }
                 }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
+                // Scoop says what it is about to do before the transfer line.
+                if (plan.action == ir::Action::update) progress_stage("Downloading new version");
                 progress_stage("Downloading "+artifact.url);
                 download_file(artifact.url,downloaded,
                     [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); });
@@ -1318,6 +1349,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (step.index >= package.downloads.size() || downloaded_files[step.index].empty())
                     throw std::runtime_error("Plan verification has no downloaded artifact");
                 const auto& artifact = package.downloads[step.index];
+                // Scoop prints the line prefix first, then the verdict, so a slow hash check shows what
+                // it is working on.
+                progress_stage("Checking hash of "+ansi_cyan(artifact.filename)+"... ");
                 // The IR declaration is authority for the digest algorithm and value. Never fall
                 // back to SHA256 for a SHA512 or SHA1 declaration.
                 const auto algorithm = artifact.digest.algorithm;
@@ -1329,7 +1363,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
                 journal["downloads"][std::size_t(step.index)]["verified"] = true;
                 save();
-                progress_stage("Checking hash of "+ansi_cyan(artifact.filename)+"... OK.");
+                progress_stage("OK.");
                 if (!cache_hits.count(step.index) && artifact.format != ir::ArchiveFormat::file) {
                     // Cache the verified download in the layout Scoop itself reads.
                     std::error_code cache_error;
@@ -1355,6 +1389,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     throw std::runtime_error("Plan extraction has no downloaded artifact");
                 ensure_stage();
                 const auto& artifact = package.downloads[step.index];
+                progress_stage("Extracting "+ansi_cyan(artifact.filename)+"... ");
                 // Every artifact crosses the same seam: the publication decides how the payload is
                 // unpacked, whether extract_dir still has to be applied, and whether a working tree
                 // has to be merged. The journal write keeps its original position inside that seam
@@ -1368,7 +1403,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         journal[key].push_back(std::move(entry));
                         save();
                     });
-                progress_stage("Extracting "+ansi_cyan(artifact.filename)+"... Done.");
+                progress_stage("Done.");
                 test_fault_point(context,"after-extract");
                 break;
             }

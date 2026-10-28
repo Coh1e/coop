@@ -66,7 +66,7 @@ if ($lines[$notesIndex+2] -ne "Run 'tidy --help' for options." -or $lines[$notes
 }
 if ($lines[$notesIndex+4] -ne '-----') { throw 'the notes block is not closed by a rule' }
 if (-not ($lines -contains $suggestLine)) { throw "the suggestion line is missing:`n$($install.output)" }
-$successIndex = [Array]::IndexOf($lines,'sug: success')
+$successIndex = -1; for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -like "*'sug' (1.0.0) was installed successfully!*") { $successIndex = $i; break } }
 if ($successIndex -lt 0 -or $successIndex -gt $notesIndex) { throw 'the notes block did not follow the success line' }
 if ([Array]::IndexOf($lines,$suggestLine) -gt $notesIndex) { throw 'the suggestion line did not precede the notes block' }
 
