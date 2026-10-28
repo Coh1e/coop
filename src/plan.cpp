@@ -877,7 +877,7 @@ PackageOutcome simple_preview(const Context& context, ir::Action action, const s
     }
     return outcome;
 }
-PackageOutcome simple_execute(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false) {
+PackageOutcome simple_execute(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool purge = false, bool batch = false) {
     PackageOutcome outcome;
     try {
         auto plan = prepared_simple_plan(context,action,request,architecture,purge);
@@ -889,7 +889,8 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
             outcome.value = Json{{"package",plan.package.name},{"action",action_name(action)},{"status","failed"},{"reason",outcome.reason}};
             return outcome;
         }
-        announce_update_move(context,plan);
+        // A batch prints one heading for the whole set, so the per-package heading is suppressed.
+        announce_update_move(context,plan,!batch);
         // The no-op verdicts live in execute_plan, which the batch path bypasses. Reading the plan's
         // verdict here keeps a batch from claiming it installed something that was already there.
         if (plan.already_installed) {
@@ -970,9 +971,14 @@ int simple_single(const Context& context, ir::Action action, const std::string& 
 int simple_batch(const Context& context, ir::Action action, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run, bool purge = false) {
     Json results = Json::array();
     bool failed = false;
+    // Scoop announces the whole set once, before the first block, instead of repeating the heading
+    // per package. The count is the requested count: packages that turn out current report themselves.
+    if (action == ir::Action::update && !dry_run && !context.json_output && !names.empty())
+        std::cout << (names.size() == 1 ? "Updating one outdated app:"
+                                       : "Updating "+std::to_string(names.size())+" outdated apps:") << '\n';
     for (const auto& name : names) {
         const auto request = utf8(name);
-        const auto outcome = dry_run ? simple_preview(context,action,request,architecture,purge) : simple_execute(context,action,request,architecture,purge);
+        const auto outcome = dry_run ? simple_preview(context,action,request,architecture,purge) : simple_execute(context,action,request,architecture,purge,true);
         Json item = {{"package",request},{"action",action_name(action)},{"status",outcome.status}};
         if (!outcome.reason.empty()) item["reason"] = outcome.reason;
         item[dry_run ? "plan" : "result"] = outcome.value;

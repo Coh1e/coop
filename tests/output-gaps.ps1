@@ -74,8 +74,11 @@ foreach ($name in 'alpha','beta') {
     if (-not ($lines -contains "'$name' (1.1.0) was installed successfully!")) { throw "the closing line for $name is missing:`n$($batch.output)" }
     if ($lines -contains "${name}: success") { throw "the batch printed an extra status line for $name" }
 }
-if (@($lines | Where-Object { $_ -eq 'Updating one outdated app:' }).Count -ne 2) {
-    throw "expected one heading per package:`n$($batch.output)"
+if (@($lines | Where-Object { $_ -eq 'Updating 2 outdated apps:' }).Count -ne 1) {
+    throw "expected one heading for the whole batch:`n$($batch.output)"
+}
+if (@($lines | Where-Object { $_ -eq 'Updating one outdated app:' }).Count -ne 0) {
+    throw "a batch repeated the per-package heading:`n$($batch.output)"
 }
 
 Write-Output 'output gaps: download size and batch update blocks verified'

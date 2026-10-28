@@ -21,6 +21,8 @@ $hash = (Get-FileHash -LiteralPath $tidy -Algorithm SHA256).Hash.ToLower()
 
 # One server for both clients: 8 paced pieces of 40 ms each, so a transfer costs about 0.32 s.
 $port = Get-Random -Minimum 20000 -Maximum 40000
+$serveLog = Join-Path $Output 'serve.log'
+New-Item -ItemType File -Path $serveLog -Force | Out-Null
 $serverScript = Join-Path $Output 'server.ps1'
 $serverBody = @"
 `$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)
@@ -30,6 +32,7 @@ try {
         `$client = `$listener.AcceptTcpClient()
         try {
             `$stream = `$client.GetStream()
+            `$started = Get-Date
             `$reader = [IO.StreamReader]::new(`$stream,[Text.Encoding]::ASCII,`$false,1024,`$true)
             while (`$true) { `$line = `$reader.ReadLine(); if (-not `$line) { break } }
             `$data = [IO.File]::ReadAllBytes('$tidy')
@@ -43,7 +46,11 @@ try {
                 Start-Sleep -Milliseconds 40
             }
             `$stream.Flush()
-        } catch { } finally { `$client.Close() }
+        } catch { } finally {
+            `$elapsed = [int]((Get-Date) - `$started).TotalMilliseconds
+            Add-Content -LiteralPath '$serveLog' -Value `$elapsed
+            `$client.Close()
+        }
     }
 } finally { `$listener.Stop() }
 "@
@@ -95,17 +102,21 @@ try {
             $env:SCOOP = $scoopRoot
             & $ScoopShim uninstall tidy *>&1 | Out-Null
         }
-        return $total
+        # The server records how long the transfer it just served took, so the download share is
+        # measured per run instead of assumed.
+        $served = @(Get-Content -LiteralPath $serveLog -ErrorAction SilentlyContinue)
+        $download = if ($served.Count -gt $before) { [double]$served[$served.Count-1]/1000 } else { 0 }
+        return [pscustomobject]@{ total=$total; download=$download }
     }
 
-    # The download share is the same for both clients: the server paces the same bytes the same way.
-    $download = 0.32
     $results = [ordered]@{ coop = @(); scoop = @() }
     for ($run = 1; $run -le $Runs; $run++) {
         foreach ($client in 'coop','scoop') {
-            $total = Measure-Run $client
-            $results[$client] += [pscustomobject]@{ run=$run; total=$total; local=($total-$download) }
-            Write-Output ("{0} run {1}: total {2:N3} s, local {3:N3} s" -f $client,$run,$total,($total-$download))
+            $before = @(Get-Content -LiteralPath $serveLog -ErrorAction SilentlyContinue).Count
+            $measured = Measure-Run $client
+            $total = $measured.total; $download = $measured.download
+            $results[$client] += [pscustomobject]@{ run=$run; total=$total; download=$download; local=($total-$download) }
+            Write-Output ("{0} run {1}: total {2:N3} s, download {3:N3} s, local {4:N3} s" -f $client,$run,$total,$download,($total-$download))
         }
     }
     function Median($values) {
@@ -120,7 +131,7 @@ try {
     $ratio = if ($scoopMedian -gt 0) { $coopMedian/$scoopMedian } else { 0 }
     $summary = [ordered]@{
         runs = $Runs
-        download_seconds_assumed = $download
+        download_seconds_measured = ($results.coop + $results.scoop | Measure-Object -Property download -Average).Average
         coop_local_median = $coopMedian
         scoop_local_median = $scoopMedian
         ratio = $ratio

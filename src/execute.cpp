@@ -668,12 +668,12 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
 void print_install_success(const std::string& name, const std::string& version) {
     std::cout << "'"+name+"' ("+version+") was installed successfully!\n";
 }
-void announce_update_move(const Context& context, const Plan& plan) {
+void announce_update_move(const Context& context, const Plan& plan, bool heading) {
     if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
     if (plan.package.version == plan.previous->version &&
         plan.package.manifest_digest == plan.previous->manifest_digest) return;
     std::cout << plan.package.name << ": " << plan.previous->version << " -> " << plan.package.version << '\n';
-    std::cout << "Updating one outdated app:\n";
+    if (heading) std::cout << "Updating one outdated app:\n";
 }
 void announce_success_line(const Context& context, const Plan& plan) {
     if (context.json_output) return;
@@ -1351,6 +1351,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto cache_directory = context.root/L"cache";
                 const auto cached_file = cache_directory/wide(artifact.filename);
                 bool from_cache = false;
+                // Scoop says what it is about to do before either the transfer line or the cache line,
+                // so a cached update announces the new version too.
+                if (plan.action == ir::Action::update) progress_stage("Downloading new version");
                 // A cache hit is timed inside the download step: the bytes are zero, so the record shows
                 // that no transfer happened, and the local time is not counted twice.
                 if (fs::is_regular_file(cached_file)) {
@@ -1369,8 +1372,6 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
                 // Scoop says what it is about to do before the transfer line.
-                if (plan.action == ir::Action::update) progress_stage("Downloading new version");
-                // Scoop names the size before the transfer starts; when it cannot be known the line stays
                 // as it was rather than printing a made-up number.
                 const auto announced = artifact_size(artifact.url);
                 progress_stage("Downloading "+artifact.url+(announced ? " ("+human_bytes(*announced)+")..." : ""));

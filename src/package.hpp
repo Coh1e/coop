@@ -64,7 +64,7 @@ Json execute_plan_result(const Context& context, const Plan& plan);
 // function is used for a standalone package (for example a planned dependency).
 std::string execution_blocker(const Context& context, const Plan& plan);
 // The announcements around a package block, shared by the single-command path and the batch path.
-void announce_update_move(const Context& context, const Plan& plan);
+void announce_update_move(const Context& context, const Plan& plan, bool heading = true);
 // The one spelling of the install success sentence, used by every path that reports it.
 void print_install_success(const std::string& name, const std::string& version);
 void announce_success_line(const Context& context, const Plan& plan);
