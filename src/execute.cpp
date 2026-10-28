@@ -1301,6 +1301,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_stage();
                 const auto& artifact = package.downloads[step.index];
                 const auto raw = transaction/(L"extract-"+std::to_wstring(step.index));
+                const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
+                bool extracted_directly = false;
                 // Inno Setup extraction selects the declared Inno directory with innounp's own -c
                 // switch, so the merge below starts at the extracted root instead of applying
                 // extract_dir a second time.
@@ -1343,16 +1345,19 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     journal["nsis_extractions"].push_back(std::move(entry));
                     save();
                 } else {
-                    extract_archive(downloaded_files[step.index],raw);
+                    // The native extractor publishes straight into the package staging directory,
+                    // applying extract_dir on the way in. The tree is written once instead of being
+                    // unpacked into a temporary root and copied over afterwards.
+                    extract_archive(downloaded_files[step.index],destination,artifact.extract_directory);
+                    extracted_directly = true;
                 }
                 progress_stage("Extracting "+artifact.filename+"... Done.");
-                const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
-                // Scoop 0.6.0 unpacks a compressed tar wrapper first and applies extract_dir while
-                // extracting the inner tar; plain tar applies it directly. Merge the tree below the
-                // selected directory for every archive kind, so nested layouts behave the same for
-                // ZIP, 7z, tar, tar.gz, tar.xz, tar.bz2 and tar.zst.
-                merge_archive_tree(raw,merge_directory,destination);
-                erase_tree(raw);
+                if (!extracted_directly) {
+                    // Installer-format extractors write their own working tree first, so only those
+                    // paths still need the merge.
+                    merge_archive_tree(raw,merge_directory,destination);
+                    erase_tree(raw);
+                }
                 test_fault_point(context,"after-extract");
                 break;
             }

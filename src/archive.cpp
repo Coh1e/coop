@@ -106,8 +106,22 @@ void write_entry(archive* source, const fs::path& destination) {
         throw std::runtime_error("Archive entry cannot be read: "+archive_error(source));
     }
 }
+// True when name is root itself or lies below it; relative receives the remainder. Component-wise
+// and case-insensitive, so "bin/x2" is not treated as below "bin/x".
+bool relative_below(const fs::path& name, const fs::path& root, fs::path& relative) {
+    auto name_part = name.begin();
+    for (auto root_part = root.begin(); root_part != root.end(); ++root_part, ++name_part) {
+        if (name_part == name.end()) return false;
+        const auto left = name_part->wstring();
+        const auto right = root_part->wstring();
+        if (CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) != CSTR_EQUAL) return false;
+    }
+    relative.clear();
+    for (; name_part != name.end(); ++name_part) relative /= *name_part;
+    return true;
 }
-void extract_archive(const fs::path& archive_path, const fs::path& destination) {
+}
+void extract_archive(const fs::path& archive_path, const fs::path& destination, const fs::path& extract_directory) {
     ensure_directory(destination);
     ArchivePtr source{archive_read_new()};
     if (!source) throw std::runtime_error("Cannot initialize native archive reader");
@@ -137,8 +151,15 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination) 
             if (archive_entry_symlink(entry.get()) || archive_entry_hardlink(entry.get()))
                 throw std::runtime_error("Archive contains a link entry; links are not extracted");
             const auto name = safe_entry_path(entry.get());
+            auto relative = name;
+            if (!extract_directory.empty()) {
+                if (!relative_below(name,extract_directory,relative) || relative.empty()) {
+                    archive_read_data_skip(source.get());
+                    continue;
+                }
+            }
             const auto type = archive_entry_filetype(entry.get());
-            const auto target = destination/name;
+            const auto target = destination/relative;
             ensure_parents(destination,target);
             if (type == AE_IFDIR) {
                 ensure_directory(target);
