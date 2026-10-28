@@ -30,15 +30,17 @@ Write-Manifest '5.8.0'
 # Scoop appends its shims to the user PATH on first run; restore whatever was there afterwards.
 $pathBefore = [Environment]::GetEnvironmentVariable('Path','User')
 $transcript = [System.Collections.Generic.List[string]]::new()
-function Invoke-Recorded([string]$label,[string[]]$arguments) {
+function Invoke-Recorded([string]$label,[string[]]$arguments,[int]$expected = 0) {
     $start = [Diagnostics.Stopwatch]::StartNew()
-    $out = & $ScoopShim @arguments 2>&1 | ForEach-Object { ($_ -replace "`e",'<ESC>') }
+    # *>&1 also captures Scoop's Write-Host streams, which 2>&1 alone misses.
+    $out = & $ScoopShim @arguments *>&1 | ForEach-Object { ([string]$_ -replace "`e",'<ESC>') }
     $code = $LASTEXITCODE
     $start.Stop()
     $transcript.Add("[${label}] scoop $($arguments -join ' ')")
     $transcript.Add("exit=$code seconds=$([Math]::Round($start.Elapsed.TotalSeconds,3))")
     foreach ($line in $out) { $transcript.Add([string]$line) }
     $transcript.Add('')
+    if ($code -ne $expected) { Write-Error "$label exited $code, expected $expected" }
     Write-Output ("{0}: exit {1} in {2:N1} s" -f $label,$code,$start.Elapsed.TotalSeconds)
 }
 try {
@@ -48,8 +50,10 @@ try {
     Invoke-Recorded 'uninstall' @('uninstall','tidy')
     Invoke-Recorded 'install-cache-hit' @('install','tidy')
     Write-Manifest '5.8.1'
-    Invoke-Recorded 'update' @('update','tidy')
-    Invoke-Recorded 'reset' @('reset','tidy','@5.8.0')
+    # Scoop refuses an update whose manifest did not change the URL, so this step's exit code is part of
+    # the record rather than an assertion: whatever it does is what the transcript shows.
+    Invoke-Recorded 'update' @('update','tidy') -expected 1
+    Invoke-Recorded 'reset' @('reset','tidy@5.8.0')
     Invoke-Recorded 'cleanup' @('cleanup','tidy')
     Invoke-Recorded 'uninstall-final' @('uninstall','tidy')
 } finally {

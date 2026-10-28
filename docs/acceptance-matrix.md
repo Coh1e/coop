@@ -16,7 +16,7 @@
 
 ## 与 Scoop 的逐行对照
 
-Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-output.md)（历史结果，本轮未重跑 Scoop）；Coop 侧为本轮运行。
+Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-output.md)（历史结果，取自交互终端）；本轮另用 `scripts/scoop-baseline.ps1` 复采了一次，`*>&1` 能拿到 `Write-Host` 的进度行（`Downloading`、`Checking hash`、`Extracting` 都在），产物在 `.local/scoop-baseline/transcript.txt`，所以该列可由脚本重建。Coop 侧为本轮运行。
 
 | 行 | Scoop（历史） | Coop（本轮） | 对齐 |
 | --- | --- | --- | --- |
@@ -93,8 +93,8 @@ coop --root <根> install test/<包>
 | 类别 | 内容 |
 | --- | --- |
 | **本轮运行** | 上表九个场景的 Coop 输出与退出码；缓存损坏重下；离线复用；冷装与缓存命中的计时 |
-| **历史结果** | Scoop 侧的全部原文（Scoop 0.6.0 实录）。`scripts/scoop-baseline.ps1` 可在装了 Scoop 的机器上重新生成该列并写入 `.local/scoop-baseline/transcript.txt`；本轮运行该脚本时观察到，**管道里 Scoop 会省略进度行**（只剩 `Installing`/`Creating shim`），所以历史实录的完整块来自交互终端；`docs/cli-feedback.md` 里被撤下的旧耗时表不再引用 |
-| **未运行** | 真实网络下的下载进度条（非终端不显示，源码层面已确定）；`http(s)` 下载行的大小（本地可测，网络省略） |
+| **历史结果** | Scoop 侧的交互原文（Scoop 0.6.0 实录，取自终端）。`scripts/scoop-baseline.ps1` 本轮运行过一次，产物在 `.local/scoop-baseline/transcript.txt`：用 `*>&1` 捕获后，`Downloading`、`Checking hash`、`Extracting` 与彩色转义都在，所以该列可由脚本在本机重建；实录里的 `update` 在本夹具上以退出码 1 结束（清单换了版本号但 URL 未变），脚本把这一步的期望退出码显式写成 1 并记录；旧耗时表不再引用 |
+| **未运行** | 真实网络下的下载进度条（非终端不显示，源码层面已确定）；`http(s)` 下载行在响应**没有** `Content-Length` 时的形状（无括号、无 `...`，本轮只覆盖有 `Content-Length` 的回环服务） |
 
 ## 复现
 

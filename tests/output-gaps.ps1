@@ -85,6 +85,8 @@ if (@($lines | Where-Object { $_ -eq 'Updating one outdated app:' }).Count -ne 0
 #    request would break servers that answer one connection, so the line is printed at transfer start.
 $port = Get-Random -Minimum 20000 -Maximum 40000
 $serverScript = Join-Path $root 'server.ps1'
+$requestLog = Join-Path $root 'requests.log'
+Remove-Item -LiteralPath $requestLog -Force -ErrorAction SilentlyContinue
 $serverBody = @"
 `$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)
 `$listener.Start()
@@ -94,6 +96,9 @@ try {
         try {
             `$stream = `$client.GetStream()
             `$reader = [IO.StreamReader]::new(`$stream,[Text.Encoding]::ASCII,`$false,1024,`$true)
+            # Only a real request counts: the readiness probe connects and sends nothing.
+            `$first = `$reader.ReadLine()
+            if (`$first) { Add-Content -LiteralPath '$requestLog' -Value `$first }
             while (`$true) { `$line = `$reader.ReadLine(); if (-not `$line) { break } }
             `$bytes = [IO.File]::ReadAllBytes('$tidy')
             `$header = "HTTP/1.1 200 OK`r`nContent-Type: application/zip`r`nContent-Length: `$(`$bytes.Length)`r`nConnection: close`r`n`r`n"
@@ -122,6 +127,11 @@ try {
     $line = @($overHttp.output -split "`r?`n" | Where-Object { $_ -like 'Downloading http*' })
     if ($line.Count -ne 1 -or $line[0] -notmatch '\(1\.3 MB\)\.\.\.$') {
         throw "a network transfer did not name its size: $($overHttp.output)"
+    }
+    # The size has to come from this transfer, not from a probe: one connection, not two.
+    $requests = @(Get-Content -LiteralPath $requestLog -ErrorAction SilentlyContinue | Where-Object { $_ -match '^GET ' })
+    if ($requests.Count -ne 1) {
+        throw "the install opened $($requests.Count) connections; the size must come from the transfer itself"
     }
 } finally {
     if ($serverProcess -and -not $serverProcess.HasExited) { Stop-Process -Id $serverProcess.Id -Force }

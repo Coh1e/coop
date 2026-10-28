@@ -1375,13 +1375,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // Scoop names the size before the transfer starts. A local artifact can be measured
                 // up front; a network one can only be named once its response headers arrive, so the
                 // line is printed from the start-of-transfer callback instead of a second request.
+                // A local artifact can be measured before the transfer; a network one only after its
+                // response headers arrive, so the announcement waits for that callback instead of a
+                // second request.
                 const auto announce = [&](std::uint64_t size) {
                     progress_stage("Downloading "+artifact.url+(size ? " ("+human_bytes(size)+")..." : ""));
                 };
                 if (artifact.url.starts_with("file://")) announce(artifact_size(artifact.url).value_or(0));
                 download_file(artifact.url,downloaded,
                     [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); },
-                    [&](std::uint64_t size) { if (!artifact.url.starts_with("file://")) announce(size); });
+                    announce);
+                progress_finish_stage();
                 // The bytes this step moved, so the duration can be checked against the transfer rate.
                 timings_add_bytes("download",fs::file_size(downloaded));
                 downloaded_files[step.index] = downloaded;

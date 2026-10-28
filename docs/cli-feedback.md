@@ -26,7 +26,7 @@ Creating shim for 'rg'.
 
 - **逐字**：引号、括号、句点、行尾空格、`... ` 与 `OK.` / `Done.` 分成两行，都按实录照排。
 - 阶段行在阶段开始或完成时打印，不攒到结束。
-- 下载在终端上显示行内进度；**非终端（管道、CI）没有进度条**——这不是 Coop 的选择，Scoop 的进度条被 `lib/download.ps1:73` 的 `isoutputredirected` 锁在 TTY 内。非终端只保留阶段行。
+- 下载在终端上显示行内进度；**非终端（管道、CI）没有进度条**——这不是 Coop 的选择，Scoop 的进度条被 `lib/download.ps1:73` 的 `isoutputredirected` 锁在 TTY 内。非终端只保留阶段行（`Installing`、`Checking hash of …`、`Extracting …` 等）与结束行；Scoop 在管道里连这些也会省略，Coop 不会——这是刻意保留的差异，便于 CI 日志定位。
 - 失败在出错的那一步立刻出现，形状见实录的「失败：hash 不符」段落：`ERROR …` 加字段块和引导语，退出码 1。
 - 批量：每包完整走一遍，**没有批级表头，也没有结尾汇总**。
 - 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西。
@@ -130,4 +130,4 @@ pkg: install: recovered
 - 解压已不再逐文件写穿（#52）：写穿只发生在提交点，单次安装的写穿次数记录在计时记录的 `durable_syncs` 里。启动器共享（#53）尝试后撤回——硬链接破坏逐入口的所有权证据。
 - 依赖安装、批量与单包的逐包输出已由 `tests/progress-coverage.ps1` 覆盖（#54）。
 - `cleanup` 的**文本**只打印被删除的版本（Scoop 也只打印这些）；保留范围在 `--json` 里完整给出（`current`、`keep_scope`、`scope_summary.keep`），所以 #54 的"保留范围"在机读输出中满足，文本模式按逐字契约刻意不打印。
-- 写穿收敛（#52）：369 个文件的归档由 369 次写穿降到 23 次；同机三次对照的中位数从 **0.563 s** 降到 **0.360 s**（约 36%）。任何绕过 `durable_flush()` 的直接 `FlushFileBuffers` 会被 `source_hygiene` 拦下，所以次数统计不会因漏计而失真。
+- 写穿收敛（#52）：369 个文件的归档由 369 次写穿降到 23 次。时间证据来自一次手工 A/B（同一台机器、同一夹具、各 3 次，`--timings` 的 `local_seconds`）：把逐文件写穿临时加回后为 0.563 / 0.543 / 0.584 s，去掉后为 0.360 / 0.445 / 0.354 s，中位数 **0.563 → 0.360 s**。该对照没有随仓库脚本，因为复现它需要临时改源码；`source_hygiene` 现在禁止在 `src/data.cpp` 之外直接调用 `FlushFileBuffers`，所以任何重新引入的逐文件写穿要么走 `durable_flush()`（被 `durable_syncs` 计数，`sync_points` 会红），要么被卫生检查拦下。`src/data.cpp` 是计数所在的文件，规则对它豁免。
