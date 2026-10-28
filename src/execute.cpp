@@ -1730,8 +1730,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     fs::copy_file(fs::path(module.data()),prepared);
                     // Scoop reports the subsystem flip on its own line, right after the shim line.
                     if (gui) progress_stage("Making "+path_text(exe)+" a GUI binary.");
-                    if (gui) mark_launcher_gui(prepared);
-                    const auto launcher_hash = sha256_file(prepared);
+                    if (gui) mark_launcher_gui(prepared);                    const auto launcher_hash = sha256_file(prepared);
                     // shims/ carries only what Scoop itself writes: BAT/CMD, PS1 and JAR targets get
                     // their wrappers and nothing else (Scoop's shim() writes .shim only for exe/com);
                     // an executable target gets one <alias>.exe launcher plus <alias>.shim. A copied
@@ -1750,7 +1749,23 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     std::string text = "path = \""+path_text(app/L"current"/wide(command.target))+"\"\r\n";
                     if (!command_arguments.empty()) text += "args = "+command_arguments+"\r\n";
                     publish_text(metadata,text);
-                    create(exe,[&]() { publish_new(prepared,exe); });
+                    // One launcher per root, hard-linked into every entry that can share it: the
+                    // executable is only a loader, so N entries do not need N copies of it. A GUI
+                    // entry keeps its own copy because the subsystem byte differs per target.
+                    if (gui) {
+                        create(exe,[&]() { publish_new(prepared,exe); });
+                    } else {
+                        const auto shared_launcher = state/L"launcher.exe";
+                        if (!fs::is_regular_file(shared_launcher)) {
+                            create(shared_launcher,[&]() {
+                                fs::copy_file(fs::path(module.data()),shared_launcher,fs::copy_options::overwrite_existing);
+                            });
+                        }
+                        create(exe,[&]() {
+                            if (!CreateHardLinkW(exe.c_str(),shared_launcher.c_str(),nullptr))
+                                fs::copy_file(shared_launcher,exe,fs::copy_options::overwrite_existing);
+                        });
+                    }
                     test_fault_point(context,"after-entry");
                     legacy_shims[command.alias] = {{"executable_sha256",launcher_hash},{"metadata_sha256",sha256_file(metadata)}};
                     Json record = {{"name",command.alias},{"target",command.target},
