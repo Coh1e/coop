@@ -1,0 +1,69 @@
+{
+  "package": "luajit",
+  "versions": [
+    "2.1.1791988261-1"
+  ],
+  "current": "apps/luajit/2.1.1791988261-1",
+  "install_record": {
+    "bucket": "test",
+    "architecture": "64bit"
+  },
+  "manifest_record": {
+    "version": "2.1.1791988261-1",
+    "bin": "\"bin\\\\luajit.exe\""
+  },
+  "entries": [
+    [
+      "dir|bin",
+      "dir|include",
+      "dir|include/luajit-2.1",
+      "dir|lib",
+      "dir|lib/lua",
+      "dir|lib/lua/5.1",
+      "dir|lib/pkgconfig",
+      "dir|share",
+      "dir|share/lua",
+      "dir|share/lua/5.1",
+      "dir|share/luajit-2.1",
+      "dir|share/luajit-2.1/jit",
+      "dir|share/man",
+      "dir|share/man/man1",
+      "file|bin/lua51.dll|7fc7b628871fc4439c7c6a9f6ead6265f78906623cf7298fecedd9fa7de76aa7",
+      "file|bin/luajit-2.1.1791988261.exe|db449690b65a107f8a9721359509eea3dbcbe54affb03c5b1fa309ea50299f88",
+      "file|bin/luajit.exe|db449690b65a107f8a9721359509eea3dbcbe54affb03c5b1fa309ea50299f88",
+      "file|bin/luajit|db449690b65a107f8a9721359509eea3dbcbe54affb03c5b1fa309ea50299f88",
+      "file|include/luajit-2.1/lauxlib.h|7093ea70fb38341d10475814b90961cec22f9643c11e3ea4c2ddc2cd4b03164e",
+      "file|include/luajit-2.1/lua.h|ecab8480aaedb648b75258453ab82e71c4d0db234175f455af72962c8578f787",
+      "file|include/luajit-2.1/lua.hpp|3365db69037f3ae891e9ae6489fdfcdaf73185347b8b8ff7c0e8ee66523753f1",
+      "file|include/luajit-2.1/luaconf.h|7487abc41f750a9a99189b54326d07aa8f31d12c245f174748ffb0d6023e9123",
+      "file|include/luajit-2.1/luajit.h|c210e45dc14d1445b50d4feb6af3c2cf8ef811faf6dcd2324b224ace53b72116",
+      "file|include/luajit-2.1/lualib.h|10fd6bccc4ae40cc9094b10d8d8de5a8d3febb90668cde599c253bec04bf4546",
+      "file|lib/libluajit-5.1.a|a00cbcbd5479116ee9e684f6c91e142eb1500150b3c5b30c81c60b28614ebe5d",
+      "file|lib/libluajit-5.1.dll.a|3e8cd841bd4e20bc7c0f1b74d7c6ea9bd7d1720be11c84c027ba0381891c5244",
+      "file|lib/pkgconfig/lua5.1.pc|6357d16196beb617406951c86d4548f59f24c49ac6619677329e9d671aa7a405",
+      "file|lib/pkgconfig/luajit.pc|6357d16196beb617406951c86d4548f59f24c49ac6619677329e9d671aa7a405",
+      "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
+      "file|scoop-manifest.json|7c17acfe676ab4bc759c2be5b041b7837a3c9a9d7a98a0f242dd9474bc8084fb",
+      "file|share/luajit-2.1/jit/bc.lua|cb3b4e5b50cf27ae4921494bb6d0c33699b50fae034032ef5c86709ab53be20d",
+      "file|share/luajit-2.1/jit/bcsave.lua|6810972cc5e10d1899d45b5f8bdde00679017b6d10e94d259685fd2343f67f18",
+      "file|share/luajit-2.1/jit/dis_arm.lua|97457646e34a0365f78fc04f6cb89be02af099b51040d07e8c37058a7365c2c6",
+      "file|share/luajit-2.1/jit/dis_arm64.lua|a2325517d49949a414350c24c0e5264d3fb5908fb14d02f4c0300b4dc57e2aa2",
+      "file|share/luajit-2.1/jit/dis_arm64be.lua|e0787c04f39a4a2c803e3a4b332080474b608cbc0c2c1b47d62057ea8ed147d0",
+      "file|share/luajit-2.1/jit/dis_mips.lua|3c3a8f20233bdc7351e064a7821a8725a61e299185cdda78a6c50d9e4f3ded24",
+      "file|share/luajit-2.1/jit/dis_mips64.lua|50bf2dacbd7ca538c9d023200721d195de9a675b2c864f224fd44f673e33a8f4",
+      "file|share/luajit-2.1/jit/dis_mips64el.lua|c582c94a6df204ed9f7a8e473de369cb3e581610907ebe54c8a2a84e32ace215",
+      "file|share/luajit-2.1/jit/dis_mips64r6.lua|6d17290829f9b1dacf2100ec018312f636ea8e115bfc82231cceb984dde39eb1",
+      "file|share/luajit-2.1/jit/dis_mips64r6el.lua|30441dd1058c947579095c51c3ffb1134815c9746ba2bea50605ab5800024776",
+      "file|share/luajit-2.1/jit/dis_mipsel.lua|a356898ea131f61e6bb091994e30ad5d44ded6d1a368498b0c8b67470db139e3",
+      "file|share/luajit-2.1/jit/dis_ppc.lua|f8fcdefd6c76bce342990aee5382cf089fd1d50fb17327ed1e2e5d1552f81e49",
+      "file|share/luajit-2.1/jit/dis_x64.lua|5b1cece01582e828d98de2ce8dbe7b6551b30b007945795a7970d82e50e10e56",
+      "file|share/luajit-2.1/jit/dis_x86.lua|8830549465e4c5635c0b2882ec7ae9f52ed5b33b8f6dc52f109dc2b2b1a0914f",
+      "file|share/luajit-2.1/jit/dump.lua|8ff144913e2e9ac3483cb318d9d93d6bc28f38ebdf8696953d9684795bf29fe1",
+      "file|share/luajit-2.1/jit/p.lua|adc9593849aad3d672c62605a7c530a6e5d3e993e79c60c39251770b5d0c8729",
+      "file|share/luajit-2.1/jit/v.lua|7d574bc2b024dea842b2acd952736434bba23338c465d84f855cc76dbf710011",
+      "file|share/luajit-2.1/jit/vmdef.lua|0a7bf90ebf9c65acd7949e3d3a904624d95743e7767927d3dc8ef521ab639104",
+      "file|share/luajit-2.1/jit/zone.lua|e9f38abaaf4e7a5181de8ec3316390c632422ad773892b875f81195c1e9a1ac8",
+      "file|share/man/man1/luajit.1.gz|8f6b07ef9ce24aca183fc008848ec0567011315ac708ca1800ff90e80b5e94fb"
+    ]
+  ]
+}
