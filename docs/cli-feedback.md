@@ -30,6 +30,26 @@ Creating shim for 'rg'.
 - 失败在出错的那一步立刻出现，形状见实录的「失败：hash 不符」段落：`ERROR …` 加字段块和引导语，退出码 1。
 - 批量：每包完整走一遍，**没有批级表头，也没有结尾汇总**。
 - 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西。
+- 安装与更新的开始行**不带**结尾句点，卸载与重置**带**。
+- 安装完成后，Manifest 的 `suggest`（每个候选都未安装的 feature 一行）与 `notes`（`Notes` / `-----` 块，原文保留换行）依次打印。
+
+## 性能归因
+
+每次写命令都把分阶段耗时写进 `<根>/.coop/timings/`：`steps`（每步的名字、次数、秒数）、`download_seconds`、`local_seconds`、`total_seconds`。只有 `download` 步骤算网络，其余都算本机开销。
+
+`--timings` 在命令结束时追加三行摘要：
+
+```
+Timings
+-------
+download 1.234 s
+local    0.456 s
+total    1.690 s
+```
+
+默认不打印，因此默认输出仍与 Scoop 逐字一致。归因的意义在于**两个量可以分别比较**：一个混着网络的总时长无法与另一客户端对照，旧的那张耗时表就是因为这个被撤掉的。
+
+与 Scoop 的比值对照尚未实现（见 #71）。
 
 ## 与 Scoop 的逐字对照
 
@@ -49,9 +69,11 @@ Creating shim for 'rg'.
 | 卸载入口 | 每个入口两行：`Removing shim '<别名>.shim'.` 和 `Removing shim '<别名>.exe'.` |
 | 卸载成功 | `'<包>' was uninstalled.` |
 | 清理 | `Removing <包>:`，版本行以空格开头，结尾固定句 `Everything is shiny now!` |
-| 更新 | `<包>: <旧> -> <新>` / `Updating one outdated app:` / `Updating '<包>' (<旧> -> <新>)` / `Downloading new version`，随后按"先卸旧、再装新"重走安装行 |
+| 更新 | `<包>: <旧> -> <新>` / `Updating one outdated app:` / `Updating '<包>' (<旧> -> <新>)` / `Downloading new version` / `Uninstalling '<包>' (<旧>)` / `Installing '<包>' (<新>) [<架构>] from '<bucket>' bucket` |
 | 建议 | `'<包>' suggests installing '<bucket>/<包>'.`（来自 Manifest 的 `suggest`，DarkYellow） |
 | 尾注 | 成功行之后按 Manifest 的 `notes` 回显 `Notes` / `-----` 块 |
+
+更新的一处**刻意偏离**：coop 在解链旧版本之前完成校验与解压，所以 `Checking hash` / `Extracting` 两行出现在 `Uninstalling` 之前。按 Scoop 的顺序（下载 → 卸载 → 从缓存安装），解压失败会把旧版本一起弄没；coop 的顺序保证失败时 `current` 仍指向可用版本。这一条由 `tests/update-lines.ps1` 的失败用例守着。
 
 ## 颜色
 
