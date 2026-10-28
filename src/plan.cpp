@@ -973,8 +973,7 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
                 if (!plan_is_no_op(prepared_simple_plan(context,action,utf8(name),architecture,purge))) ++outdated;
             } catch (const std::exception&) { ++outdated; }  // A plan that cannot be built still needs a block.
         }
-        if (outdated == 1) std::cout << "Updating one outdated app:\n";
-        else if (outdated > 1) std::cout << "Updating " << outdated << " outdated apps:\n";
+        if (outdated > 0) std::cout << lines::batch_heading(outdated) << '\n';
     }
     for (const auto& name : names) {
         const auto request = utf8(name);

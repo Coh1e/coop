@@ -674,8 +674,8 @@ void announce_update_move(const Context& context, const Plan& plan, bool heading
     if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
     if (plan.package.version == plan.previous->version &&
         plan.package.manifest_digest == plan.previous->manifest_digest) return;
-    std::cout << plan.package.name << ": " << plan.previous->version << " -> " << plan.package.version << '\n';
-    if (heading) std::cout << "Updating one outdated app:\n";
+    std::cout << lines::version_move(plan.package.name,plan.previous->version,plan.package.version) << '\n';
+    if (heading) std::cout << lines::batch_heading(1) << '\n';
 }
 void announce_success_line(const Context& context, const Plan& plan) {
     if (context.json_output) return;
@@ -1345,14 +1345,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (plan.action == ir::Action::update && step.previous != previous_phase) {
                 previous_phase = step.previous;
                 if (step.previous)
-                    progress_stage("Uninstalling '"+package.name+"' ("+
-                        (plan.previous ? plan.previous->version : package.version)+")");
-                else {
-                    std::string header = "Installing '"+package.name+"' ("+package.version+")";
-                    if (!package.architecture.empty()) header += " ["+package.architecture+"]";
-                    if (!package.bucket.empty()) header += " from '"+package.bucket+"' bucket";
-                    progress_stage(header);
-                }
+                    progress_stage(lines::package_start("Uninstalling",package.name,
+                        plan.previous ? plan.previous->version : package.version,"","","",false));
+                else
+                    progress_stage(lines::package_start("Installing",package.name,package.version,
+                        package.architecture,package.bucket,"",false));
             }
             journal["stage"] = ir::operation_name(step.operation);
             if (!journal.contains("observed_steps")) journal["observed_steps"] = Json::array();

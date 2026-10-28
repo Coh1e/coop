@@ -37,7 +37,7 @@ std::string ansi_dark_yellow(const std::string& text);
 // #62 asks for the render to live here, so a line can change without touching the step machine.
 namespace lines {
 std::string package_start(const std::string& verb,const std::string& name,const std::string& version,
-    const std::string& architecture,const std::string& bucket,const std::string& previous);
+    const std::string& architecture,const std::string& bucket,const std::string& previous,bool terminate = true);
 std::string downloading(const std::string& url,bool have_size,std::uint64_t size);
 std::string loading_cache(const std::string& file);
 std::string checking_hash(const std::string& file);

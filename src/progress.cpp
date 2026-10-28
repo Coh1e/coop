@@ -60,11 +60,11 @@ void TextProgress::finish_stage() {
 }
 namespace lines {
 std::string package_start(const std::string& verb,const std::string& name,const std::string& version,
-    const std::string& architecture,const std::string& bucket,const std::string& previous) {
+    const std::string& architecture,const std::string& bucket,const std::string& previous,bool terminate) {
     // Scoop's shapes: uninstall and reset carry no architecture or bucket, reset does not quote the
     // name, and install/update end without a period while the other two carry one.
-    if (verb == "Resetting") return verb+" "+name+" ("+version+").";
-    if (verb == "Uninstalling") return verb+" '"+name+"' ("+version+").";
+    if (verb == "Resetting") return verb+" "+name+" ("+version+")"+(terminate ? "." : "");
+    if (verb == "Uninstalling") return verb+" '"+name+"' ("+version+")"+(terminate ? "." : "");
     if (verb == "Updating") return verb+" '"+name+"' ("+(previous.empty() ? version : previous)+" -> "+version+")";
     std::string line = verb+" '"+name+"' ("+version+")";
     if (!architecture.empty()) line += " ["+architecture+"]";

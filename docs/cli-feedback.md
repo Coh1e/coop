@@ -28,8 +28,8 @@ Creating shim for 'rg'.
 - 阶段行在阶段开始或完成时打印，不攒到结束。
 - 下载在终端上显示行内进度；**非终端（管道、CI）没有进度条**——这不是 Coop 的选择，Scoop 的进度条被 `lib/download.ps1:73` 的 `isoutputredirected` 锁在 TTY 内。非终端只保留阶段行（`Installing`、`Checking hash of …`、`Extracting …` 等）与结束行；Scoop 在管道里连这些也会省略，Coop 不会——这是刻意保留的差异，便于 CI 日志定位。
 - 失败在出错的那一步立刻出现，形状见实录的「失败：hash 不符」段落：`ERROR …` 加字段块和引导语，退出码 1。
-- 批量：每包完整走一遍，**没有批级表头，也没有结尾汇总**。
-- 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西。
+- 批量：每包完整走一遍，**没有批级结尾汇总**；`update a b` 在第一个块之前打**一次**表头，只数真正过期的包（`Updating one outdated app:` 或 `Updating N outdated apps:`），已是最新的包在自己的位置报 `<包>: up-to-date`。
+- 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西；批量里遇到已装的包打同一对 WARN，不报成功行。
 - 安装与更新的开始行**不带**结尾句点，卸载与重置**带**。
 - 安装完成后，Manifest 的 `suggest`（每个候选都未安装的 feature 一行）与 `notes`（`Notes` / `-----` 块，原文保留换行）依次打印。
 
@@ -105,7 +105,7 @@ Installing 'main' (1.0.0) [64bit] from 'test' bucket
 
 `reset`：`Resetting <包> (<版本>).` 加 Linking 与 shim 行，**无结尾行**。
 
-`cleanup`：删除了什么就列什么，随后空行与固定句；没有可删的版本时只打最后一句。
+`cleanup`：删除了什么就列什么，随后空行与固定句；没有可删的版本时只打最后一句。**失败时（退出码 1）不打固定句**——那一轮没有到达"干净"状态，最后一行是错误原因。
 
 ```
 Removing old:
