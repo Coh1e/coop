@@ -103,40 +103,15 @@ void download_file(const std::string& url, const fs::path& destination,
     if (!output) throw std::runtime_error("Cannot finish artifact file");
 }
 std::optional<std::uint64_t> artifact_size(const std::string& url) {
-    // Best effort by design: the download line reports a size when it can be known before the transfer
-    // starts, and stays quiet when it cannot. A probe never fails the install.
+    // Only a local artifact is measured here. A HEAD probe was tried for http(s) and withdrawn: the
+    // extra request broke servers that answer exactly one connection (archive_safety, lifecycle_race
+    // and update_input_change each stand up such a fixture), and a wrong or hanging probe is worse
+    // than a line without a size. The line simply omits the size when it is not known.
     try {
         if (url.starts_with("file://")) return static_cast<std::uint64_t>(fs::file_size(local_file_path(url)));
-        const auto address = wide(url);
-        URL_COMPONENTS components{};
-        components.dwStructSize = sizeof(components);
-        components.dwHostNameLength = components.dwUrlPathLength = components.dwExtraInfoLength = static_cast<DWORD>(-1);
-        components.dwUserNameLength = components.dwPasswordLength = static_cast<DWORD>(-1);
-        if (!WinHttpCrackUrl(address.c_str(),0,0,&components)) return std::nullopt;
-        if (components.nScheme != INTERNET_SCHEME_HTTPS && components.nScheme != INTERNET_SCHEME_HTTP) return std::nullopt;
-        InternetHandle session{WinHttpOpen(L"Coop/0.1",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
-        if (!session.value) return std::nullopt;
-        WinHttpSetTimeouts(session.value,5000,5000,5000,5000);
-        const std::wstring host(components.lpszHostName,components.dwHostNameLength);
-        std::wstring path(components.lpszUrlPath,components.dwUrlPathLength);
-        if (components.dwExtraInfoLength) path.append(components.lpszExtraInfo,components.dwExtraInfoLength);
-        InternetHandle connection{WinHttpConnect(session.value,host.c_str(),components.nPort,0)};
-        if (!connection.value) return std::nullopt;
-        InternetHandle request{WinHttpOpenRequest(connection.value,L"HEAD",path.c_str(),nullptr,WINHTTP_NO_REFERER,
-            WINHTTP_DEFAULT_ACCEPT_TYPES,components.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)};
-        if (!request.value) return std::nullopt;
-        DWORD logon_policy = WINHTTP_AUTOLOGON_SECURITY_LEVEL_HIGH;
-        WinHttpSetOption(request.value,WINHTTP_OPTION_AUTOLOGON_POLICY,&logon_policy,sizeof(logon_policy));
-        if (!WinHttpSendRequest(request.value,WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0) ||
-            !WinHttpReceiveResponse(request.value,nullptr)) return std::nullopt;
-        DWORD length = 0, size = sizeof(length);
-        if (!WinHttpQueryHeaders(request.value,WINHTTP_QUERY_CONTENT_LENGTH|WINHTTP_QUERY_FLAG_NUMBER,
-            WINHTTP_HEADER_NAME_BY_INDEX,&length,&size,WINHTTP_NO_HEADER_INDEX)) return std::nullopt;
-        if (!length) return std::nullopt;
-        return static_cast<std::uint64_t>(length);
-    } catch (const std::exception&) { return std::nullopt; }
-}
-void make_junction(const fs::path& link, const fs::path& target) {
+    } catch (const std::exception&) { /* Unknown size is not an error. */ }
+    return std::nullopt;
+}void make_junction(const fs::path& link, const fs::path& target) {
     // Reparse points use the NT namespace (\??\) directly, which is not limited by MAX_PATH.
     // A \\?\ prefix copied from an extended input would produce \??\\\?\... and make the link
     // unusable, so the plain drive/UNC spelling is stored while long targets stay fully supported.

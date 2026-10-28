@@ -21,7 +21,7 @@ Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-
 | 行 | Scoop（历史） | Coop（本轮） | 对齐 |
 | --- | --- | --- | --- |
 | 安装开始 | `Installing 'ripgrep' (15.2.0) [64bit] from 'main' bucket` | 同形（无结尾句点） | 逐字 |
-| 下载 | `Downloading <url> (<大小>)...` | 同形（本地夹具报 `(1.3 MB)`，取不到大小时省略括号） | 逐字 |
+| 下载 | `Downloading <url> (<大小>)...` | 本地夹具同形（`(1.3 MB)`）；`http(s)` 目前省略括号 | 本地逐字，网络省略 |
 | 校验 | `Checking hash of <文件>... ` / `OK.` | 同形，含青色 | 逐字 |
 | 解压 | `Extracting <文件>... ` / `Done.` | 同形，含青色 | 逐字 |
 | 链接 | `Linking <根>\apps\<包>\current => <根>\apps\<包>\<版本>` | 同形 | 逐字 |

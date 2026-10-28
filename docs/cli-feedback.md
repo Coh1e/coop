@@ -56,7 +56,7 @@ total    1.690 s
 | 场景 | 行 |
 | --- | --- |
 | 安装开始 | `Installing '<包>' (<版本>) [<架构>] from '<bucket>' bucket` |
-| 下载 | `Downloading <url> (<大小>)...` |
+| 下载 | `Downloading <url> (<大小>)...`（本地产物可测大小；`http(s)` 目前省略括号） |
 | 校验 | `Checking hash of <ESC>[36m<文件名><ESC>[0m... ` 换行 `OK.` |
 | 解压 | `Extracting <ESC>[36m<文件名><ESC>[0m... ` 换行 `Done.` |
 | 链接 | `Linking <根>\apps\<包>\current => <根>\apps\<包>\<版本>` |
