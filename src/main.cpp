@@ -2,6 +2,7 @@
 #include <string_view>
 #include "app.hpp"
 #include "package.hpp"
+#include "progress.hpp"
 #include "native.hpp"
 #include "recovery.hpp"
 #include "shim.hpp"
@@ -110,8 +111,14 @@ int wmain(int argc, wchar_t** argv) {
             if (command == L"init") return coop::init_command(context,arguments);
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);
-            if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"reset" || command == L"cleanup")
+            if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"reset" || command == L"cleanup") {
+                // Progress belongs to the human-readable write commands only; --json runs stay silent
+                // and keep their existing result object.
+                coop::TextProgress progress;
+                if (!context.json_output) coop::set_progress(&progress);
+                struct Reset { ~Reset() { coop::set_progress(nullptr); } } reset;
                 return coop::package_command(context,command,arguments,architecture);
+            }
             return coop::query(context, command, arguments);
         }
         throw coop::UsageError("unknown command; use --help");

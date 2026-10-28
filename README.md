@@ -13,6 +13,7 @@ Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop
 - [真实 Scoop 安装基线](docs/real-scoop-baseline.md)
 - [共用 bucket 的直接刷新](docs/shared-bucket-support.md)
 - [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)
+- [CLI 反馈与下载缓存](docs/cli-feedback.md)
 - [没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)
 - [原型正式规格（历史，#2）](https://github.com/Coh1e/coop/issues/2)
 - [设计背景、验收路径与下一步](docs/architecture.md)

@@ -8,6 +8,7 @@
 #include "user_environment.hpp"
 #include "script.hpp"
 #include "shim.hpp"
+#include "progress.hpp"
 #include "inno.hpp"
 #include "msi.hpp"
 #include "nsis.hpp"
@@ -689,6 +690,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // plan's inputs are still rechecked below before the first write.
     if (!plan.executable()) throw std::runtime_error(plan.blocker);
     const auto& package = plan.package;
+    if (auto* progress = active_progress()) {
+        const char* verb = plan.action == ir::Action::install ? "Installing" :
+            plan.action == ir::Action::update ? "Updating" :
+            plan.action == ir::Action::uninstall ? "Uninstalling" :
+            plan.action == ir::Action::reset ? "Resetting" : "Processing";
+        std::string line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
+        if (!package.architecture.empty()) line += " ["+package.architecture+"]";
+        if (!package.bucket.empty()) line += " from '"+package.bucket+"' bucket";
+        progress->package(line+".");
+    }
     const bool updating = plan.action == ir::Action::update;
     const bool resetting = plan.action == ir::Action::reset;
     const auto& installed = (updating || resetting) ? plan.previous.value() : package;
@@ -1142,6 +1153,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         const auto stage = transaction/L"payload";
         const auto downloads = transaction/L"downloads";
         std::vector<fs::path> downloaded_files(package.downloads.size());
+        std::set<std::size_t> cache_hits;
         bool stage_ready = false;
         bool version_published = false;
         bool preparation_checked = false;
@@ -1215,7 +1227,30 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (step.index >= package.downloads.size()) throw std::runtime_error("Plan download index is out of range");
                 const auto& artifact = package.downloads[step.index];
                 const auto downloaded = downloads/(std::to_wstring(step.index)+L"-"+wide(artifact.filename));
-                download_file(artifact.url,downloaded);
+                // <root>/cache is shared with Scoop: a file whose declared digest still matches is
+                // reused instead of downloaded again (GLOSSARY: Download Cache).
+                const auto cache_directory = context.root/L"cache";
+                const auto cached_file = cache_directory/wide(artifact.filename);
+                bool from_cache = false;
+                if (fs::is_regular_file(cached_file)) {
+                    try {
+                        if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
+                            progress_stage("Loading "+artifact.filename+" from cache.");
+                            fs::copy_file(cached_file,downloaded,fs::copy_options::overwrite_existing);
+                            from_cache = true;
+                            journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
+                                {"filename",artifact.filename},{"renamed",artifact.renamed},
+                                {"algorithm",ir::digest_algorithm_name(artifact.digest.algorithm)},
+                                {"expected_digest",artifact.digest.value},{"bytes",fs::file_size(downloaded)},
+                                {"cache","hit"}});
+                        }
+                    } catch (const std::exception&) { from_cache = false; }
+                }
+                if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
+                progress_stage("Downloading "+artifact.url);
+                download_file(artifact.url,downloaded,
+                    [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); });
+                progress_finish_stage();
                 downloaded_files[step.index] = downloaded;
                 journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
                     {"filename",artifact.filename},{"renamed",artifact.renamed},
@@ -1239,6 +1274,19 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
                 journal["downloads"][std::size_t(step.index)]["verified"] = true;
                 save();
+                progress_stage("Checking hash of "+artifact.filename+"... OK.");
+                if (!cache_hits.count(step.index) && artifact.format != ir::ArchiveFormat::file) {
+                    // Cache the verified download in the layout Scoop itself reads.
+                    std::error_code cache_error;
+                    const auto cache_directory = context.root/L"cache";
+                    fs::create_directories(cache_directory,cache_error);
+                    const auto cached_file = cache_directory/wide(artifact.filename);
+                    std::error_code digest_error;
+                    const bool reusable = fs::is_regular_file(cached_file,digest_error) && !digest_error &&
+                        digest_file(cached_file,algorithm) == expected;
+                    if (!reusable)
+                        fs::copy_file(downloaded_files[step.index],cached_file,fs::copy_options::overwrite_existing,cache_error);
+                }
                 if (artifact.format == ir::ArchiveFormat::file) {
                     ensure_stage();
                     const auto target = stage/wide(artifact.filename);
@@ -1297,6 +1345,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 } else {
                     extract_archive(downloaded_files[step.index],raw);
                 }
+                progress_stage("Extracting "+artifact.filename+"... Done.");
                 const auto destination = artifact.extract_destination.empty() ? stage : stage/artifact.extract_destination;
                 // Scoop 0.6.0 unpacks a compressed tar wrapper first and applies extract_dir while
                 // extracting the inner tar; plain tar applies it directly. Merge the tree below the
@@ -1355,6 +1404,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             case ir::Operation::remove_entries: {
                 ensure_preparation();
                 for (const auto& entry : installed_entries) {
+                    progress_stage("Removing command entry '"+entry.name+"'.");
                     move(entry.executable,transaction/(wide(entry.name)+(step.previous ? L".old.exe" : L".exe")));
                     move(entry.metadata,transaction/(wide(entry.name)+(step.previous ? L".old-metadata" : L".metadata")));
                     if (!entry.extra_metadata.empty())
@@ -1471,6 +1521,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             case ir::Operation::remove_version:
                 ensure_preparation();
+                progress_stage("Removing "+path_text(version));
                 move(version,transaction/L"removed-version");
                 break;
             case ir::Operation::publish_current: {
@@ -1478,6 +1529,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_version();
                 ordinary_parents(context.root,app);
                 fs::create_directories(app);
+                progress_stage("Linking "+path_text(app/L"current")+" => "+path_text(version));
                 make_junction(transaction/L"new-current",version);
                 create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
                 break;
@@ -1496,6 +1548,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
                 std::set<std::wstring> prepared_aliases;
                 for (const auto& command : package.entries) {
+                    progress_stage("Creating shim for '"+command.alias+"'.");
                     const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
                     const auto kind = launcher_kind(fs::path(wide(command.target)));
                     const auto target = version/wide(command.target);

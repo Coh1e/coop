@@ -46,10 +46,16 @@ fs::path local_file_path(const std::string& url) {
     return fs::path(wide(decoded));
 }
 }
-void download_file(const std::string& url, const fs::path& destination) {
+void download_file(const std::string& url, const fs::path& destination,
+                   const std::function<void(std::uint64_t,std::uint64_t)>& on_progress) {
     const auto address = wide(url);
     if (url.starts_with("file://")) {
-        fs::copy_file(local_file_path(url),destination);
+        const auto source = local_file_path(url);
+        if (on_progress) {
+            const auto size = static_cast<std::uint64_t>(fs::file_size(source));
+            on_progress(size,size);
+        }
+        fs::copy_file(source,destination);
         return;
     }
     URL_COMPONENTS components{};
@@ -78,13 +84,20 @@ void download_file(const std::string& url, const fs::path& destination) {
         throw std::runtime_error("Artifact HTTP status "+std::to_string(status));
     std::ofstream output(destination,std::ios::binary|std::ios::trunc);
     if (!output) throw std::runtime_error("Cannot create artifact file");
+    DWORD declared_length = 0, declared_size = sizeof(declared_length);
+    if (!WinHttpQueryHeaders(request.value,WINHTTP_QUERY_CONTENT_LENGTH|WINHTTP_QUERY_FLAG_NUMBER,
+        WINHTTP_HEADER_NAME_BY_INDEX,&declared_length,&declared_size,WINHTTP_NO_HEADER_INDEX))
+        declared_length = 0;
     std::array<char,65536> buffer{};
     DWORD count = 0;
+    std::uint64_t received = 0;
     for (;;) {
         if (!WinHttpReadData(request.value,buffer.data(),static_cast<DWORD>(buffer.size()),&count)) throw std::runtime_error("Artifact download interrupted");
         if (!count) break;
         output.write(buffer.data(),count);
         if (!output) throw std::runtime_error("Cannot write artifact file");
+        received += count;
+        if (on_progress) on_progress(received,static_cast<std::uint64_t>(declared_length));
     }
     output.close();
     if (!output) throw std::runtime_error("Cannot finish artifact file");

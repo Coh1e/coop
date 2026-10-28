@@ -969,15 +969,15 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
         if (!dry_run) item["transaction_scope"] = "per-package; completed operations are not rolled back when a later package fails";
         results.push_back(std::move(item));
         failed = failed || outcome.failed;
+        // A batch reports each package as it finishes; a buffered batch looks hung for the whole run.
+        if (!context.json_output) {
+            std::cout << request << ": " << outcome.status << '\n';
+            if (!outcome.reason.empty()) std::cerr << "coop: " << outcome.reason << '\n';
+            std::cout.flush();
+        }
     }
     if (context.json_output) print_json(results);
-    else {
-        for (const auto& item : results) {
-            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
-            if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
-        }
-        print_batch_summary(results);
-    }
+    else print_batch_summary(results);
     return failed ? 1 : 0;
 }
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
