@@ -19,6 +19,10 @@ bool stdout_is_terminal() {
     return terminal;
 }
 
+// The escapes are written unconditionally, exactly as Scoop does: a redirected run keeps them.
+std::string ansi_cyan(const std::string& text) { return "\x1b[36m"+text+"\x1b[0m"; }
+std::string ansi_dark_yellow(const std::string& text) { return "\x1b[33m"+text+"\x1b[0m"; }
+
 void TextProgress::package(const std::string& text) {
     finish_stage();
     std::cout << text << "\n";

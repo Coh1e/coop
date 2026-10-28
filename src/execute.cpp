@@ -713,7 +713,7 @@ int execute_plan(const Context& context, const Plan& plan) {
                 if (index) joined += "' or '";
                 joined += candidates[index];
             }
-            std::cout << "'"+plan.package.name+"' suggests installing '"+joined+"'.\n";
+            std::cout << ansi_dark_yellow("'"+plan.package.name+"' suggests installing '"+joined+"'.") << '\n';
         }
         if (!plan.package.notes.empty()) std::cout << "Notes\n-----\n"+plan.package.notes+"\n-----\n";
     }
@@ -1329,7 +1329,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
                 journal["downloads"][std::size_t(step.index)]["verified"] = true;
                 save();
-                progress_stage("Checking hash of "+artifact.filename+"... OK.");
+                progress_stage("Checking hash of "+ansi_cyan(artifact.filename)+"... OK.");
                 if (!cache_hits.count(step.index) && artifact.format != ir::ArchiveFormat::file) {
                     // Cache the verified download in the layout Scoop itself reads.
                     std::error_code cache_error;
@@ -1368,7 +1368,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                         journal[key].push_back(std::move(entry));
                         save();
                     });
-                progress_stage("Extracting "+artifact.filename+"... Done.");
+                progress_stage("Extracting "+ansi_cyan(artifact.filename)+"... Done.");
                 test_fault_point(context,"after-extract");
                 break;
             }

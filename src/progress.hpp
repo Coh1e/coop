@@ -27,6 +27,11 @@ void progress_stage(const std::string& text);
 void progress_bytes(std::uint64_t done, std::uint64_t total);
 void progress_finish_stage();
 
+// Scoop writes ANSI escapes into its output regardless of the terminal, so the colour is part of the
+// line's bytes and survives a pipe. Text output only; --json never carries these.
+std::string ansi_cyan(const std::string& text);
+std::string ansi_dark_yellow(const std::string& text);
+
 bool stdout_is_terminal();
 
 // Writes stage lines to stdout and renders download progress with a carriage-return line.

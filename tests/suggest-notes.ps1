@@ -56,7 +56,8 @@ Write-Manifest 'test' 'sug' $suggesting
 $install = Invoke-Coop @('--root',$root,'install','test/sug')
 if ($install.exit -ne 0) { throw "the install failed: $($install.error)$($install.output)" }
 $lines = @($install.output -split "`r?`n")
-$suggestLine = "'sug' suggests installing 'extras/vcredist2022'."
+$esc = [string][char]27
+$suggestLine = "$esc[33m'sug' suggests installing 'extras/vcredist2022'.$esc[0m"
 $notesIndex = [Array]::IndexOf($lines,'Notes')
 if ($notesIndex -lt 0) { throw "the notes block is missing:`n$($install.output)" }
 if ($lines[$notesIndex+1] -ne '-----') { throw "the notes heading is not followed by a rule: $($lines[$notesIndex+1])" }
