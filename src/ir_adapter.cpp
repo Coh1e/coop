@@ -161,6 +161,20 @@ Package adapt_manifest(const fs::path& path, const std::string& name, const std:
         unknown_fields(package,manifest);
         package.version = manifest.at("version").get<std::string>();
         validate_component(package.version);
+        // Both fields are reported after a successful install. `suggest` maps a feature to one
+        // candidate or a list of them; nlohmann orders object keys, so the printed order is stable.
+        if (manifest.contains("notes") && manifest.at("notes").is_string())
+            package.notes = manifest.at("notes").get<std::string>();
+        if (manifest.contains("suggest") && manifest.at("suggest").is_object()) {
+            for (auto item = manifest.at("suggest").begin(); item != manifest.at("suggest").end(); ++item) {
+                std::vector<std::string> candidates;
+                if (item.value().is_string()) candidates.push_back(item.value().get<std::string>());
+                else if (item.value().is_array())
+                    for (const auto& candidate : item.value())
+                        if (candidate.is_string()) candidates.push_back(candidate.get<std::string>());
+                if (!candidates.empty()) package.suggestions.emplace_back(item.key(),std::move(candidates));
+            }
+        }
         const Json* selected = nullptr;
         if (manifest.contains("architecture")) {
             const auto& architectures = manifest.at("architecture");

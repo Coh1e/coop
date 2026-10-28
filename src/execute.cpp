@@ -692,6 +692,31 @@ int execute_plan(const Context& context, const Plan& plan) {
     if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
     else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
     else std::cout << plan.package.name << ": success\n";
+    // Scoop's post-install text: one suggestion line per feature whose candidates are all missing,
+    // then the Manifest's notes verbatim under a fixed heading.
+    if (plan.action == ir::Action::install || plan.action == ir::Action::update) {
+        const auto installed = ir::read_installations(context.root);
+        const auto is_installed = [&](const std::string& name) {
+            return std::any_of(installed.begin(),installed.end(),
+                [&](const ir::InstalledFact& fact) { return equal_name(fact.name,name); });
+        };
+        for (const auto& [feature,candidates] : plan.package.suggestions) {
+            bool fulfilled = false;
+            for (const auto& candidate : candidates) {
+                auto app = candidate;
+                if (const auto slash = app.find('/'); slash != std::string::npos) app.erase(0,slash+1);
+                if (is_installed(app)) { fulfilled = true; break; }
+            }
+            if (fulfilled) continue;
+            std::string joined;
+            for (std::size_t index = 0; index < candidates.size(); ++index) {
+                if (index) joined += "' or '";
+                joined += candidates[index];
+            }
+            std::cout << "'"+plan.package.name+"' suggests installing '"+joined+"'.\n";
+        }
+        if (!plan.package.notes.empty()) std::cout << "Notes\n-----\n"+plan.package.notes+"\n-----\n";
+    }
     if (plan.purge) {
         for (const auto& entry : result.value("purge",Json::object()).value("deleted",Json::array()))
             std::cout << "Deleted persisted data: " << entry.get<std::string>() << '\n';
@@ -1869,6 +1894,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     Json result = {{"package",package.name},{"version",package.version},{"status","success"},
         {"journal",path_text(transaction/L"journal.json")},{"persistence",persistence},
         {"shortcuts_already_absent",absent_shortcuts},{"scripts",script_runs},{"installers",installer_runs}};
+    // The Manifest's post-install text is part of the machine-readable result too, so a script sees
+    // the same facts the terminal does.
+    result["notes"] = package.notes;
+    Json suggestions = Json::array();
+    for (const auto& [feature,candidates] : package.suggestions)
+        suggestions.push_back({{"feature",feature},{"candidates",candidates}});
+    result["suggest"] = suggestions;
     if (plan.action == ir::Action::uninstall) {
         result["retained_versions"] = retained_versions(context,package.name,package.version);
         if (!plan.purge) {

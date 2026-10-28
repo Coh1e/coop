@@ -103,6 +103,12 @@ struct Package {
     std::vector<Diagnostic> diagnostics;
     std::vector<Warning> warnings;
 
+    // Text the Manifest asks Scoop to report after a successful install: `notes` is printed verbatim
+    // under a fixed heading, and `suggest` prints one line per feature whose candidates are all
+    // missing. Both are recorded so the printer never re-reads the Manifest.
+    std::string notes;
+    std::vector<std::pair<std::string,std::vector<std::string>>> suggestions;
+
     // Adapter evidence: the source declared URL and hash as parallel arrays. The validator uses the
     // declared count to distinguish a missing hash from a malformed one.
     std::size_t declared_hash_count = 0;

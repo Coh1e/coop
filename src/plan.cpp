@@ -221,7 +221,10 @@ Json package_json(const Context& context, const ir::Package& package) {
     Json result = {{"name",package.name},{"bucket",package.bucket},{"version",package.version},{"architecture",package.architecture},
         {"manifest_path",package.manifest_path},{"manifest_sha256",package.manifest_digest},
         {"commands",Json::array()},{"shortcuts",Json::array()},{"persistence",Json::array()},
-        {"environment",Json::array()},{"path_entries",Json::array()},{"scripts",Json::array()}};
+        {"environment",Json::array()},{"path_entries",Json::array()},{"scripts",Json::array()},
+        {"notes",package.notes},{"suggest",Json::array()}};
+    for (const auto& [feature,candidates] : package.suggestions)
+        result["suggest"].push_back({{"feature",feature},{"candidates",candidates}});
     for (const auto& item : package.entries) {
         const auto target = fs::path(wide(item.target));
         result["commands"].push_back({{"target",item.target},{"name",item.alias},{"arguments",item.arguments},
@@ -915,23 +918,6 @@ int install_single(const Context& context, const std::string& request, const std
     }
     return outcome.failed ? 1 : 0;
 }
-// Batch text output keeps every per-package line on stdout and adds one overall line so a partial
-// failure is visible without parsing JSON. The exit code remains the contract: 0 only when every
-// requested package succeeded or was skipped.
-void print_batch_summary(const Json& results) {
-    std::size_t success = 0, skipped = 0, failed = 0, other = 0;
-    for (const auto& item : results) {
-        const auto status = item.value("status",std::string{});
-        if (status == "success") ++success;
-        else if (status == "skipped") ++skipped;
-        else if (status == "failed" || status == "blocked" || status == "partial") ++failed;
-        else ++other;
-    }
-    std::cout << results.size() << " package(s): " << success << " succeeded, " << skipped
-              << " skipped, " << failed << " failed";
-    if (other) std::cout << ", " << other << " other";
-    std::cout << '\n';
-}
 int install_batch(const Context& context, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run) {
     Json results = Json::array();
     bool failed = false;
@@ -951,7 +937,6 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
             std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
             if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
         }
-        print_batch_summary(results);
     }
     return failed ? 1 : 0;
 }
@@ -985,7 +970,6 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
         }
     }
     if (context.json_output) print_json(results);
-    else print_batch_summary(results);
     return failed ? 1 : 0;
 }
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
