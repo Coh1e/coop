@@ -32,6 +32,24 @@ void progress_finish_stage();
 std::string ansi_cyan(const std::string& text);
 std::string ansi_dark_yellow(const std::string& text);
 
+// The one place a human-readable line is composed. The execution layer supplies data, never English:
+// #62 asks for the render to live here, so a line can change without touching the step machine.
+namespace lines {
+std::string package_start(const std::string& verb,const std::string& name,const std::string& version,
+    const std::string& architecture,const std::string& bucket,const std::string& previous);
+std::string downloading(const std::string& url,bool have_size,std::uint64_t size);
+std::string loading_cache(const std::string& file);
+std::string checking_hash(const std::string& file);
+std::string extracting(const std::string& file);
+std::string linking(const std::string& link,const std::string& target);
+std::string creating_shim(const std::string& alias);
+std::string removing_shim(const std::string& alias,const std::string& suffix);
+std::string installed(const std::string& name,const std::string& version);
+std::string uninstalled(const std::string& name);
+std::string up_to_date(const std::string& name);
+std::string already_installed(const std::string& name,const std::string& version);
+std::string advise_update(const std::string& name);
+}
 bool stdout_is_terminal();
 // Human-readable byte size, the way Scoop prints one: one decimal place above a kilobyte.
 std::string human_bytes(std::uint64_t bytes);

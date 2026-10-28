@@ -665,7 +665,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
 // The two announcements around a package block, shared by the single-command path and the batch path so
 // both print the same shape: the version move and heading before it, the closing line after it.
 void print_install_success(const std::string& name, const std::string& version) {
-    std::cout << "'"+name+"' ("+version+") was installed successfully!\n";
+    std::cout << lines::installed(name,version) << '\n';
 }
 void announce_update_move(const Context& context, const Plan& plan, bool heading) {
     if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
@@ -676,7 +676,7 @@ void announce_update_move(const Context& context, const Plan& plan, bool heading
 }
 void announce_success_line(const Context& context, const Plan& plan) {
     if (context.json_output) return;
-    if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
+    if (plan.action == ir::Action::uninstall) std::cout << lines::uninstalled(plan.package.name) << '\n';
     else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
     else print_install_success(plan.package.name,plan.package.version);
 }
@@ -692,8 +692,8 @@ int execute_plan(const Context& context, const Plan& plan) {
                 {"status","already-installed"}}.dump(2) << '\n';
             return 0;
         }
-        std::cout << "WARN  '"+plan.package.name+"' ("+plan.package.version+") is already installed.\n";
-        std::cout << "Use 'scoop update "+plan.package.name+"' to install a new version.\n";
+        std::cout << lines::already_installed(plan.package.name,plan.package.version) << '\n';
+        std::cout << lines::advise_update(plan.package.name) << '\n';
         return 0;
     }
     if (plan.purge && plan.action == ir::Action::uninstall && !context.json_output) {
@@ -712,7 +712,7 @@ int execute_plan(const Context& context, const Plan& plan) {
         return partial ? 1 : 0;
     }
     if (result.value("status",std::string{}) == "up-to-date") {
-        std::cout << plan.package.name << ": up-to-date\n";
+        std::cout << lines::up_to_date(plan.package.name) << '\n';
         return 0;
     }
     if (partial) {
@@ -782,8 +782,8 @@ void report_no_op(const Context& context, const Plan& plan) {
                 {"status","already-installed"}}.dump(2) << '\n';
             return;
         }
-        std::cout << "WARN  '"+plan.package.name+"' ("+plan.package.version+") is already installed.\n";
-        std::cout << "Use 'scoop update "+plan.package.name+"' to install a new version.\n";
+        std::cout << lines::already_installed(plan.package.name,plan.package.version) << '\n';
+        std::cout << lines::advise_update(plan.package.name) << '\n';
         return;
     }
     if (context.json_output) {
@@ -791,7 +791,7 @@ void report_no_op(const Context& context, const Plan& plan) {
             {"status","up-to-date"}}.dump(2) << '\n';
         return;
     }
-    std::cout << plan.package.name << ": up-to-date\n";
+    std::cout << lines::up_to_date(plan.package.name) << '\n';
 }
 Json execute_plan_result(const Context& context, const Plan& plan) {
     // Execution reads the one verdict the plan builder stored, exactly like the preview. The
@@ -810,24 +810,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             plan.action == ir::Action::update ? "Updating" :
             plan.action == ir::Action::uninstall ? "Uninstalling" :
             plan.action == ir::Action::reset ? "Resetting" : "Processing";
-        // Scoop's uninstall and reset lines carry no architecture and no bucket, and reset does not
-        // quote the package name. Install and update keep both, and those two lines end without a
-        // period while uninstall and reset carry one.
-        std::string line;
-        bool terminated = true;
-        if (plan.action == ir::Action::reset) line = std::string(verb)+" "+package.name+" ("+package.version+")";
-        else if (plan.action == ir::Action::uninstall) line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
-        else if (plan.action == ir::Action::update) {
-            line = std::string(verb)+" '"+package.name+"' ("+
-                (plan.previous ? plan.previous->version : package.version)+" -> "+package.version+")";
-            terminated = false;
-        } else {
-            line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
-            if (!package.architecture.empty()) line += " ["+package.architecture+"]";
-            if (!package.bucket.empty()) line += " from '"+package.bucket+"' bucket";
-            terminated = false;
-        }
-        progress->package(terminated ? line+"." : line);
+        progress->package(lines::package_start(verb,package.name,package.version,package.architecture,
+            package.bucket,plan.previous ? plan.previous->version : std::string{}));
     }
     const bool updating = plan.action == ir::Action::update;
     const bool resetting = plan.action == ir::Action::reset;
@@ -1401,7 +1385,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (fs::is_regular_file(cached_file)) {
                     try {
                         if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
-                            progress_stage("Loading "+artifact.filename+" from cache");
+                            progress_stage(lines::loading_cache(artifact.filename));
                             fs::copy_file(cached_file,downloaded,fs::copy_options::overwrite_existing);
                             from_cache = true;
                             journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
@@ -1421,7 +1405,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // response headers arrive, so the announcement waits for that callback instead of a
                 // second request.
                 const auto announce = [&](std::uint64_t size) {
-                    progress_stage("Downloading "+artifact.url+(size ? " ("+human_bytes(size)+")..." : ""));
+                    progress_stage(lines::downloading(artifact.url,size != 0,size));
                 };
                 if (artifact.url.starts_with("file://")) announce(artifact_size(artifact.url).value_or(0));
                 download_file(artifact.url,downloaded,
@@ -1444,7 +1428,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto& artifact = package.downloads[step.index];
                 // Scoop prints the line prefix first, then the verdict, so a slow hash check shows what
                 // it is working on.
-                progress_stage("Checking hash of "+ansi_cyan(artifact.filename)+"... ");
+                progress_stage(lines::checking_hash(artifact.filename));
                 // The IR declaration is authority for the digest algorithm and value. Never fall
                 // back to SHA256 for a SHA512 or SHA1 declaration.
                 const auto algorithm = artifact.digest.algorithm;
@@ -1482,7 +1466,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     throw std::runtime_error("Plan extraction has no downloaded artifact");
                 ensure_stage();
                 const auto& artifact = package.downloads[step.index];
-                progress_stage("Extracting "+ansi_cyan(artifact.filename)+"... ");
+                progress_stage(lines::extracting(artifact.filename));
                 // Every artifact crosses the same seam: the publication decides how the payload is
                 // unpacked, whether extract_dir still has to be applied, and whether a working tree
                 // has to be merged. The journal write keeps its original position inside that seam
@@ -1553,8 +1537,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 for (const auto& entry : installed_entries) {
                     // Scoop names both files of one command entry, one per line.
                     if (plan.action != ir::Action::reset) {
-                        progress_stage("Removing shim '"+entry.name+".shim'.");
-                        progress_stage("Removing shim '"+entry.name+".exe'.");
+                        progress_stage(lines::removing_shim(entry.name,".shim"));
+                        progress_stage(lines::removing_shim(entry.name,".exe"));
                     }
                     move(entry.executable,transaction/(wide(entry.name)+(step.previous ? L".old.exe" : L".exe")));
                     move(entry.metadata,transaction/(wide(entry.name)+(step.previous ? L".old-metadata" : L".metadata")));
@@ -1681,7 +1665,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_version();
                 ordinary_parents(context.root,app);
                 fs::create_directories(app);
-                progress_stage("Linking "+path_text(app/L"current")+" => "+path_text(version));
+                progress_stage(lines::linking(path_text(app/L"current"),path_text(version)));
                 // An install of a different version repoints an existing current link. The update path
                 // has already moved it away; here it is retired into the transaction, silently, because
                 // Scoop prints no unlink line for this case.
@@ -1723,7 +1707,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
                 std::set<std::wstring> prepared_aliases;
                 for (const auto& command : package.entries) {
-                    progress_stage("Creating shim for '"+command.alias+"'.");
+                    progress_stage(lines::creating_shim(command.alias));
                     const auto command_arguments = expand_exposure_arguments(context,package.name,app/L"current",command.arguments);
                     const auto kind = launcher_kind(fs::path(wide(command.target)));
                     const auto target = version/wide(command.target);

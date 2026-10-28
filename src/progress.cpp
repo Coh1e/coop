@@ -58,4 +58,36 @@ void TextProgress::finish_stage() {
     std::cout.flush();
     inline_active = false;
 }
+namespace lines {
+std::string package_start(const std::string& verb,const std::string& name,const std::string& version,
+    const std::string& architecture,const std::string& bucket,const std::string& previous) {
+    // Scoop's shapes: uninstall and reset carry no architecture or bucket, reset does not quote the
+    // name, and install/update end without a period while the other two carry one.
+    if (verb == "Resetting") return verb+" "+name+" ("+version+").";
+    if (verb == "Uninstalling") return verb+" '"+name+"' ("+version+").";
+    if (verb == "Updating") return verb+" '"+name+"' ("+(previous.empty() ? version : previous)+" -> "+version+")";
+    std::string line = verb+" '"+name+"' ("+version+")";
+    if (!architecture.empty()) line += " ["+architecture+"]";
+    if (!bucket.empty()) line += " from '"+bucket+"' bucket";
+    return line;
+}
+std::string downloading(const std::string& url,bool have_size,std::uint64_t size) {
+    return "Downloading "+url+(have_size ? " ("+human_bytes(size)+")..." : "");
+}
+std::string loading_cache(const std::string& file) { return "Loading "+file+" from cache"; }
+std::string checking_hash(const std::string& file) { return "Checking hash of "+ansi_cyan(file)+"... "; }
+std::string extracting(const std::string& file) { return "Extracting "+ansi_cyan(file)+"... "; }
+std::string linking(const std::string& link,const std::string& target) { return "Linking "+link+" => "+target; }
+std::string creating_shim(const std::string& alias) { return "Creating shim for '"+alias+"'."; }
+std::string removing_shim(const std::string& alias,const std::string& suffix) { return "Removing shim '"+alias+suffix+"'."; }
+std::string installed(const std::string& name,const std::string& version) {
+    return "'"+name+"' ("+version+") was installed successfully!";
+}
+std::string uninstalled(const std::string& name) { return "'"+name+"' was uninstalled."; }
+std::string up_to_date(const std::string& name) { return name+": up-to-date"; }
+std::string already_installed(const std::string& name,const std::string& version) {
+    return "WARN  '"+name+"' ("+version+") is already installed.";
+}
+std::string advise_update(const std::string& name) { return "Use 'scoop update "+name+"' to install a new version."; }
+}
 }

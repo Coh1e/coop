@@ -8,6 +8,10 @@ param(
 #
 # Deliberate whole-file line-ending conversion is not detected here: it stays a review concern. The
 # aim is to catch the invisible, accidental class that has actually happened.
+#
+# -Staged chooses which file *names* to check; the bytes come from the working tree, so a file whose
+# staged content differs from disk is checked as it is on disk. Reading the staged blob instead would
+# need a git-show round trip per file, which this check is deliberately too cheap to do.
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath($Root)
 Push-Location $Root
