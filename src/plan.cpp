@@ -817,8 +817,11 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
     if (!outcome.failed) try {
         auto result = execute_plan_result(context,plan);
         result["requested"] = true;
-        if (!context.json_output)
-            print_install_success(result.value("package",plan.package.name),result.value("version",plan.package.version));
+        // A no-op reports Scoop's warning instead of a success line, in batch mode too.
+        if (!context.json_output) {
+            if (plan_is_no_op(plan)) report_no_op(context,plan);
+            else print_install_success(result.value("package",plan.package.name),result.value("version",plan.package.version));
+        }
         packages.push_back(result);
         root_result = result;
     } catch (const std::exception& error) {
@@ -972,10 +975,18 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
     Json results = Json::array();
     bool failed = false;
     // Scoop announces the whole set once, before the first block, instead of repeating the heading
-    // per package. The count is the requested count: packages that turn out current report themselves.
-    if (action == ir::Action::update && !dry_run && !context.json_output && !names.empty())
-        std::cout << (names.size() == 1 ? "Updating one outdated app:"
-                                       : "Updating "+std::to_string(names.size())+" outdated apps:") << '\n';
+    // per package. The count is how many are actually outdated: planning a package is cheap (Manifest
+    // and local state only) and printing "2 outdated apps" when one is current would be a lie.
+    if (action == ir::Action::update && !dry_run && !context.json_output && !names.empty()) {
+        std::size_t outdated = 0;
+        for (const auto& name : names) {
+            try {
+                if (!plan_is_no_op(prepared_simple_plan(context,action,utf8(name),architecture,purge))) ++outdated;
+            } catch (const std::exception&) { ++outdated; }  // A plan that cannot be built still needs a block.
+        }
+        if (outdated == 1) std::cout << "Updating one outdated app:\n";
+        else if (outdated > 1) std::cout << "Updating " << outdated << " outdated apps:\n";
+    }
     for (const auto& name : names) {
         const auto request = utf8(name);
         const auto outcome = dry_run ? simple_preview(context,action,request,architecture,purge) : simple_execute(context,action,request,architecture,purge,true);

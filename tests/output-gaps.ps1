@@ -80,6 +80,33 @@ if (@($lines | Where-Object { $_ -eq 'Updating 2 outdated apps:' }).Count -ne 1)
 if (@($lines | Where-Object { $_ -eq 'Updating one outdated app:' }).Count -ne 0) {
     throw "a batch repeated the per-package heading:`n$($batch.output)"
 }
+# 3. A batch whose packages are not all outdated announces only the ones that are, and a current
+#    package reports up-to-date without a block of its own.
+Write-Manifest 'alpha' '1.2.0'
+$mixed = Invoke-Coop @('--root',$root,'update','alpha','beta')
+if ($mixed.exit -ne 0) { throw "the mixed batch failed: $($mixed.error)$($mixed.output)" }
+$mixedLines = @($mixed.output -split "`r?`n")
+if (-not ($mixedLines -contains 'Updating one outdated app:')) {
+    throw "the heading counted packages that were already current:`n$($mixed.output)"
+}
+if ($mixedLines -contains 'Updating 2 outdated apps:') { throw "the heading overcounted:`n$($mixed.output)" }
+if (-not ($mixedLines -contains 'beta: up-to-date')) { throw "the current package did not report up-to-date:`n$($mixed.output)" }
+if (@($mixedLines | Where-Object { $_ -like "Updating 'beta'*" }).Count -ne 0) {
+    throw "the current package printed a block of its own:`n$($mixed.output)"
+}
+
+# 4. A batch that meets an installed package repeats Scoop's warning instead of claiming success.
+$installed = Invoke-Coop @('--root',$root,'install','alpha','beta')
+if ($installed.exit -ne 0) { throw "the reinstall batch failed: $($installed.error)$($installed.output)" }
+$installedLines = @($installed.output -split "`r?`n" | Where-Object { $_ -ne '' })
+$warnLines = @($installedLines | Where-Object { $_ -like 'WARN  *already installed.*' -or $_ -like "Use 'scoop update*" })
+if ($warnLines.Count -lt 2) { throw "the batch did not warn about the installed packages:`n$($installed.output)" }
+if (@($installedLines | Where-Object { $_ -like "Installing 'alpha'*" }).Count -ne 0) {
+    throw "an installed package still printed an install block:`n$($installed.output)"
+}
+if (@($installedLines | Where-Object { $_ -like "*'alpha' (1.2.0) was installed successfully!*" }).Count -ne 0) {
+    throw "an installed package claimed success:`n$($installed.output)"
+}
 
 # 3. A network artifact names its size from the response headers of the transfer itself. A second
 #    request would break servers that answer one connection, so the line is printed at transfer start.

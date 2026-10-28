@@ -67,6 +67,10 @@ std::string execution_blocker(const Context& context, const Plan& plan);
 void announce_update_move(const Context& context, const Plan& plan, bool heading = true);
 // The one spelling of the install success sentence, used by every path that reports it.
 void print_install_success(const std::string& name, const std::string& version);
+// The two verdicts that produce no block at all: the version is already current, or an update found
+// nothing to do. Both are decided from the plan before anything is announced or written.
+bool plan_is_no_op(const Plan& plan);
+void report_no_op(const Context& context, const Plan& plan);
 void announce_success_line(const Context& context, const Plan& plan);
 std::string capability_blocker(const Context& context, const ir::Package& package);
 // Recovery of a package transaction is only automatic when every journaled path is still

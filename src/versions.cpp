@@ -788,7 +788,9 @@ int cleanup_command(const Context& context, const std::vector<std::wstring>& nam
                     entry.value("version",std::string{}) << ": " << entry.value("reason",std::string{}) << '\n';
         }
         if (removedAnything) std::cout << '\n';
-        std::cout << "Everything is shiny now!\n";
+        // The fixed sentence reports a clean state; a run that failed did not reach one, and the
+        // failure reason above is the last word.
+        if (!failed) std::cout << "Everything is shiny now!\n";
     }
     return failed ? 1 : 0;
 }
