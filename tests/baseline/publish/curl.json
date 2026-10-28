@@ -405,7 +405,7 @@
     "file|lib/libzstd.a|5eccd30c9d1fb1db6fd8d70e2d37f7ab084b39c23aadaee818c62074f1ac7766",
     "file|README.txt|4e3177f14f86cac279e34a80001da61fdf0476f68cf647c9b52f5422d7a132a0",
     "file|RELEASE-NOTES.txt|ed50b58a2c23ac2627ad417702dec970eb0c80042ab8f5e3e0ce380a445fb8db",
-    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-    "file|scoop-manifest.json|7e4cdde79e70c986f321a165ea5a23c4d40eaa2beff2833697f412d724e295c6"
+    "file|scoop-install.json|record",
+    "file|scoop-manifest.json|record"
   ]
 }

@@ -108,6 +108,13 @@ void write_entry(archive* source, const fs::path& destination) {
         throw std::runtime_error("Archive entry cannot be read: "+archive_error(source));
     }
 }
+// Ordinal, case-insensitive ordering, matching how the same file compares prefixes elsewhere in this
+// file: one comparison primitive for every "same path on Windows" question.
+struct OrdinalLess {
+    bool operator()(const std::wstring& left, const std::wstring& right) const {
+        return CompareStringOrdinal(left.c_str(),-1,right.c_str(),-1,TRUE) == CSTR_LESS_THAN;
+    }
+};
 // True when name is root itself or lies below it; relative receives the remainder. Component-wise
 // and case-insensitive, so "bin/x2" is not treated as below "bin/x".
 bool relative_below(const fs::path& name, const fs::path& root, fs::path& relative) {
@@ -141,14 +148,16 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
     if (archive_read_open_filename_w(source.get(),archive_path.wstring().c_str(),64*1024) != ARCHIVE_OK)
         throw std::runtime_error("Cannot open archive: "+archive_error(source.get()));
     std::uint64_t entries = 0, total = 0;
-    // A declared extract_dir that selects nothing must fail instead of publishing a version that
-    // only looks installed. Counting selected entries is what distinguishes "empty selection" from
-    // a legitimate empty archive, and it does not depend on the entries being directories.
-    std::size_t published = 0;
-    // Two entries can collapse onto one target once the extract_dir prefix is removed (a/A.TXT and
-    // a/a.txt differ in the archive and not on disk). Overwriting silently would leave a version
-    // whose contents depend on entry order, so a collision is a failure.
-    std::set<std::wstring> targets;
+    // A declared extract_dir that selects nothing must fail instead of publishing a version that only
+    // looks installed. Counting selected *files* is what distinguishes "empty selection" from a real
+    // payload: an archive that merely carries the named directories publishes nothing a user can run.
+    std::size_t published_files = 0;
+    // Two regular files can land on one target on disk (a/A.TXT and a/a.txt differ in the archive
+    // and not in Windows), or a file can land where an earlier directory went. Overwriting silently
+    // would leave a version whose contents depend on entry order, so that is a failure. Repeating a
+    // directory entry is ordinary in tar streams and stays allowed.
+    std::set<std::wstring,OrdinalLess> file_targets;
+    std::set<std::wstring,OrdinalLess> directory_targets;
     // Only this call's own writes may be undone. The destination is the package staging directory,
     // which other artifacts of the same package may already have written into.
     std::vector<fs::path> created;
@@ -173,10 +182,19 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
             }
             const auto type = archive_entry_filetype(entry.get());
             const auto target = destination/relative;
-            auto folded = target.wstring();
-            for (auto& character : folded) character = static_cast<wchar_t>(towlower(character));
-            if (!targets.insert(folded).second)
-                throw std::runtime_error("Archive entries collide at "+path_text(relative));
+            const auto key = target.wstring();
+            if (type == AE_IFREG) {
+                if (file_targets.contains(key) || directory_targets.contains(key))
+                    throw std::runtime_error("Archive entries collide at "+path_text(relative));
+                file_targets.insert(key);
+            } else if (type == AE_IFDIR) {
+                if (file_targets.contains(key))
+                    throw std::runtime_error("Archive entries collide at "+path_text(relative));
+                directory_targets.insert(key);
+            }
+            // Recorded only when this call actually created the target: a directory that an earlier
+            // artifact already published is not ours to remove if the publication later fails.
+            const auto existed = fs::exists(fs::symlink_status(target));
             ensure_parents(destination,target);
             if (type == AE_IFDIR) {
                 ensure_directory(target);
@@ -189,20 +207,27 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
             } else {
                 throw std::runtime_error("Archive contains an unsupported entry type");
             }
-            created.push_back(target);
-            ++published;
+            if (!existed) created.push_back(target);
+            if (type == AE_IFREG) ++published_files;
             archive_read_data_skip(source.get());
         }
-        if (!extract_directory.empty() && published == 0)
+        if (!extract_directory.empty() && published_files == 0)
             throw std::runtime_error("Archive does not contain the declared extract_dir: "+path_text(extract_directory));
     } catch (...) {
-        // Files first, then the directories this call created while they are still empty, so the
-        // cleanup never reaches an earlier artifact's content.
+        // Undo this call's own writes only: the destination is the package staging directory, which
+        // other artifacts of the same package may already have written into. Files go first, then the
+        // directories that held them, walking up towards - never including - the destination.
         while (!created.empty()) {
             try {
-                const auto& path = created.back();
-                if (fs::is_directory(fs::symlink_status(path))) fs::remove(path);
-                else fs::remove(path);
+                auto path = created.back();
+                fs::remove(path);
+                // ensure_parents may have created the directories above the target. Removing each one
+                // succeeds only while it is empty, which is exactly when this call made it.
+                for (auto parent = path.parent_path(); parent != destination && parent.has_parent_path();
+                     parent = parent.parent_path()) {
+                    if (!fs::is_directory(fs::symlink_status(parent)) || !fs::is_empty(parent)) break;
+                    fs::remove(parent);
+                }
             } catch (...) { /* Preserve the original archive failure. */ }
             created.pop_back();
         }

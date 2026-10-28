@@ -27,8 +27,8 @@
     "file|LICENSE-MIT|970813655a1bf777d2ead189cef71ab73ab92ce04dc864027d61a45de03e6728",
     "file|README.md|24c3effdbd5c493ceedce5bdcd955ee95c4a1b9acb4c431488c482a9ab0daaa0",
     "file|rg.exe|14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
-    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-    "file|scoop-manifest.json|97cbd3f33742088823197fc4f6a854cc29ee5e13da264694c7277352b7dbe83f",
+    "file|scoop-install.json|record",
+    "file|scoop-manifest.json|record",
     "file|UNLICENSE|640514163b17f977adc997cb16f51871122cfb0555ebad1a3f01e167b7ba8857"
   ]
 }

@@ -1,7 +1,6 @@
 #include "package.hpp"
 #include "data.hpp"
 #include "native.hpp"
-#include "archive.hpp"
 #include "persist.hpp"
 #include "versions.hpp"
 #include "exposure.hpp"
@@ -1309,8 +1308,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     {artifact.format,downloaded_files[step.index],artifact.filename,
                      artifact.extract_directory,artifact.extract_destination},
                     stage,transaction,step.index,
-                    [&](const std::string& kind, Json entry) {
-                        const auto key = kind+"_extractions";
+                    [&](const std::string& key, Json entry) {
                         if (!journal.contains(key)) journal[key] = Json::array();
                         journal[key].push_back(std::move(entry));
                         save();

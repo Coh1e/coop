@@ -23,7 +23,7 @@
     "file|include/apngasm-version.h|61d883f146d9df5c2946e0c0d9dc2b101ebe51358f6fa0b7ab981b3950a0551e",
     "file|include/apngasm.h|60e410757ec2fdcac014f5a1f0028e9ce637c868fe796d6fe54ba0e3590c2aae",
     "file|include/apngframe.h|e2e78b8bc19a27b18f7b1196c43de57953a249b197c54c8dac491cd6b3fea75f",
-    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-    "file|scoop-manifest.json|c9b2f4d2579d62e35bcd4fd42f743c73379ac7088152cee7ca7bcf985b7c8c80"
+    "file|scoop-install.json|record",
+    "file|scoop-manifest.json|record"
   ]
 }

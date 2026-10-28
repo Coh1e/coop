@@ -7,6 +7,15 @@
 #include <stdexcept>
 
 namespace coop {
+namespace {
+// Every external mechanism reports the same two facts about the artifact it unpacked, next to its own
+// record, so the journal entries stay uniform without repeating the decoration at each branch.
+Json with_origin(Json entry,std::uint64_t index,const std::string& filename) {
+    entry["index"] = index;
+    entry["filename"] = filename;
+    return entry;
+}
+}
 void publish_artifact(const Context& context, const ArtifactPublication& publication,
                       const fs::path& stage, const fs::path& transaction, std::uint64_t index,
                       const PublicationRecorder& record) {
@@ -23,17 +32,13 @@ void publish_artifact(const Context& context, const ArtifactPublication& publica
         // elevation or reboot is involved, next to what was actually read.
         auto entry = extract_msi_image(publication.downloaded,working,
             transaction/(L"msi-work-"+std::to_wstring(index)));
-        entry["index"] = index;
-        entry["filename"] = publication.filename;
-        record("msi",std::move(entry));
+        record("msi_extractions",with_origin(std::move(entry),index,publication.filename));
     } else if (publication.format == ir::ArchiveFormat::inno_setup) {
         const auto helper = inno_helper(context);
         if (helper.path.empty()) throw std::runtime_error(helper.problem);
         auto entry = extract_inno_archive(context,helper.path,publication.downloaded,working,
             path_text(publication.extract_directory),transaction,index);
-        entry["index"] = index;
-        entry["filename"] = publication.filename;
-        record("inno",std::move(entry));
+        record("inno_extractions",with_origin(std::move(entry),index,publication.filename));
         merge_directory.clear();
     } else if ((publication.format == ir::ArchiveFormat::zip ||
                 publication.format == ir::ArchiveFormat::seven_zip) &&
@@ -45,9 +50,7 @@ void publish_artifact(const Context& context, const ArtifactPublication& publica
         if (helper.path.empty()) throw std::runtime_error(helper.problem);
         auto entry = extract_nsis_archive(context,helper.path,publication.downloaded,working,
             path_text(publication.extract_directory),transaction,index);
-        entry["index"] = index;
-        entry["filename"] = publication.filename;
-        record("nsis",std::move(entry));
+        record("nsis_extractions",with_origin(std::move(entry),index,publication.filename));
     } else {
         // The native reader publishes straight into the staging directory with extract_dir applied
         // on the way in, so the tree is written once instead of being copied afterwards.

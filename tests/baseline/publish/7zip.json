@@ -120,7 +120,7 @@
     "file|Lang/zh-tw.txt|76a17b0a97925e5d6deb1ebe8ae14f83bd49957c492c3733a0ea178e28b0d74b",
     "file|License.txt|519ac0a4bded9c18ea02e0afb71f663d8c47373bd9facd3ac96a79f51d77765d",
     "file|readme.txt|464d917913eac4045507ec84cd2906ee80399e18a3cdc48eb88f86f8d1b4d408",
-    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-    "file|scoop-manifest.json|a5d51278615d66b21aa6054214aec965c0da7a4cbe4e1e508987f3d66e59b239"
+    "file|scoop-install.json|record",
+    "file|scoop-manifest.json|record"
   ]
 }

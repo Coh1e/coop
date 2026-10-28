@@ -35,12 +35,14 @@
 
 固定 Scoop 0.6.0 的 `expand-7zipArchive` 先解开压缩包装，再对内部 tar 应用 `extract_dir`；普通 tar 也应用同一规则。Coop 对 ZIP、7z 和全部 tar 压缩统一使用同一语义：
 
-1. 解压到事务 staging 中的独立树。
+1. 归档内容直接写入事务 staging 中的目标位置：一份产物只写一遍，不存在"先解压到临时树、再整树复制"的第二次写盘。安装器格式（MSI 镜像、Inno Setup、NSIS 载荷）仍由各自的提取器先写工作树，再合并进来。
 2. 若声明 `extract_dir`，把该目录**内容**提升到归档目标目录；目录名本身不保留。嵌套同名目录（例如归档含 `wrap/deep/wrap/deep/bin` 且 `extract_dir=wrap/deep`）因此最终得到 `wrap/deep/bin`，与 Scoop 的 `robocopy /e /move` 结果一致。
-3. `extract_to` 只改变该归档产物的目标子目录；多产物按顺序合并，重名文件冲突失败，不覆盖其他包或用户数据。
+3. `extract_to` 只改变该归档产物的目标子目录；多产物按顺序合并，重名文件冲突失败，不覆盖其他包或用户数据。同一个归档内两个条目落到同一目标也失败（例如 `d/a.txt` 与 `d/A.TXT`，在 Windows 上是同一个文件），错误信息给出碰撞的相对路径；重复的目录条目是 tar 流的常态，仍然允许。
 4. `extract_dir`/`extract_to` 只由归档类下载项按 Manifest 顺序消费，直接文件产物不消费这些字段。
 
-真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录；`tests/archive-lifecycle.ps1` 用真实 ripgrep 归档的缺失 `extract_dir` 断言安装非零退出且不发布 `current`。
+真实样本覆盖了顶层的 `extract_dir`（ripgrep、luajit）、多层嵌套的 `extract_dir`（tidy、curl）、嵌套同名目录（项目内 bzip2/lzma 夹具）以及 `extract_to`（多产物 ZIP）。不存在的 `extract_dir` 会明确失败，不会静默发布空目录；判定按**选中条目数**，因此"目录存在但里面没有文件"与"目录根本不存在"走同一条失败路径，且这条失败不依赖包是否声明 `bin`——`tests/archive-lifecycle.ps1` 与 `tests/publish-contracts.ps1` 分别用真实 ripgrep 归档与同一场景断言安装非零退出、错误命名缺失目录、且不发布 `current`。
+
+解压失败时只撤销这次发布自己写入的路径（文件及其空出的上级目录），不会清除 staging 里同一包的其它产物已经发布的内容。这条由接缝的构造保证，`tests/publish-contracts.ps1` 用"第一个产物成功、第二个产物在解压中途失败"的多产物包验证第一个产物的内容仍在。
 
 ## 执行与安全边界
 
@@ -94,6 +96,9 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 
 - `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 与 7z SFX 安装由 `process_guard` 观察，不能启动外部解压器。
 - `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、损坏 MSI 在数据库阶段失败、中断更新和当前版本保护。
+- `tests/publish-baseline.ps1`（CTest `publish_baseline`）：九份安装夹具（ZIP 带 `extract_dir`、tar.xz、tar.zst、tar.gz、MSI、Inno Setup、NSIS 载荷、7-Zip helper）与两份失败夹具的逐文件快照——路径、摘要、链接类型、`current` 目标与两条安装记录，提交在 `tests/baseline/publish`；`-Update` 重生成，默认模式比对。
+- `tests/publish-contracts.ps1`（CTest `publish_contracts`）：空的 `extract_dir` 选择必须失败并命名目录（含未声明 `bin` 的包）、同目标条目碰撞必须失败并给出路径、多产物包第二个产物失败不破坏第一个已发布内容。
+- `tests/publish-write-once.ps1`（CTest `publish_write_once`）：安装期间用文件系统监视器记录事务目录下创建的所有路径，断言从未出现第二棵解压树；同时要求监视器确实看到 staging，避免"什么都没看到"式空断言。
 - `tests/msi-lifecycle.ps1`（CTest `msi_lifecycle`）：真实 7-Zip 26.05/26.03 MSI 的只读预览、安装、更新、卸载、持久化保留与截断 MSI 失败；全程 `process_guard` 观察无 `msiexec`，Windows Installer 机器缓存不变。
 - `tests/nsis-lifecycle.ps1`（CTest `nsis_lifecycle`）：真实 apngasm 3.1.3/3.1.1 NSIS 载荷的只读预览、安装、更新、截断失败、缺失 helper 与普通卸载；helper 来自同一 root 的普通 7-Zip 26.05 安装并断言逐文件不变，全程 `process_guard` 观察无 `setup.exe`。
 - `tests/real-scoop-nsis.ps1`：真实共用根上 Main/apngasm 的 Coop↔Scoop 双向交替与客户端间版本目录逐文件 SHA256 对比。

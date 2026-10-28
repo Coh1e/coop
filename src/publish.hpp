@@ -17,8 +17,9 @@ struct ArtifactPublication {
 };
 
 // Called once for an artifact that an external mechanism unpacked, before its tree is merged, so a
-// crash between unpacking and merging still leaves the record recovery needs.
-using PublicationRecorder = std::function<void(const std::string& kind, Json entry)>;
+// crash between unpacking and merging still leaves the record recovery needs. The key names the
+// journal array the entry belongs to, because only this seam knows which mechanism unpacked what.
+using PublicationRecorder = std::function<void(const std::string& journal_key, Json entry)>;
 
 // Publish one artifact's payload into the package staging directory. Every artifact format crosses
 // this seam: the native reader writes its entries straight into the destination, once, while the

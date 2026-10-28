@@ -73,12 +73,17 @@ function Invoke-Coop([string]$label,[string[]]$arguments) {
 }
 
 # One relative entry per published object, sorted, so a reordering of the tree is a visible diff.
+# The two install records are recorded by presence only: Coop writes the Manifest it read back
+# verbatim, and that Manifest carries the fixture's absolute file:// URL, so their bytes differ per
+# checkout path. Their content is compared through the structured fields in the snapshot instead.
+$record_files = @('scoop-install.json','scoop-manifest.json')
 function Get-Entries([string]$directory) {
     $entries = [Collections.Generic.List[string]]::new()
     if (-not (Test-Path -LiteralPath $directory)) { return }
     foreach ($item in Get-ChildItem -LiteralPath $directory -Recurse -Force) {
         $relative = $item.FullName.Substring($directory.Length).TrimStart('\').Replace('\','/')
         if ($item.PSIsContainer) { $entries.Add("dir|$relative") }
+        elseif ($record_files -contains $relative) { $entries.Add("file|$relative|record") }
         else { $entries.Add("file|$relative|" + (File-Hash $item.FullName)) }
     }
     $sorted = $entries | Sort-Object
