@@ -19,6 +19,9 @@ void write_json(const fs::path& path, const Json& value, bool compact = false, b
 // extraction no longer syncs once per file.
 std::uint64_t durable_syncs();
 void note_durable_sync();
+// Write-through flush that the counter sees. Every durability decision goes through it, so a test can
+// tell "we stopped flushing per file" from "we started again".
+bool durable_flush(void* file);
 // Removes a Coop-managed tree. Reparse points are unlinked instead of followed, and the read-only
 // attribute Scoop keeps on persist junctions (attrib +R /L) is cleared before unlinking.
 void erase_tree(const fs::path& path);

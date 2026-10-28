@@ -48,6 +48,8 @@ try {
 } finally { `$listener.Stop() }
 "@
 [IO.File]::WriteAllText($serverScript,$serverBody,[Text.UTF8Encoding]::new($false))
+# Scoop appends its shims to the user PATH on first run; the entry is restored in the finally block.
+$pathBefore = [Environment]::GetEnvironmentVariable('Path','User')
 $server = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
 $deadline = (Get-Date).AddSeconds(15)
 while ((Get-Date) -lt $deadline) {
@@ -129,6 +131,8 @@ try {
     }
     $summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Output 'summary.json') -Encoding utf8
     $summary | ConvertTo-Json
+    if ($ratio -gt 1.2) { throw ("coop local overhead is {0:N2} times Scoop's, above the 1.2 threshold" -f $ratio) }
 } finally {
     if ($server -and -not $server.HasExited) { $server.Kill($true) }
+    [Environment]::SetEnvironmentVariable('Path',$pathBefore,'User')
 }

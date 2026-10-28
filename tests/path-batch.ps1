@@ -249,9 +249,10 @@ Assert (-not (Test-Path -LiteralPath (Join-Path $userRoot 'shims/ghostpkg.exe'))
 # package as it finishes and says nothing about the batch as a whole.
 Assert ((Read-CoopJson @('--root',$userRoot,'uninstall','gamma','--json')).status -eq 'success') 'could not reset gamma before the text batch'
 $textPartial = Invoke-CoopRaw @('--root',$userRoot,'install','gamma','ghosttwo')
-Assert ($textPartial.code -eq 1 -and $textPartial.out -match 'gamma: success' -and
+Assert ($textPartial.code -eq 1 -and $textPartial.out -match "'gamma' \(0\.1\.0\) was installed successfully!" -and
+    $textPartial.out -notmatch 'gamma: success' -and
     $textPartial.out -notmatch 'package\(s\)' -and
-    $textPartial.err -match 'Package not found') "text batch output or summary is wrong: $($textPartial.out) $($textPartial.err)"
+    (($textPartial.out + $textPartial.err) -match 'Package not found')) "text batch output or summary is wrong: $($textPartial.out) $($textPartial.err)"
 
 # Dry-run batches report a blocked item without writing the requested package.
 Write-BucketManifest $userRoot 'test' 'delta' (New-FileManifest 'delta')

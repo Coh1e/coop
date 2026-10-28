@@ -111,7 +111,8 @@ std::optional<std::uint64_t> artifact_size(const std::string& url) {
         if (url.starts_with("file://")) return static_cast<std::uint64_t>(fs::file_size(local_file_path(url)));
     } catch (const std::exception&) { /* Unknown size is not an error. */ }
     return std::nullopt;
-}void make_junction(const fs::path& link, const fs::path& target) {
+}
+void make_junction(const fs::path& link, const fs::path& target) {
     // Reparse points use the NT namespace (\??\) directly, which is not limited by MAX_PATH.
     // A \\?\ prefix copied from an extended input would produce \??\\\?\... and make the link
     // unusable, so the plain drive/UNC spelling is stored while long targets stay fully supported.

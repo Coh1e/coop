@@ -135,6 +135,11 @@ std::atomic<std::uint64_t> g_durable_syncs{0};
 }
 std::uint64_t durable_syncs() { return g_durable_syncs.load(); }
 void note_durable_sync() { ++g_durable_syncs; }
+bool durable_flush(void* file) {
+    if (!FlushFileBuffers(static_cast<HANDLE>(file))) return false;
+    note_durable_sync();
+    return true;
+}
 void write_json(const fs::path& path, const Json& value, bool compact, bool durable) {
     const auto bytes = (compact ? value.dump() : value.dump(2)) + "\n";
     fs::create_directories(path.parent_path());
@@ -143,7 +148,7 @@ void write_json(const fs::path& path, const Json& value, bool compact, bool dura
     if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create temporary state file");
     DWORD written = 0;
     const bool success = WriteFile(file,bytes.data(),static_cast<DWORD>(bytes.size()),&written,nullptr) &&
-        written == bytes.size() && (!durable || (FlushFileBuffers(file) && (note_durable_sync(),true)));
+        written == bytes.size() && (!durable || durable_flush(file));
     CloseHandle(file);
     if (!success) {
         DeleteFileW(temporary.c_str());

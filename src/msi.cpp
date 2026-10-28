@@ -295,9 +295,10 @@ INT_PTR close_file(CabinetContext& context, PFDINOTIFICATION info) {
     if (!target || !target->target) throw std::runtime_error("MSI cabinet reported an unknown target file");
     auto& file = (*context.files)[target->file_index];
     if (!target->closed) {
-        const bool flushed = FlushFileBuffers(target->value) != 0;
+        // The image lives in the transaction and is discarded on failure, so the file is closed without
+        // a write-through; durability belongs to the commit points (see #52).
         target->closed = true;
-        if (!CloseHandle(target->value) || !flushed)
+        if (!CloseHandle(target->value))
             throw std::runtime_error("Cannot close extracted MSI file " + path_text(file.relative));
     }
     if (file.size && target->written != file.size)
@@ -407,9 +408,8 @@ void write_image_bytes(HANDLE handle, const fs::path& relative, const char* data
     }
 }
 void close_image_file(HANDLE handle, const fs::path& relative) {
-    const bool flushed = FlushFileBuffers(handle) != 0;
-    const bool closed = CloseHandle(handle) != 0;
-    if (!flushed || !closed) throw std::runtime_error("Cannot close extracted MSI file " + path_text(relative));
+    // Same reasoning as close_file: the extracted image is transaction-scoped, not committed state.
+    if (!CloseHandle(handle)) throw std::runtime_error("Cannot close extracted MSI file " + path_text(relative));
 }
 // Read one binary stream from the MSI _Streams table. Uncompressed package files are stored there
 // under their File table key instead of inside a cabinet. The same mechanism provides the embedded

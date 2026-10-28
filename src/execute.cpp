@@ -665,6 +665,9 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
 }
 // The two announcements around a package block, shared by the single-command path and the batch path so
 // both print the same shape: the version move and heading before it, the closing line after it.
+void print_install_success(const std::string& name, const std::string& version) {
+    std::cout << "'"+name+"' ("+version+") was installed successfully!\n";
+}
 void announce_update_move(const Context& context, const Plan& plan) {
     if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
     if (plan.package.version == plan.previous->version &&
@@ -676,7 +679,7 @@ void announce_success_line(const Context& context, const Plan& plan) {
     if (context.json_output) return;
     if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
     else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
-    else std::cout << "'"+plan.package.name+"' ("+plan.package.version+") was installed successfully!\n";
+    else print_install_success(plan.package.name,plan.package.version);
 }
 int execute_plan(const Context& context, const Plan& plan) {
     // Scoop reports the version move and the heading before the package block, and a no-op
@@ -1348,10 +1351,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto cache_directory = context.root/L"cache";
                 const auto cached_file = cache_directory/wide(artifact.filename);
                 bool from_cache = false;
-                {
-                // Reusing a cached file is local work: hashing the candidate and copying it must not
-                // be counted as time spent waiting on the network.
-                const StepScope cache_scope{"cache"};
+                // A cache hit is timed inside the download step: the bytes are zero, so the record shows
+                // that no transfer happened, and the local time is not counted twice.
                 if (fs::is_regular_file(cached_file)) {
                     try {
                         if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
@@ -1365,7 +1366,6 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                                 {"cache","hit"}});
                         }
                     } catch (const std::exception&) { from_cache = false; }
-                }
                 }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
                 // Scoop says what it is about to do before the transfer line.

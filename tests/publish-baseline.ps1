@@ -175,16 +175,19 @@ function Assert-Failure([string]$name,[hashtable]$manifest) {
     if ($run.exit -eq 0) { throw "install $name unexpectedly succeeded" }
     $current = "$root/apps/$name/current"
     if (Test-Path -LiteralPath $current) { throw "install $name published a current link despite failing" }
+    # The failure has to be the one this case is about, not merely a failure: the message names it.
     $text = ($run.error + $run.output)
+    $expectedReason = if ($name -eq 'missing-extract') { 'extract_dir' } else { 'archive|Cannot|read' }
+    if ($text -notmatch $expectedReason) { throw "install $name failed for an unexpected reason: $text" }
     $snapshot = [ordered]@{ package = $name; exit = $run.exit; current = $null } | ConvertTo-Json -Depth 4
     Assert-Matches "failure-$name" $snapshot
     Write-Output "  failure-$name ok (exit $($run.exit))"
 }
 
-Assert-Failure 'missing-extract' @{version='1.0.0';url=(File-Uri $ripgrep);hash=(File-Hash $ripgrep);extract_dir='missing-dir';bin='rg.exe'}
+# A unique alias keeps the failure at the extraction contract instead of colliding with the shim the\n# earlier ripgrep install left behind.\nAssert-Failure 'missing-extract' @{version='1.0.0';url=(File-Uri $ripgrep);hash=(File-Hash $ripgrep);extract_dir='missing-dir';bin=@(,@('rg.exe','mex'))}
 
 $corrupt = Join-Path $root 'corrupt.tar.zst'
 [IO.File]::WriteAllBytes($corrupt,[byte[]](1..2048 | ForEach-Object { $_ % 251 }))
-Assert-Failure 'corrupt' @{version='1.0.0';url=(File-Uri $corrupt);hash=(File-Hash $corrupt);extract_dir='mingw64';bin='bin\luajit.exe'}
+Assert-Failure 'corrupt' @{version='1.0.0';url=(File-Uri $corrupt);hash=(File-Hash $corrupt);extract_dir='mingw64';bin=@(,@('bin\luajit.exe','corrupt-bin'))}
 
 Write-Output "publish baseline: $(@(Get-ChildItem -LiteralPath $baseline -Filter '*.json').Count) snapshots $(if ($Update) { 'written' } else { 'verified' })"

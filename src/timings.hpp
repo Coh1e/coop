@@ -9,8 +9,9 @@ namespace coop {
 // machine. The distinction is the whole point - a number that mixes both cannot be compared with
 // another client, which is why the earlier timing table was withdrawn.
 //
-// The download step is the only one that waits on the network. Everything else - hashing, extracting,
-// publishing entries, committing - is local work.
+// The download step is the only one that waits on the network, and only when it actually moved bytes:
+// a cache hit runs inside that step but transfers nothing, so it counts as local work. Everything else
+// - hashing, extracting, publishing entries, committing - is local too.
 class Timings {
 public:
     void add(const std::string& operation,double seconds);

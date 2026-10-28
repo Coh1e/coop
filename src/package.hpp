@@ -65,6 +65,8 @@ Json execute_plan_result(const Context& context, const Plan& plan);
 std::string execution_blocker(const Context& context, const Plan& plan);
 // The announcements around a package block, shared by the single-command path and the batch path.
 void announce_update_move(const Context& context, const Plan& plan);
+// The one spelling of the install success sentence, used by every path that reports it.
+void print_install_success(const std::string& name, const std::string& version);
 void announce_success_line(const Context& context, const Plan& plan);
 std::string capability_blocker(const Context& context, const ir::Package& package);
 // Recovery of a package transaction is only automatic when every journaled path is still

@@ -37,7 +37,7 @@ Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-
 | 缓存命中 | `Loading <文件名> from cache` | 同形（无句点） | 逐字 |
 | 重复安装 | `WARN  '<包>' (<版本>) is already installed.` + `Use 'scoop update <包>' …` | 同形，退出码 0 | 逐字 |
 
-**Coop 自有步骤**（Scoop 没有，用同句式自述）：无。当前实现的写命令输出里没有独占行——`--timings` 的摘要只在显式请求时出现。
+**Coop 自有步骤**（Scoop 没有，用同句式自述）：`<包>: up-to-date`（无变更的更新）、`<包>: partial`（清理不完整）、`Persistent data retained…`（卸载保留数据）、`recover` 的逐动作行。`--timings` 的摘要只在显式请求时出现。
 
 **刻意偏离**：更新时 Coop 先校验并解压新载荷，再卸载旧版本，所以 `Checking hash` / `Extracting` 出现在 `Uninstalling` 之前。按 Scoop 的顺序（下载 → 卸载 → 从缓存安装），解压失败会把可用版本一起弄没；Coop 的失败用例断言 `current` 仍指向旧版本（`tests/update-lines.ps1`）。
 
@@ -99,6 +99,7 @@ coop --root <根> install test/<包>
 ## 复现
 
 ```powershell
+./scripts/fetch-deps.ps1 -Action fetch   # 首次：拉取锁定的夹具与测试归档
 ./scripts/build.ps1 -Action build
 pwsh -File scripts/acceptance-matrix.ps1 -CoopExe .local/build/coop.exe
 ```

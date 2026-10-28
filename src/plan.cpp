@@ -803,7 +803,7 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
             result["requested"] = false;
             // Each package reports as it finishes, so a long dependency chain is not one silent wait.
             if (!context.json_output)
-                std::cout << "\x27"+result.value("package",item.name)+"\x27 ("+result.value("version",item.version)+") was installed successfully!\n";
+                print_install_success(result.value("package",item.name),result.value("version",item.version));
             packages.push_back(result);
         } catch (const std::exception& error) {
             outcome.failed = true;
@@ -818,7 +818,7 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
         auto result = execute_plan_result(context,plan);
         result["requested"] = true;
         if (!context.json_output)
-            std::cout << "'"+result.value("package",plan.package.name)+"' ("+result.value("version",plan.package.version)+") was installed successfully!\n";
+            print_install_success(result.value("package",plan.package.name),result.value("version",plan.package.version));
         packages.push_back(result);
         root_result = result;
     } catch (const std::exception& error) {
@@ -890,11 +890,25 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
             return outcome;
         }
         announce_update_move(context,plan);
+        // The no-op verdicts live in execute_plan, which the batch path bypasses. Reading the plan's
+        // verdict here keeps a batch from claiming it installed something that was already there.
+        if (plan.already_installed) {
+            outcome.status = "already-installed";
+            outcome.value = Json{{"package",plan.package.name},{"version",plan.package.version},
+                {"status","already-installed"}};
+            if (!context.json_output) {
+                std::cout << "WARN  '"+plan.package.name+"' ("+plan.package.version+") is already installed.\n";
+                std::cout << "Use 'scoop update "+plan.package.name+"' to install a new version.\n";
+            }
+            return outcome;
+        }
         auto result = execute_plan_result(context,plan);
+        const auto upToDate = result.value("status",std::string{}) == "up-to-date";
         const auto partial = result.value("status",std::string{}) == "partial";
-        if (!partial) announce_success_line(context,plan);
+        if (!partial && !upToDate) announce_success_line(context,plan);
         outcome.failed = partial;
-        outcome.status = partial ? "partial" : "success";
+        outcome.status = partial ? "partial" : (upToDate ? "up-to-date" : "success");
+        if (upToDate && !context.json_output) std::cout << plan.package.name << ": up-to-date\n";
         if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
         outcome.value = result;
     } catch (const std::exception& error) {
@@ -935,11 +949,11 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
         failed = failed || outcome.failed;
     }
     if (context.json_output) print_json(results);
+    // Text mode already reported each package as it finished: a batch prints no header and no
+    // trailing summary, the same contract simple_batch follows. A failure still says why, on stderr.
     else {
-        for (const auto& item : results) {
-            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
+        for (const auto& item : results)
             if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
-        }
     }
     return failed ? 1 : 0;
 }

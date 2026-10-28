@@ -82,9 +82,12 @@ Write-Manifest 'crashpkg' @{ version='1.0.0'; url=(File-Uri $tidy); hash=$hash
 $crash = Invoke-Coop @('--root',$root,'install','test/crashpkg','--json') @{ 'COOP_ALLOW_TEST_FAULTS' = '1' }
 if ($crash.exit -eq 0) { throw 'the injected crash did not stop the install' }
 Remove-Item -LiteralPath "$root/.coop/test-faults.json" -Force
+# The crash has to have left a transaction behind, otherwise the recovery below proves nothing.
+$pending = @(Get-ChildItem -LiteralPath "$root/.coop/transactions" -Directory -Force -ErrorAction SilentlyContinue)
+if ($pending.Count -eq 0) { throw 'the injected crash left no pending transaction to recover' }
 $recover = Invoke-Coop @('--root',$root,'recover')
 if ($recover.exit -ne 0) { throw "recover failed: $($recover.error)$($recover.output)" }
-if ($recover.output -notmatch 'recovered|No pending transactions') { throw "recover printed no outcome line: $($recover.output)" }
+if ($recover.output -notmatch 'recovered') { throw "recover did not report the recovered package: $($recover.output)" }
 $jsonRecover = Invoke-Coop @('--root',$root,'recover','--json')
 Assert-NoProgress '--json recover' $jsonRecover.output
 

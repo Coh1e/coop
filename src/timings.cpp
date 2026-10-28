@@ -30,7 +30,9 @@ Json Timings::result() const {
     for (const auto& entry : entries_) {
         steps.push_back({{"operation",entry.operation},{"seconds",entry.seconds},
             {"bytes",entry.bytes},{"runs",entry.runs}});
-        if (entry.operation == "download") download += entry.seconds;
+        // A download step that moved no bytes never waited on the network: a cache hit is local work,
+        // and classifying by the transferred bytes keeps the split honest without a second bucket.
+        if (entry.operation == "download" && entry.bytes > 0) download += entry.seconds;
         else local += entry.seconds;
     }
     return Json{{"steps",steps},{"download_seconds",download},{"local_seconds",local},
