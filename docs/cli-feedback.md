@@ -56,7 +56,7 @@ total    1.690 s
 | 场景 | 行 |
 | --- | --- |
 | 安装开始 | `Installing '<包>' (<版本>) [<架构>] from '<bucket>' bucket` |
-| 下载 | `Downloading <url> (<大小>)...`（本地产物可测大小；`http(s)` 目前省略括号） |
+| 下载 | `Downloading <url> (<大小>)...`（本地产物传输前测量；`http(s)` 在响应头到达时用 `Content-Length`，不额外发请求） |
 | 校验 | `Checking hash of <ESC>[36m<文件名><ESC>[0m... ` 换行 `OK.` |
 | 解压 | `Extracting <ESC>[36m<文件名><ESC>[0m... ` 换行 `Done.` |
 | 链接 | `Linking <根>\apps\<包>\current => <根>\apps\<包>\<版本>` |
@@ -129,5 +129,5 @@ pkg: install: recovered
 
 - 解压已不再逐文件写穿（#52）：写穿只发生在提交点，单次安装的写穿次数记录在计时记录的 `durable_syncs` 里。启动器共享（#53）尝试后撤回——硬链接破坏逐入口的所有权证据。
 - 依赖安装、批量与单包的逐包输出已由 `tests/progress-coverage.ps1` 覆盖（#54）。
-- `cleanup` 只打印被删除的版本，不打印保留的当前版本：Scoop 也不打印，加一行会破坏逐字契约，因此 #54 的"保留范围"一条按刻意偏离处理。
-- 写穿收敛（#52）的证据是 `durable_syncs`（369 文件从 369 次降到 23 次）；同机前后**时间**对照未取得——把逐文件写穿临时加回后，安装以 `Windows error 5` 在发布阶段失败，原因未查明，因此不以猜测补数。
+- `cleanup` 的**文本**只打印被删除的版本（Scoop 也只打印这些）；保留范围在 `--json` 里完整给出（`current`、`keep_scope`、`scope_summary.keep`），所以 #54 的"保留范围"在机读输出中满足，文本模式按逐字契约刻意不打印。
+- 写穿收敛（#52）：369 个文件的归档由 369 次写穿降到 23 次；同机三次对照的中位数从 **0.563 s** 降到 **0.360 s**（约 36%）。任何绕过 `durable_flush()` 的直接 `FlushFileBuffers` 会被 `source_hygiene` 拦下，所以次数统计不会因漏计而失真。

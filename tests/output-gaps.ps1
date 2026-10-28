@@ -81,4 +81,50 @@ if (@($lines | Where-Object { $_ -eq 'Updating one outdated app:' }).Count -ne 0
     throw "a batch repeated the per-package heading:`n$($batch.output)"
 }
 
+# 3. A network artifact names its size from the response headers of the transfer itself. A second
+#    request would break servers that answer one connection, so the line is printed at transfer start.
+$port = Get-Random -Minimum 20000 -Maximum 40000
+$serverScript = Join-Path $root 'server.ps1'
+$serverBody = @"
+`$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,$port)
+`$listener.Start()
+try {
+    while (`$true) {
+        `$client = `$listener.AcceptTcpClient()
+        try {
+            `$stream = `$client.GetStream()
+            `$reader = [IO.StreamReader]::new(`$stream,[Text.Encoding]::ASCII,`$false,1024,`$true)
+            while (`$true) { `$line = `$reader.ReadLine(); if (-not `$line) { break } }
+            `$bytes = [IO.File]::ReadAllBytes('$tidy')
+            `$header = "HTTP/1.1 200 OK`r`nContent-Type: application/zip`r`nContent-Length: `$(`$bytes.Length)`r`nConnection: close`r`n`r`n"
+            `$stream.Write([Text.Encoding]::ASCII.GetBytes(`$header),0,`$header.Length)
+            `$stream.Write(`$bytes,0,`$bytes.Length)
+            `$stream.Flush()
+        } catch { } finally { `$client.Close() }
+    }
+} finally { `$listener.Stop() }
+"@
+[IO.File]::WriteAllText($serverScript,$serverBody,[Text.UTF8Encoding]::new($false))
+$serverProcess = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
+try {
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        try { $probe = [Net.Sockets.TcpClient]::new('127.0.0.1',$port); $probe.Close(); break } catch { Start-Sleep -Milliseconds 100 }
+    }
+    $network = [ordered]@{ version='1.0.0'; url="http://127.0.0.1:$port/tidy-5.8.0-win64.zip"
+        hash=(File-Hash $tidy); extract_dir='tidy-5.8.0-win64\bin'; bin=@(,@('tidy.exe','netbin')) }
+    [IO.File]::WriteAllText("$root/buckets/test/bucket/network.json",
+        ($network | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+    # The earlier cases filled the cache with the same filename, so it has to be empty here.
+    Remove-Item -Path "$root/cache/*" -Force -ErrorAction SilentlyContinue
+    $overHttp = Invoke-Coop @('--root',$root,'install','test/network')
+    if ($overHttp.exit -ne 0) { throw "the network install failed: $($overHttp.error)$($overHttp.output)" }
+    $line = @($overHttp.output -split "`r?`n" | Where-Object { $_ -like 'Downloading http*' })
+    if ($line.Count -ne 1 -or $line[0] -notmatch '\(1\.3 MB\)\.\.\.$') {
+        throw "a network transfer did not name its size: $($overHttp.output)"
+    }
+} finally {
+    if ($serverProcess -and -not $serverProcess.HasExited) { Stop-Process -Id $serverProcess.Id -Force }
+}
+
 Write-Output 'output gaps: download size and batch update blocks verified'

@@ -57,6 +57,13 @@ foreach ($relative in $files) {
     if ($crlf -gt 0 -and $loneLf -gt 0) {
         [void]$violations.Add("$relative : mixes CRLF ($crlf) and LF ($loneLf) line endings")
     }
+
+    # Durability belongs to one counted seam. A raw FlushFileBuffers anywhere else is invisible to the
+    # timing record and to sync_points, so the rule keeps "how many flushes does a run perform"
+    # answerable instead of letting a regression hide behind an uncounted call.
+    if ($relative -like '*.cpp' -and $relative -ne 'src/data.cpp' -and $text -match 'FlushFileBuffers') {
+        [void]$violations.Add("$relative : calls FlushFileBuffers directly; use durable_flush() from data.hpp")
+    }
 }
 
 if ($violations.Count -gt 0) {

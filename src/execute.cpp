@@ -1371,13 +1371,17 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     } catch (const std::exception&) { from_cache = false; }
                 }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
-                // Scoop says what it is about to do before the transfer line.
-                // as it was rather than printing a made-up number.
-                const auto announced = artifact_size(artifact.url);
-                progress_stage("Downloading "+artifact.url+(announced ? " ("+human_bytes(*announced)+")..." : ""));
+                // Scoop announces the transfer, then its size, then the progress.
+                // Scoop names the size before the transfer starts. A local artifact can be measured
+                // up front; a network one can only be named once its response headers arrive, so the
+                // line is printed from the start-of-transfer callback instead of a second request.
+                const auto announce = [&](std::uint64_t size) {
+                    progress_stage("Downloading "+artifact.url+(size ? " ("+human_bytes(size)+")..." : ""));
+                };
+                if (artifact.url.starts_with("file://")) announce(artifact_size(artifact.url).value_or(0));
                 download_file(artifact.url,downloaded,
-                    [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); });
-                progress_finish_stage();
+                    [](std::uint64_t done,std::uint64_t total) { progress_bytes(done,total); },
+                    [&](std::uint64_t size) { if (!artifact.url.starts_with("file://")) announce(size); });
                 // The bytes this step moved, so the duration can be checked against the transfer rate.
                 timings_add_bytes("download",fs::file_size(downloaded));
                 downloaded_files[step.index] = downloaded;

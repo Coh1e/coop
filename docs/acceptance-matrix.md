@@ -21,7 +21,7 @@ Scoop 侧的原文来自 [Scoop 0.6.0 写命令输出实录](research/scoop-cli-
 | 行 | Scoop（历史） | Coop（本轮） | 对齐 |
 | --- | --- | --- | --- |
 | 安装开始 | `Installing 'ripgrep' (15.2.0) [64bit] from 'main' bucket` | 同形（无结尾句点） | 逐字 |
-| 下载 | `Downloading <url> (<大小>)...` | 本地夹具同形（`(1.3 MB)`）；`http(s)` 目前省略括号 | 本地逐字，网络省略 |
+| 下载 | `Downloading <url> (<大小>)...` | 同形：本地传输前测量，`http(s)` 用响应头的 `Content-Length` | 逐字 |
 | 校验 | `Checking hash of <文件>... ` / `OK.` | 同形，含青色 | 逐字 |
 | 解压 | `Extracting <文件>... ` / `Done.` | 同形，含青色 | 逐字 |
 | 链接 | `Linking <根>\apps\<包>\current => <根>\apps\<包>\<版本>` | 同形 | 逐字 |
@@ -93,7 +93,7 @@ coop --root <根> install test/<包>
 | 类别 | 内容 |
 | --- | --- |
 | **本轮运行** | 上表九个场景的 Coop 输出与退出码；缓存损坏重下；离线复用；冷装与缓存命中的计时 |
-| **历史结果** | Scoop 侧的全部原文（Scoop 0.6.0 实录；**仓库没有生成它的脚本**，Scoop 未随仓库分发，该列只能作为历史结果引用）；`docs/cli-feedback.md` 里被撤下的旧耗时表不再引用 |
+| **历史结果** | Scoop 侧的全部原文（Scoop 0.6.0 实录）。`scripts/scoop-baseline.ps1` 可在装了 Scoop 的机器上重新生成该列并写入 `.local/scoop-baseline/transcript.txt`；本轮运行该脚本时观察到，**管道里 Scoop 会省略进度行**（只剩 `Installing`/`Creating shim`），所以历史实录的完整块来自交互终端；`docs/cli-feedback.md` 里被撤下的旧耗时表不再引用 |
 | **未运行** | 真实网络下的下载进度条（非终端不显示，源码层面已确定）；`http(s)` 下载行的大小（本地可测，网络省略） |
 
 ## 复现

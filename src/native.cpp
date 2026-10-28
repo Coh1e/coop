@@ -47,7 +47,8 @@ fs::path local_file_path(const std::string& url) {
 }
 }
 void download_file(const std::string& url, const fs::path& destination,
-                   const std::function<void(std::uint64_t,std::uint64_t)>& on_progress) {
+                   const std::function<void(std::uint64_t,std::uint64_t)>& on_progress,
+                   const std::function<void(std::uint64_t)>& on_start) {
     const auto address = wide(url);
     if (url.starts_with("file://")) {
         const auto source = local_file_path(url);
@@ -88,6 +89,9 @@ void download_file(const std::string& url, const fs::path& destination,
     if (!WinHttpQueryHeaders(request.value,WINHTTP_QUERY_CONTENT_LENGTH|WINHTTP_QUERY_FLAG_NUMBER,
         WINHTTP_HEADER_NAME_BY_INDEX,&declared_length,&declared_size,WINHTTP_NO_HEADER_INDEX))
         declared_length = 0;
+    // The transfer line can only name a size once the response has arrived, so the caller reports it
+    // from here rather than from a second request that would break single-connection servers.
+    if (on_start) on_start(static_cast<std::uint64_t>(declared_length));
     std::array<char,65536> buffer{};
     DWORD count = 0;
     std::uint64_t received = 0;
