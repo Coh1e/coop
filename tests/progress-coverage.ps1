@@ -67,8 +67,12 @@ if ($depResult -lt 0) { throw "the dependency never reported its own result:`n$(
 if ($mainStart -lt 0) { throw 'the requested package never printed its own start line' }
 if ($depResult -gt $mainStart) { throw 'the dependency result was buffered until after the next package started' }
 
-# 2. Machine output stays free of progress for every write command exercised here.
-$jsonInstall = Invoke-Coop @('--root',$root,'install','test/main','--json')
+# 2. Machine output stays free of progress for every write command exercised here. A package that is
+#    not installed yet is used: reinstalling test/main would be a no-op, so no progress code would run
+#    and a leaked line could pass.
+Write-Manifest 'fresh' @{ version='1.0.0'; url=(File-Uri $tidy); hash=$hash
+    extract_dir='tidy-5.8.0-win64\bin'; bin=@(,@('tidy.exe','freshbin')) }
+$jsonInstall = Invoke-Coop @('--root',$root,'install','test/fresh','--json')
 if ($jsonInstall.exit -ne 0) { throw "the machine install failed: $($jsonInstall.error)" }
 Assert-NoProgress '--json install' $jsonInstall.output
 $jsonCleanup = Invoke-Coop @('--root',$root,'cleanup','--json')

@@ -56,6 +56,8 @@ int wmain(int argc, wchar_t** argv) {
                      "  --arch 64bit|32bit|arm64  Select package architecture (also --arch=<value>)\n"
                      "  --dry-run  Preview without changing state\n"
                      "  --json     Print machine-readable results\n"
+                     "  --timings  Print the network and local time a write command spent, and record it\n"
+                     "             under <root>/.coop/timings/ for later comparison\n"
                      "\nOutput is UTF-8; exit codes: 0 success, 1 operational or partial-batch failure,\n"
                      "2 command-line misuse.\n"
                      "\nCommands:\n  init [--dry-run]\n  list\n  search <query>\n  info [bucket/]package\n"

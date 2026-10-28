@@ -797,6 +797,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // Execution reads the one verdict the plan builder stored, exactly like the preview. The
     // plan's inputs are still rechecked below before the first write.
     if (!plan.executable()) throw std::runtime_error(plan.blocker);
+    // The record counts this package's own write-throughs, not the ones earlier packages in the same
+    // batch already performed.
+    const auto syncs_before = durable_syncs();
     // A no-op has no block: nothing is announced and nothing is written.
     if (plan_is_no_op(plan))
         return Json{{"package",plan.package.name},{"version",plan.package.version},
@@ -1809,8 +1812,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     const auto prepared = transaction/(wide(command.alias)+L".prepared.exe");
                     fs::copy_file(fs::path(module.data()),prepared);
                     // Scoop reports the subsystem flip on its own line, right after the shim line.
-                    if (gui) progress_stage("Making "+path_text(exe)+" a GUI binary.");
-                    if (gui) mark_launcher_gui(prepared);                    const auto launcher_hash = sha256_file(prepared);
+                    if (gui) {
+                        progress_stage("Making "+path_text(exe)+" a GUI binary.");
+                        mark_launcher_gui(prepared);
+                    }
+                    const auto launcher_hash = sha256_file(prepared);
                     // shims/ carries only what Scoop itself writes: BAT/CMD, PS1 and JAR targets get
                     // their wrappers and nothing else (Scoop's shim() writes .shim only for exe/com);
                     // an executable target gets one <alias>.exe launcher plus <alias>.shim. A copied
@@ -2108,7 +2114,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     if (auto* timings = active_timings()) {
         auto record = timings->result();
         record["package"] = package.name;
-        record["durable_syncs"] = durable_syncs();
+        record["durable_syncs"] = durable_syncs() - syncs_before;
         record["version"] = package.version;
         record["action"] = plan.action == ir::Action::install ? "install" :
             plan.action == ir::Action::update ? "update" :

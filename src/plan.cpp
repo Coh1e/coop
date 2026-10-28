@@ -894,18 +894,6 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
         }
         // A batch prints one heading for the whole set, so the per-package heading is suppressed.
         announce_update_move(context,plan,!batch);
-        // The no-op verdicts live in execute_plan, which the batch path bypasses. Reading the plan's
-        // verdict here keeps a batch from claiming it installed something that was already there.
-        if (plan.already_installed) {
-            outcome.status = "already-installed";
-            outcome.value = Json{{"package",plan.package.name},{"version",plan.package.version},
-                {"status","already-installed"}};
-            if (!context.json_output) {
-                std::cout << "WARN  '"+plan.package.name+"' ("+plan.package.version+") is already installed.\n";
-                std::cout << "Use 'scoop update "+plan.package.name+"' to install a new version.\n";
-            }
-            return outcome;
-        }
         auto result = execute_plan_result(context,plan);
         const auto upToDate = result.value("status",std::string{}) == "up-to-date";
         const auto partial = result.value("status",std::string{}) == "partial";

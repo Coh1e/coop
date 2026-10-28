@@ -49,7 +49,7 @@ total    1.690 s
 
 默认不打印，因此默认输出仍与 Scoop 逐字一致。归因的意义在于**两个量可以分别比较**：一个混着网络的总时长无法与另一客户端对照，旧的那张耗时表就是因为这个被撤掉的。
 
-与 Scoop 的比值对照见 `docs/acceptance-matrix.md`（本机比值 0.49，阈值 1.2）。
+与 Scoop 的比值对照见 `docs/acceptance-matrix.md`（本机比值 0.21，阈值 1.2，由 `scripts/perf-compare.ps1` 产生）。
 
 ## 与 Scoop 的逐字对照
 
@@ -130,4 +130,4 @@ pkg: install: recovered
 - 解压已不再逐文件写穿（#52）：写穿只发生在提交点，单次安装的写穿次数记录在计时记录的 `durable_syncs` 里。启动器共享（#53）尝试后撤回——硬链接破坏逐入口的所有权证据。
 - 依赖安装、批量与单包的逐包输出已由 `tests/progress-coverage.ps1` 覆盖（#54）。
 - `cleanup` 的**文本**只打印被删除的版本（Scoop 也只打印这些）；保留范围在 `--json` 里完整给出（`current`、`keep_scope`、`scope_summary.keep`），所以 #54 的"保留范围"在机读输出中满足，文本模式按逐字契约刻意不打印。
-- 写穿收敛（#52）：369 个文件的归档由 369 次写穿降到 23 次。时间证据来自一次手工 A/B（同一台机器、同一夹具、各 3 次，`--timings` 的 `local_seconds`）：把逐文件写穿临时加回后为 0.563 / 0.543 / 0.584 s，去掉后为 0.360 / 0.445 / 0.354 s，中位数 **0.563 → 0.360 s**。该对照没有随仓库脚本，因为复现它需要临时改源码；`source_hygiene` 现在禁止在 `src/data.cpp` 之外直接调用 `FlushFileBuffers`，所以任何重新引入的逐文件写穿要么走 `durable_flush()`（被 `durable_syncs` 计数，`sync_points` 会红），要么被卫生检查拦下。`src/data.cpp` 是计数所在的文件，规则对它豁免。
+- 写穿收敛（#52）：369 个文件的归档由 369 次写穿降到 23 次。时间证据来自一次手工 A/B（同一台机器、同一夹具、各 3 次，读 `--timings` 的 `local_seconds`）：把逐文件写穿临时加回后为 0.563 / 0.543 / 0.584 s，去掉后为 0.360 / 0.445 / 0.354 s，中位数 **0.563 → 0.360 s**。复现步骤是：在 `src/archive.cpp` 的 `CloseHandle(handle)` 前加一行 `durable_flush(handle)`，重新构建，对同一归档跑三次 `coop --root <新根> install <包> --timings` 并读 `.coop/timings/*.json` 的 `local_seconds`；删掉该行再跑三次。该对照没有随仓库脚本，因为脚本无法在不改源码的前提下切换两臂；`source_hygiene` 禁止在 `src/data.cpp` 之外直接调用 `FlushFileBuffers`，所以重新引入的逐文件写穿必须走 `durable_flush()`（被 `durable_syncs` 计数，`sync_points` 会红）。`src/data.cpp` 是计数所在的文件，规则对它豁免。该规则只扫 `*.cpp`。
