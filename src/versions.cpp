@@ -772,14 +772,23 @@ int cleanup_command(const Context& context, const std::vector<std::wstring>& nam
     }
     if (context.json_output) std::cout << results.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
     else {
+        // Scoop lists what it removed, then closes with one fixed sentence; a package with nothing to
+        // remove is not mentioned.
+        bool removedAnything = false;
         for (const auto& item : results) {
-            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
-            for (const auto& entry : item.value("removed",Json::array())) std::cout << "  removed " << entry.value("version",std::string{}) << '\n';
+            const auto removed = item.value("removed",Json::array());
+            if (!removed.empty()) {
+                std::cout << "Removing " << item.value("package",std::string{}) << ":\n";
+                for (const auto& entry : removed) std::cout << " " << entry.value("version",std::string{}) << '\n';
+                removedAnything = true;
+            }
             if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
             for (const auto& entry : item.value("unmanageable",Json::array()))
                 std::cerr << "coop: " << item.value("package",std::string{}) << " " <<
                     entry.value("version",std::string{}) << ": " << entry.value("reason",std::string{}) << '\n';
         }
+        if (removedAnything) std::cout << '\n';
+        std::cout << "Everything is shiny now!\n";
     }
     return failed ? 1 : 0;
 }

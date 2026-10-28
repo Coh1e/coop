@@ -687,7 +687,11 @@ int execute_plan(const Context& context, const Plan& plan) {
             std::cerr << "coop: " << entry.value("store",std::string{}) << ": " << entry.value("reason",std::string{}) << '\n';
         return 1;
     }
-    std::cout << plan.package.name << ": success\n";
+    // Scoop's closing line differs per command: an uninstall names what went away, a reset says
+    // nothing, and an install or update reports the version that is now published.
+    if (plan.action == ir::Action::uninstall) std::cout << "'"+plan.package.name+"' was uninstalled.\n";
+    else if (plan.action == ir::Action::reset) { /* Scoop prints no closing line for reset. */ }
+    else std::cout << plan.package.name << ": success\n";
     if (plan.purge) {
         for (const auto& entry : result.value("purge",Json::object()).value("deleted",Json::array()))
             std::cout << "Deleted persisted data: " << entry.get<std::string>() << '\n';
@@ -710,9 +714,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             plan.action == ir::Action::update ? "Updating" :
             plan.action == ir::Action::uninstall ? "Uninstalling" :
             plan.action == ir::Action::reset ? "Resetting" : "Processing";
-        std::string line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
-        if (!package.architecture.empty()) line += " ["+package.architecture+"]";
-        if (!package.bucket.empty()) line += " from '"+package.bucket+"' bucket";
+        // Scoop's uninstall and reset lines carry no architecture and no bucket, and reset does not
+        // quote the package name. Install and update keep both because Scoop prints them there.
+        std::string line;
+        if (plan.action == ir::Action::reset) line = std::string(verb)+" "+package.name+" ("+package.version+")";
+        else if (plan.action == ir::Action::uninstall) line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
+        else {
+            line = std::string(verb)+" '"+package.name+"' ("+package.version+")";
+            if (!package.architecture.empty()) line += " ["+package.architecture+"]";
+            if (!package.bucket.empty()) line += " from '"+package.bucket+"' bucket";
+        }
         progress->package(line+".");
     }
     const bool updating = plan.action == ir::Action::update;
@@ -1379,12 +1390,19 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             }
             case ir::Operation::unlink_current:
                 ensure_preparation();
+                // A reset re-links the version it already had; Scoop's reset block shows the new
+                // link and the shims it recreates, not the ones it took down first.
+                if (plan.action != ir::Action::reset) progress_stage("Unlinking "+path_text(app/L"current"));
                 move(app/L"current",transaction/(step.previous ? L"old-current" : L"current"));
                 break;
             case ir::Operation::remove_entries: {
                 ensure_preparation();
                 for (const auto& entry : installed_entries) {
-                    progress_stage("Removing command entry '"+entry.name+"'.");
+                    // Scoop names both files of one command entry, one per line.
+                    if (plan.action != ir::Action::reset) {
+                        progress_stage("Removing shim '"+entry.name+".shim'.");
+                        progress_stage("Removing shim '"+entry.name+".exe'.");
+                    }
                     move(entry.executable,transaction/(wide(entry.name)+(step.previous ? L".old.exe" : L".exe")));
                     move(entry.metadata,transaction/(wide(entry.name)+(step.previous ? L".old-metadata" : L".metadata")));
                     if (!entry.extra_metadata.empty())
@@ -1501,7 +1519,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 break;
             case ir::Operation::remove_version:
                 ensure_preparation();
-                progress_stage("Removing "+path_text(version));
+                // Scoop removes the version directory without a line of its own; the uninstall block
+                // above already names the package that goes away.
                 move(version,transaction/L"removed-version");
                 break;
             case ir::Operation::publish_current: {

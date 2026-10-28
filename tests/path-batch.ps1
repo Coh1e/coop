@@ -245,11 +245,12 @@ Assert ($partialBatch.code -eq 1 -and $partialItems.Count -eq 2 -and
 Assert ((& (Join-Path $userRoot 'shims/gamma.exe') --version) -eq 'coop 0.1.0') 'the successful item of a partial batch is not runnable'
 Assert (-not (Test-Path -LiteralPath (Join-Path $userRoot 'shims/ghostpkg.exe'))) 'a failed batch item published an entry'
 
-# Text mode keeps per-package lines and adds an accurate overall summary.
+# Text mode keeps per-package lines and prints no batch header or trailing count: Scoop reports each
+# package as it finishes and says nothing about the batch as a whole.
 Assert ((Read-CoopJson @('--root',$userRoot,'uninstall','gamma','--json')).status -eq 'success') 'could not reset gamma before the text batch'
 $textPartial = Invoke-CoopRaw @('--root',$userRoot,'install','gamma','ghosttwo')
 Assert ($textPartial.code -eq 1 -and $textPartial.out -match 'gamma: success' -and
-    $textPartial.out -match '2 package\(s\): 1 succeeded, 0 skipped, 1 failed' -and
+    $textPartial.out -notmatch 'package\(s\)' -and
     $textPartial.err -match 'Package not found') "text batch output or summary is wrong: $($textPartial.out) $($textPartial.err)"
 
 # Dry-run batches report a blocked item without writing the requested package.

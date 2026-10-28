@@ -91,9 +91,12 @@ void add_removal(Plan& plan, const Package& package, bool previous, bool retain_
     if (package.uninstaller)
         plan.steps.push_back({Operation::installer,0,previous,"run the declared uninstaller program "+package.uninstaller->file});
     add_hooks(plan,package,HookStage::uninstaller,previous);
-    plan.steps.push_back({Operation::unlink_current,0,previous,"unpublish current; the version directory stays"});
+    // Command entries are removed before `current` is unpublished: that is the order Scoop reports,
+    // and the entry paths were already resolved from the installed package, so neither step needs
+    // the link to still exist.
     if (!package.entries.empty())
         plan.steps.push_back({Operation::remove_entries,0,previous,"remove "+count_text(package.entries.size(),"command entry","command entries")});
+    plan.steps.push_back({Operation::unlink_current,0,previous,"unpublish current; the version directory stays"});
     if (!package.shortcuts.empty())
         plan.steps.push_back({Operation::remove_shortcuts,0,previous,"remove "+count_text(package.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")});
     if (package.psmodule)
@@ -149,9 +152,10 @@ void add_reset(Plan& plan) {
     if (!plan.previous) return;
     const auto& current = *plan.previous;
     const auto& retained = plan.package;
-    plan.steps.push_back({Operation::unlink_current,0,true,"unpublish the current version; its version directory stays"});
+    // Same order as uninstall: entries first, then the link.
     if (!current.entries.empty())
         plan.steps.push_back({Operation::remove_entries,0,true,"remove "+count_text(current.entries.size(),"command entry","command entries")+" of the replaced version"});
+    plan.steps.push_back({Operation::unlink_current,0,true,"unpublish the current version; its version directory stays"});
     if (!current.shortcuts.empty())
         plan.steps.push_back({Operation::remove_shortcuts,0,true,"remove "+count_text(current.shortcuts.size(),"Start Menu shortcut","Start Menu shortcuts")+" of the replaced version"});
     if (current.psmodule)
