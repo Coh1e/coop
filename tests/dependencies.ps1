@@ -150,14 +150,15 @@ if ($deepOrder.Count -ne 3 -or $deepOrder[0].package -ne 'base' -or $deepOrder[0
 if ('deep' -notin @($deepPlan.planned_dependencies) -or 'deeper' -notin @($deepPlan.planned_dependencies)) { throw 'transitive preview omitted planned packages' }
 if ((Test-Path "$root/apps/deep") -or (Test-Path "$root/apps/deeper")) { throw 'transitive dependency preview wrote product state' }
 
-# A batch reports every requested package; a later failure does not roll back an earlier success.
+# A batch reports every requested package; installing the version that is already current is a no-op
+# for that package, not a batch failure, and the earlier package still installs.
 $batch = & $CoopExe --root $root install ind leaf --json
-if ($LASTEXITCODE -eq 0) { throw 'batch with an already installed request unexpectedly succeeded' }
+if ($LASTEXITCODE -ne 0) { throw "a batch containing an already installed package failed: $($batch -join ' ')" }
 $batchResult = Read-Json $batch
 $batchItems = @($batchResult)
 if ($batchItems.Count -ne 2 -or $batchItems[0].package -ne 'ind' -or $batchItems[0].status -ne 'success' -or
-    $batchItems[1].package -ne 'leaf' -or $batchItems[1].status -ne 'failed' -or
-    $batchItems[1].reason -notmatch 'already exists') { throw 'batch did not report per-package success and failure' }
+    $batchItems[1].package -ne 'leaf' -or $batchItems[1].status -ne 'success' -or
+    $batchItems[1].result.status -ne 'already-installed') { throw 'batch did not report per-package success and the no-op verdict' }
 if ($batchItems[0].transaction_scope -notlike 'per-package*' -or $batchItems[1].transaction_scope -notlike 'per-package*') { throw 'batch claimed a global transaction' }
 Assert-Runs "$root/shims/ind.exe" 'fixture 1'
 Assert-Runs "$root/shims/leaf.exe" 'fixture 2'
