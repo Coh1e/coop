@@ -3,6 +3,7 @@
 #include "app.hpp"
 #include "package.hpp"
 #include "progress.hpp"
+#include "timings.hpp"
 #include "native.hpp"
 #include "recovery.hpp"
 #include "shim.hpp"
@@ -97,6 +98,7 @@ int wmain(int argc, wchar_t** argv) {
                 if (architecture != "64bit" && architecture != "32bit" && architecture != "arm64")
                     throw coop::UsageError("--arch must be 64bit, 32bit or arm64");
             } else if (arg == L"--json") context.json_output = true;
+            else if (arg == L"--timings") context.timings = true;
             else arguments.emplace_back(arg);
         }
         if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
@@ -117,7 +119,18 @@ int wmain(int argc, wchar_t** argv) {
                 coop::TextProgress progress;
                 if (!context.json_output) coop::set_progress(&progress);
                 struct Reset { ~Reset() { coop::set_progress(nullptr); } } reset;
-                return coop::package_command(context,command,arguments,architecture);
+                coop::Timings timings;
+                coop::set_timings(&timings);
+                struct ResetTimings { ~ResetTimings() { coop::set_timings(nullptr); } } reset_timings;
+                const auto exit = coop::package_command(context,command,arguments,architecture);
+                if (context.timings) {
+                    const auto result = timings.result();
+                    std::cout << "Timings\n-------\n"
+                              << "download " << result.at("download_seconds").get<double>() << " s\n"
+                              << "local    " << result.at("local_seconds").get<double>() << " s\n"
+                              << "total    " << result.at("total_seconds").get<double>() << " s\n";
+                }
+                return exit;
             }
             return coop::query(context, command, arguments);
         }

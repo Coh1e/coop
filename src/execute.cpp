@@ -8,6 +8,8 @@
 #include "script.hpp"
 #include "shim.hpp"
 #include "progress.hpp"
+#include "timings.hpp"
+#include <chrono>
 #include "inno.hpp"
 #include "msi.hpp"
 #include "nsis.hpp"
@@ -25,6 +27,19 @@
 #include <map>
 #include <set>
 
+namespace {
+// Attributes one IR step's wall time to the timings recorder when it leaves scope, including the
+// steps that throw: a failed run still says where the time went.
+struct StepScope {
+    explicit StepScope(std::string operation) : operation_(std::move(operation)) {}
+    ~StepScope() { coop::timings_add(operation_,std::chrono::duration<double>(std::chrono::steady_clock::now()-started_).count()); }
+    StepScope(const StepScope&) = delete;
+    StepScope& operator=(const StepScope&) = delete;
+private:
+    std::chrono::steady_clock::time_point started_ = std::chrono::steady_clock::now();
+    std::string operation_;
+};
+}
 namespace coop {
 namespace {
 Json dependency_sources(const ir::Package& package) {
@@ -1286,6 +1301,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         // Every package action is driven by the IR sequence the plan carries. The switch below is
         // the execution backend for each operation, never a second source of package ordering.
         for (const auto& step : plan.steps) {
+            const StepScope step_scope{ir::operation_name(step.operation)};
             // An update runs two visible phases. Scoop prints their headers; coop extracts before the
             // old version is unpublished, which is why the extract lines appear above the uninstall
             // block (see #57: a failed extract must leave `current` on the old version).
@@ -1984,6 +2000,23 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // it was planned beside so the result cannot be mistaken for a change to that copy.
     if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
         {"directory",path_text(*plan.global_installation)}};
+    // One record per run, always: the split between waiting on the network and working locally is the
+    // measurement the performance work needs, and a human reading --timings sees the same numbers.
+    if (auto* timings = active_timings()) {
+        auto record = timings->result();
+        record["package"] = package.name;
+        record["version"] = package.version;
+        record["action"] = plan.action == ir::Action::install ? "install" :
+            plan.action == ir::Action::update ? "update" :
+            plan.action == ir::Action::uninstall ? "uninstall" : "reset";
+        result["timings"] = record;
+        try {
+            const auto directory = context.root/L".coop"/L"timings";
+            fs::create_directories(directory);
+            const auto name = std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64())+L".json";
+            write_json(directory/name,record);
+        } catch (const std::exception&) { /* A timing record never fails the install. */ }
+    }
     return result;
 }
 Json package_recovery_status(const Context& context, const fs::path& journal_path, bool execute) {
