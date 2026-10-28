@@ -629,6 +629,9 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
     if (plan.already_installed) return {};
     if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
+    // A different version of an installed package goes through `update`, which owns replacing entries
+    // and the current link; `install` refuses by name instead of duplicating that path.
+    if (plan.action == ir::Action::install && plan.local.exists) return "Package already exists; use update";
     // A different version of an installed package is a normal install, as in Scoop: the new version
     // directory is created beside the old one and `current` is repointed; cleanup retires the old one.
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
@@ -910,36 +913,25 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         const auto kind = launcher_kind(fs::path(wide(command.target)));
         if (plan.action == ir::Action::install) {
             if (fs::exists(exe) || fs::exists(coop_metadata) || fs::exists(scoop_metadata)) {
-                // An entry may be replaced instead of refused when it is provably this package's own:
-                // installing another version of an installed package replaces its entries the way Scoop
-                // does, and a package Scoop removed can leave Coop's own files behind whose recorded
-                // target no longer exists (rm_shim removes the launcher and .shim, not .coop-shim.json).
-                bool replaceable = false;
-                if (fs::exists(coop_metadata)) {
-                    try {
-                        const auto metadata = read_json(coop_metadata);
-                        const auto recorded_target = fs::path(wide(metadata.value("target",std::string{})));
-                        const bool same_package = equal_name(metadata.value("package",std::string{}),package.name) &&
-                            !recorded_target.empty();
-                        replaceable = same_package &&
-                            (fs::exists(plan.local.directory) || !fs::exists(recorded_target));
-                    } catch (const std::exception&) { /* Unreadable metadata stays a conflict. */ }
+                // A package installation that Scoop removed can leave Coop's own entry files behind
+                // (Scoop's rm_shim removes the launcher and its .shim, not .coop-shim.json). Files
+                // that are provably Coop's own and whose recorded target no longer exists are stale
+                // evidence from that removal, so a fresh install replaces them instead of refusing.
+                bool stale_coop_entry = false;
+                if (!fs::exists(scoop_metadata)) {
+                    if (fs::exists(coop_metadata)) {
+                        try {
+                            const auto metadata = read_json(coop_metadata);
+                            const auto recorded_target = fs::path(wide(metadata.value("target",std::string{})));
+                            stale_coop_entry = equal_name(metadata.value("package",std::string{}),package.name) &&
+                                !recorded_target.empty() && !fs::exists(recorded_target);
+                        } catch (const std::exception&) { /* Unreadable metadata stays a conflict. */ }
+                    }
+                    if (kind != LauncherKind::direct && fs::exists(exe) &&
+                        sha256_file(exe) == coop_launcher_hash())
+                        stale_coop_entry = true;
                 }
-                // A Scoop-style metadata file has no package field, but its path names this package's
-                // current tree, which identifies the entry just as well.
-                if (!replaceable && fs::exists(scoop_metadata) && fs::exists(plan.local.directory)) {
-                    try {
-                        const auto text = [&]() {
-                            std::ifstream input(scoop_metadata);
-                            return std::string(std::istreambuf_iterator<char>(input),{});
-                        }();
-                        replaceable = text.find("apps"+std::string(1,'\\')+package.name+std::string(1,'\\')+"current") != std::string::npos;
-                    } catch (const std::exception&) { /* Unreadable metadata stays a conflict. */ }
-                }
-                if (!replaceable && !fs::exists(scoop_metadata) && kind != LauncherKind::direct &&
-                    fs::exists(exe) && sha256_file(exe) == coop_launcher_hash())
-                    replaceable = true;
-                if (!replaceable) throw std::runtime_error("Command entry conflicts with an existing file");
+                if (!stale_coop_entry) throw std::runtime_error("Command entry conflicts with an existing file");
             }
             if (kind != LauncherKind::direct) {
                 const auto cmd_wrapper = shims/(wide(command.alias)+L".cmd");
@@ -1529,7 +1521,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_preparation();
                 // A reset re-links the version it already had; Scoop's reset block shows the new
                 // link and the shims it recreates, not the ones it took down first.
-                if (plan.action != ir::Action::reset) progress_stage("Unlinking "+path_text(app/L"current"));
+                if (plan.action != ir::Action::reset) progress_stage(lines::unlinking(path_text(app/L"current")));
                 move(app/L"current",transaction/(step.previous ? L"old-current" : L"current"));
                 break;
             case ir::Operation::remove_entries: {
@@ -1666,10 +1658,6 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ordinary_parents(context.root,app);
                 fs::create_directories(app);
                 progress_stage(lines::linking(path_text(app/L"current"),path_text(version)));
-                // An install of a different version repoints an existing current link. The update path
-                // has already moved it away; here it is retired into the transaction, silently, because
-                // Scoop prints no unlink line for this case.
-                if (fs::exists(app/L"current")) move(app/L"current",transaction/L"old-current");
                 make_junction(transaction/L"new-current",version);
                 create(app/L"current",[&]() { publish_new(transaction/L"new-current",app/L"current"); });
                 break;
@@ -1683,25 +1671,6 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     path_entries = expanded_path_entries(context,package,app/L"current");
                 }
                 fs::create_directories(shims);
-                // Installing a different version republishes the entries the previous version left
-                // behind. Only this package's own entries are retired; a foreign file at the same name
-                // stays where it is so the publication below fails atomically instead of clobbering it.
-                if (plan.action == ir::Action::install && plan.local.exists) {
-                    for (const auto& command : package.entries) {
-                        const auto metadata = shims/(wide(command.alias)+L".shim");
-                        bool entry_is_ours = false;
-                        if (fs::is_regular_file(metadata)) {
-                            std::ifstream input(metadata);
-                            const std::string text(std::istreambuf_iterator<char>(input),{});
-                            entry_is_ours = text.find("apps"+std::string(1,'\\')+package.name+std::string(1,'\\')+"current") != std::string::npos;
-                        }
-                        if (!entry_is_ours) continue;
-                        for (const auto& suffix : {L".exe",L".shim"}) {
-                            const auto existing = shims/(wide(command.alias)+suffix);
-                            if (fs::exists(existing)) move(existing,transaction/(wide(command.alias)+L".old"+suffix));
-                        }
-                    }
-                }
                 std::array<wchar_t,32768> module{};
                 const auto length = GetModuleFileNameW(nullptr,module.data(),static_cast<DWORD>(module.size()));
                 if (!length || length >= module.size()) throw std::runtime_error("Cannot find native command launcher");
@@ -1797,7 +1766,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     fs::copy_file(fs::path(module.data()),prepared);
                     // Scoop reports the subsystem flip on its own line, right after the shim line.
                     if (gui) {
-                        progress_stage("Making "+path_text(exe)+" a GUI binary.");
+                        progress_stage(lines::marking_gui(path_text(exe)));
                         mark_launcher_gui(prepared);
                     }
                     const auto launcher_hash = sha256_file(prepared);

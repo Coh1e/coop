@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -49,6 +50,13 @@ std::string uninstalled(const std::string& name);
 std::string up_to_date(const std::string& name);
 std::string already_installed(const std::string& name,const std::string& version);
 std::string advise_update(const std::string& name);
+std::string version_move(const std::string& name,const std::string& from,const std::string& to);
+std::string batch_heading(std::size_t outdated);
+std::string unlinking(const std::string& path);
+std::string marking_gui(const std::string& path);
+std::string cleanup_removing(const std::string& name);
+std::string cleanup_version(const std::string& version);
+std::string cleanup_done();
 }
 bool stdout_is_terminal();
 // Human-readable byte size, the way Scoop prints one: one decimal place above a kilobyte.

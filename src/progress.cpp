@@ -89,5 +89,17 @@ std::string already_installed(const std::string& name,const std::string& version
     return "WARN  '"+name+"' ("+version+") is already installed.";
 }
 std::string advise_update(const std::string& name) { return "Use 'scoop update "+name+"' to install a new version."; }
+std::string version_move(const std::string& name,const std::string& from,const std::string& to) {
+    return name+": "+from+" -> "+to;
+}
+std::string batch_heading(std::size_t outdated) {
+    if (outdated == 1) return "Updating one outdated app:";
+    return "Updating "+std::to_string(outdated)+" outdated apps:";
+}
+std::string unlinking(const std::string& path) { return "Unlinking "+path; }
+std::string marking_gui(const std::string& path) { return "Making "+path+" a GUI binary."; }
+std::string cleanup_removing(const std::string& name) { return "Removing "+name+":"; }
+std::string cleanup_version(const std::string& version) { return " "+version; }
+std::string cleanup_done() { return "Everything is shiny now!"; }
 }
 }

@@ -5,6 +5,7 @@
 #include "exposure.hpp"
 #include "script.hpp"
 #include "shim.hpp"
+#include "progress.hpp"
 #include "archive.hpp"
 #include "inno.hpp"
 #include "nsis.hpp"
@@ -900,7 +901,7 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
         if (!partial && !upToDate) announce_success_line(context,plan);
         outcome.failed = partial;
         outcome.status = partial ? "partial" : (upToDate ? "up-to-date" : "success");
-        if (upToDate && !context.json_output) std::cout << plan.package.name << ": up-to-date\n";
+        if (upToDate && !context.json_output) std::cout << lines::up_to_date(plan.package.name) << '\n';
         if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
         outcome.value = result;
     } catch (const std::exception& error) {

@@ -1,4 +1,5 @@
 #include "versions.hpp"
+#include "progress.hpp"
 #include "package.hpp"
 #include <windows.h>
 #include <algorithm>
@@ -778,8 +779,8 @@ int cleanup_command(const Context& context, const std::vector<std::wstring>& nam
         for (const auto& item : results) {
             const auto removed = item.value("removed",Json::array());
             if (!removed.empty()) {
-                std::cout << "Removing " << item.value("package",std::string{}) << ":\n";
-                for (const auto& entry : removed) std::cout << " " << entry.value("version",std::string{}) << '\n';
+                std::cout << lines::cleanup_removing(item.value("package",std::string{})) << '\n';
+                for (const auto& entry : removed) std::cout << lines::cleanup_version(entry.value("version",std::string{})) << '\n';
                 removedAnything = true;
             }
             if (item.contains("reason")) std::cerr << "coop: " << item.at("reason").get<std::string>() << '\n';
@@ -790,7 +791,7 @@ int cleanup_command(const Context& context, const std::vector<std::wstring>& nam
         if (removedAnything) std::cout << '\n';
         // The fixed sentence reports a clean state; a run that failed did not reach one, and the
         // failure reason above is the last word.
-        if (!failed) std::cout << "Everything is shiny now!\n";
+        if (!failed) std::cout << lines::cleanup_done() << '\n';
     }
     return failed ? 1 : 0;
 }
