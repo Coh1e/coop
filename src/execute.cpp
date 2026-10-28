@@ -631,9 +631,6 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
     // A different version of an installed package is a normal install, as in Scoop: the new version
     // directory is created beside the old one and `current` is repointed; cleanup retires the old one.
-    // A package installed only in the system-level root stays read-only, which the check below covers.
-
-
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
         return "No usable current installation exists for this package";
     // Shared Scoop installations have no Coop private record. Direct-file artifacts (including

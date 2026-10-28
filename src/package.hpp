@@ -34,7 +34,8 @@ struct Plan {
     // that verdict here so preview, execution and the machine-readable result all agree.
     bool already_installed = false;
     // #74: installing another version over an installed one keeps the replaced version directory, as
-    // Scoop does; update removes it instead. The flag only changes the final remove-version step.
+    // Scoop does. The plan then runs the update sequence, so the executor must read the replaced
+    // version as the installed one, and the replaced version's uninstaller and hooks are dropped.
     bool retain_previous = false;
     // The executability verdict, computed once by the plan builder from the plan and the current
     // environment. Preview and every execution entry point read this value instead of re-running
