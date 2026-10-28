@@ -631,7 +631,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
     // A different version of an installed package goes through `update`, which owns replacing entries
     // and the current link; `install` refuses by name instead of duplicating that path.
-    if (plan.action == ir::Action::install && plan.local.exists) return "Package already exists; use update";
+    if (plan.action == ir::Action::install && plan.local.exists && !plan.retain_previous) return "Package already exists; use update";
     // A different version of an installed package is a normal install, as in Scoop: the new version
     // directory is created beside the old one and `current` is repointed; cleanup retires the old one.
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
@@ -843,7 +843,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     Json purge_entries = Json::array();
     std::vector<FilePrecondition> owned_inputs;
     const bool has_managed_record = fs::exists(record_path);
-    if (plan.action == ir::Action::install) {
+    if (plan.action == ir::Action::install && !plan.retain_previous) {
         // The existing version is a no-op, and a retained version directory is still refused by name;
         // anything else is an ordinary install of a different version.
         if (plan.already_installed)
@@ -911,7 +911,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         const auto coop_metadata = shims/(wide(command.alias)+L".coop-shim.json");
         const auto scoop_metadata = shims/(wide(command.alias)+L".shim");
         const auto kind = launcher_kind(fs::path(wide(command.target)));
-        if (plan.action == ir::Action::install) {
+        if (plan.action == ir::Action::install && !plan.retain_previous) {
             if (fs::exists(exe) || fs::exists(coop_metadata) || fs::exists(scoop_metadata)) {
                 // A package installation that Scoop removed can leave Coop's own entry files behind
                 // (Scoop's rm_shim removes the launcher and its .shim, not .coop-shim.json). Files
@@ -1647,7 +1647,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_preparation();
                 // Scoop removes the version directory without a line of its own; the uninstall block
                 // above already names the package that goes away.
-                move(version,transaction/L"removed-version");
+                if (!plan.retain_previous) move(version,transaction/L"removed-version");
                 break;
             case ir::Operation::publish_current: {
                 ensure_preparation();

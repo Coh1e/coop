@@ -30,6 +30,7 @@ Creating shim for 'rg'.
 - 失败在出错的那一步立刻出现，形状见实录的「失败：hash 不符」段落：`ERROR …` 加字段块和引导语，退出码 1。
 - 批量：每包完整走一遍，**没有批级结尾汇总**；`update a b` 在第一个块之前打**一次**表头，只数真正过期的包（`Updating one outdated app:` 或 `Updating N outdated apps:`），已是最新的包在自己的位置报 `<包>: up-to-date`。
 - 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西；批量里遇到已装的包打同一对 WARN，不报成功行。
+- 装**另一个版本**（已装 1.0，再 `install` 2.0）：按 Scoop 的语义走正常安装——新版本目录建在旧版本旁边，`current` 重新指向新版本，旧版本保留到 `cleanup` 才删除；输出与普通安装相同，`--json` 的 `retained_versions` 列出旧版本。
 - 安装与更新的开始行**不带**结尾句点，卸载与重置**带**。
 - 安装完成后，Manifest 的 `suggest`（每个候选都未安装的 feature 一行）与 `notes`（`Notes` / `-----` 块，原文保留换行）依次打印。
 
@@ -84,7 +85,7 @@ Scoop 在文件名两侧硬编码 ANSI 青色（`lib/download.ps1:735` 直接写
 - 产物校验通过后写入 `<根>/cache/<声明文件名>`，布局与 Scoop 相同，两个客户端共用同一份文件。
 - 命中前按 Manifest 声明的算法与摘要重新校验；摘要不符或文件损坏视为未命中并重新下载，缓存内容不被信任。
 - 命中时打印 `Loading <文件名> from cache`，随后仍执行同一套校验与解压步骤。
-- 缓存命中的可见场景是 **update**：Scoop 在同一根上重装同一版本不读缓存、直接拒绝，Coop 现在同样拒绝（`WARN` 两行 + 退出码 0），见 #56。
+- 缓存命中的可见场景是 **update** 与**装另一个版本**：同一版本重装是 no-op（`WARN` 两行 + 退出码 0）；换成另一个版本走正常安装，命中缓存时先打 `Downloading new version` 再打 `Loading … from cache`（见下条）。
 
 ## 每个写命令的示例输出
 

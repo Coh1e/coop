@@ -85,17 +85,18 @@ if ($previewResult.status -ne 'already-installed' -or $previewResult.already_ins
     throw "the preview did not report already-installed: $($preview.output)"
 }
 if ((Get-Fingerprint) -ne $before) { throw 'the preview changed the installation root' }
-# 3. A different version is refused by name, not silently: `update` owns replacing entries and the
-#    current link, and install must not duplicate that path. The refusal names the command, so the
-#    reason is legible without reading the code.
+# 3. A different version is an ordinary install, as in Scoop: the new version directory is created
+#    beside the old one and `current` moves. The detailed invariants (cleanup, foreign files, recovery)
+#    live in tests/cross-version.ps1.
 Write-Manifest 'tidy' '5.8.1'
 $different = Invoke-Coop @('--root',$root,'install','test/tidy','--json')
-if ($different.exit -eq 0) { throw "installing a different version changed the package: $($different.output)" }
-if ($different.error -notmatch 'update') { throw "the refusal did not name the command that does the work: $($different.error)" }
-if (Test-Path -LiteralPath "$root/apps/tidy/5.8.1") { throw 'the refused install still wrote a version directory' }# 5. A reinstall must not resolve dependencies at all: the no-op verdict is decided before dependency
+if ($different.exit -ne 0) { throw "installing a different version failed: $($different.error)" }
+if (-not (Test-Path -LiteralPath "$root/apps/tidy/5.8.1")) { throw 'the different version wrote no version directory' }
+$moved = (Get-Item -LiteralPath "$root/apps/tidy/current").Target
+if ($moved -notmatch '5\.8\.1') { throw "current was not repointed at the new version: $moved" }# 5. A reinstall must not resolve dependencies at all: the no-op verdict is decided before dependency
 #    resolution, so a Manifest that names an absent dependency still installs nothing and warns.
 #    The version has to be the current one, otherwise this is an ordinary install of another version.
-$ordered = [ordered]@{ version='5.8.0'; url=(File-Uri $tidy); hash=(File-Hash $tidy)
+$ordered = [ordered]@{ version='5.8.1'; url=(File-Uri $tidy); hash=(File-Hash $tidy)
     extract_dir='tidy-5.8.0-win64\bin'; bin='tidy.exe'; depends=@('ghost') }
 [IO.File]::WriteAllText("$root/buckets/test/bucket/tidy.json",
     ($ordered | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
@@ -103,7 +104,7 @@ $before = Get-Fingerprint
 $reinstall = Invoke-Coop @('--root',$root,'install','test/tidy')
 if ($reinstall.exit -ne 0) { throw "the reinstall resolved the dependency and failed: $($reinstall.error)$($reinstall.output)" }
 $reinstallLines = @($reinstall.output -split "`r?`n" | Where-Object { $_ -ne '' })
-$expectedDependencyLines = @("WARN  'tidy' (5.8.0) is already installed.","Use 'scoop update tidy' to install a new version.")
+$expectedDependencyLines = @("WARN  'tidy' (5.8.1) is already installed.","Use 'scoop update tidy' to install a new version.")
 if (($reinstallLines -join "`n") -ne ($expectedDependencyLines -join "`n")) {
     throw "the reinstall printed more than Scoop's two lines:`n$($reinstallLines -join "`n")"
 }

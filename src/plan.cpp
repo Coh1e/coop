@@ -471,7 +471,18 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         }
     }
     switch (action) {
-    case ir::Action::install: plan.steps = ir::plan(ir::Action::install,plan.package,nullptr,true).steps; break;
+    case ir::Action::install:
+        // A different installed version is Scoop's install: reuse the update IR, which already
+        // merges the record and replaces the entries, and keep the replaced version directory.
+        if (plan.local.exists && !plan.already_installed &&
+            plan.local.directory.filename().wstring() != wide(plan.package.version)) {
+            plan.previous = read_installed();
+            plan.retain_previous = true;
+        }
+        plan.steps = plan.retain_previous
+            ? ir::plan(ir::Action::update,plan.package,&*plan.previous,true).steps
+            : ir::plan(ir::Action::install,plan.package,nullptr,true).steps;
+        break;
     case ir::Action::update: plan.steps = ir::plan(ir::Action::update,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
     case ir::Action::uninstall: plan.steps = ir::plan(ir::Action::uninstall,plan.package,nullptr,false).steps; break;
     case ir::Action::reset: plan.steps = ir::plan(ir::Action::reset,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
