@@ -13,24 +13,22 @@
     "bin": "\"rg.exe\""
   },
   "entries": [
-    [
-      "dir|complete",
-      "dir|doc",
-      "file|complete/_rg.ps1|053309e2043ed4b5ef2a718a34602592f98573f1a166469ae2fd532cc98b05e6",
-      "file|complete/_rg|2318f6feabf82be30473e8511b6d4374471d41e0dc36eac69e1e708e1f3986ad",
-      "file|complete/rg.bash|9fd807931c6d350d50e0bb6819629b6cc83e6253528342e95bbaeef81241d0e3",
-      "file|complete/rg.fish|b63b76a059be13e041104d2576e2594067c15f29cd56cb339a021dca9cb1a656",
-      "file|COPYING|dfe7d0a6134a17d3de7409762e08dc02133303912875cab40a74ba07a390f85a",
-      "file|doc/CHANGELOG.md|bd24702edcbf9c339a3b062efc987be6d125af8e993c8dd264b0625a40deb506",
-      "file|doc/FAQ.md|3cc08f312b63aec68ea4063067f528613331d6ca229fbcf448fc18a1045fd748",
-      "file|doc/GUIDE.md|289105ac6ac375b7fd6a4a26f6bfda0b53e50c66b279f190cafcfe831267fe77",
-      "file|doc/rg.1|e83d82c28bb2683cf71500e5fb8d9746a162bb24b08a6396a15ab2ed1d96cb45",
-      "file|LICENSE-MIT|970813655a1bf777d2ead189cef71ab73ab92ce04dc864027d61a45de03e6728",
-      "file|README.md|24c3effdbd5c493ceedce5bdcd955ee95c4a1b9acb4c431488c482a9ab0daaa0",
-      "file|rg.exe|14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
-      "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-      "file|scoop-manifest.json|97cbd3f33742088823197fc4f6a854cc29ee5e13da264694c7277352b7dbe83f",
-      "file|UNLICENSE|640514163b17f977adc997cb16f51871122cfb0555ebad1a3f01e167b7ba8857"
-    ]
+    "dir|complete",
+    "dir|doc",
+    "file|complete/_rg.ps1|053309e2043ed4b5ef2a718a34602592f98573f1a166469ae2fd532cc98b05e6",
+    "file|complete/_rg|2318f6feabf82be30473e8511b6d4374471d41e0dc36eac69e1e708e1f3986ad",
+    "file|complete/rg.bash|9fd807931c6d350d50e0bb6819629b6cc83e6253528342e95bbaeef81241d0e3",
+    "file|complete/rg.fish|b63b76a059be13e041104d2576e2594067c15f29cd56cb339a021dca9cb1a656",
+    "file|COPYING|dfe7d0a6134a17d3de7409762e08dc02133303912875cab40a74ba07a390f85a",
+    "file|doc/CHANGELOG.md|bd24702edcbf9c339a3b062efc987be6d125af8e993c8dd264b0625a40deb506",
+    "file|doc/FAQ.md|3cc08f312b63aec68ea4063067f528613331d6ca229fbcf448fc18a1045fd748",
+    "file|doc/GUIDE.md|289105ac6ac375b7fd6a4a26f6bfda0b53e50c66b279f190cafcfe831267fe77",
+    "file|doc/rg.1|e83d82c28bb2683cf71500e5fb8d9746a162bb24b08a6396a15ab2ed1d96cb45",
+    "file|LICENSE-MIT|970813655a1bf777d2ead189cef71ab73ab92ce04dc864027d61a45de03e6728",
+    "file|README.md|24c3effdbd5c493ceedce5bdcd955ee95c4a1b9acb4c431488c482a9ab0daaa0",
+    "file|rg.exe|14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
+    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
+    "file|scoop-manifest.json|97cbd3f33742088823197fc4f6a854cc29ee5e13da264694c7277352b7dbe83f",
+    "file|UNLICENSE|640514163b17f977adc997cb16f51871122cfb0555ebad1a3f01e167b7ba8857"
   ]
 }

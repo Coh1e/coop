@@ -13,11 +13,9 @@
     "bin": "\"tidy.exe\""
   },
   "entries": [
-    [
-      "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-      "file|scoop-manifest.json|aca1240a1796ef5c4d87634ae463d7c3b4ea8d659fd1945a26139e137d6fe6b3",
-      "file|tidy.dll|71e529f65b7ebd6e057bcdd8b6bd19c9bfe8c9b14c2c18fc758ecb0a141c61b2",
-      "file|tidy.exe|619ac8bb4438eb33b046b09c5726a6efb7d516228235a7e18ffc6e43866d76ac"
-    ]
+    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
+    "file|scoop-manifest.json|aca1240a1796ef5c4d87634ae463d7c3b4ea8d659fd1945a26139e137d6fe6b3",
+    "file|tidy.dll|71e529f65b7ebd6e057bcdd8b6bd19c9bfe8c9b14c2c18fc758ecb0a141c61b2",
+    "file|tidy.exe|619ac8bb4438eb33b046b09c5726a6efb7d516228235a7e18ffc6e43866d76ac"
   ]
 }

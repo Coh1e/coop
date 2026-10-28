@@ -75,14 +75,14 @@ function Invoke-Coop([string]$label,[string[]]$arguments) {
 # One relative entry per published object, sorted, so a reordering of the tree is a visible diff.
 function Get-Entries([string]$directory) {
     $entries = [Collections.Generic.List[string]]::new()
-    if (-not (Test-Path -LiteralPath $directory)) { return ,$entries }
+    if (-not (Test-Path -LiteralPath $directory)) { return }
     foreach ($item in Get-ChildItem -LiteralPath $directory -Recurse -Force) {
         $relative = $item.FullName.Substring($directory.Length).TrimStart('\').Replace('\','/')
         if ($item.PSIsContainer) { $entries.Add("dir|$relative") }
         else { $entries.Add("file|$relative|" + (File-Hash $item.FullName)) }
     }
     $sorted = $entries | Sort-Object
-    return ,$sorted
+    return $sorted
 }
 
 function Get-Snapshot([string]$name) {

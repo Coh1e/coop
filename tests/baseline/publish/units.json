@@ -13,24 +13,22 @@
     "bin": "\"units.exe\""
   },
   "entries": [
-    [
-      "file|cpi.units|db8b251a12826bbc1aeac48f303adb3d39444bc47aab7968b071178140a4de69",
-      "file|crypto.units|fd90fbc8733a3f1740359b0f867662a023a8446b8c475139c45a6c0758976d64",
-      "file|currency.units|c2574b9b48074fb5a12808b1134f6b8dc20a72770e371d79ac066fccd76c746f",
-      "file|definitions.units|7effbad3f614f91f8afc902b3dc38d5bdd21809623a13c5f3499e4a2ee9d67df",
-      "file|elements.units|3ec16529e9287d30bdaa73878212356b1433fe63e6fd0183524a67de421b40f3",
-      "file|License.txt|0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b",
-      "file|locale_map.txt|8a9a39e7df0c1ebf4c6d7d29b0436e185486648ba0282c38ed2176fbc7c14f43",
-      "file|metal_prices.units|0d79adf57e2b81c343dddd0a43ed348389837fb48456971d09ebe0e94e7f6502",
-      "file|Readme.txt|2b30d7865af5bedf5f48f7bb4f045dd00660dfd28ea80dda068bb727a689bc2d",
-      "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-      "file|scoop-manifest.json|e2ec4a4351736cc34b2e2d565f9565544382ac6479fb3e09221db5ed89328215",
-      "file|units_cur.py|0ff71ff1a0423dcef3b7a690e88d50bc139d8f1b2a750ddfcf8c923684f0d03c",
-      "file|units.exe|090eb37e9ae0a55907c1dde9660e4e13f8edd5e99c0bbd839f03c552cd79602c",
-      "file|units.pdf|6b759de89be0de4c4d255d355126bacbcaea2293270af2915b9d7d627fe1674a",
-      "file|unitsfile.ico|46c143bd8dfd68fffd490917f95adb605a249241d2b9e8db7506c20933bdaf6e",
-      "file|UnitsForWindows.pdf|09d44ab7372f9f174a0f8aace69dc1ff665cef86b4ab1c5bfaa8a62996311054",
-      "file|unitsprog.ico|16d8fd1d28250ba9d1fc09643279ee661f7722526665d62f25c2959950f40368"
-    ]
+    "file|cpi.units|db8b251a12826bbc1aeac48f303adb3d39444bc47aab7968b071178140a4de69",
+    "file|crypto.units|fd90fbc8733a3f1740359b0f867662a023a8446b8c475139c45a6c0758976d64",
+    "file|currency.units|c2574b9b48074fb5a12808b1134f6b8dc20a72770e371d79ac066fccd76c746f",
+    "file|definitions.units|7effbad3f614f91f8afc902b3dc38d5bdd21809623a13c5f3499e4a2ee9d67df",
+    "file|elements.units|3ec16529e9287d30bdaa73878212356b1433fe63e6fd0183524a67de421b40f3",
+    "file|License.txt|0b383d5a63da644f628d99c33976ea6487ed89aaa59f0b3257992deac1171e6b",
+    "file|locale_map.txt|8a9a39e7df0c1ebf4c6d7d29b0436e185486648ba0282c38ed2176fbc7c14f43",
+    "file|metal_prices.units|0d79adf57e2b81c343dddd0a43ed348389837fb48456971d09ebe0e94e7f6502",
+    "file|Readme.txt|2b30d7865af5bedf5f48f7bb4f045dd00660dfd28ea80dda068bb727a689bc2d",
+    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
+    "file|scoop-manifest.json|e2ec4a4351736cc34b2e2d565f9565544382ac6479fb3e09221db5ed89328215",
+    "file|units_cur.py|0ff71ff1a0423dcef3b7a690e88d50bc139d8f1b2a750ddfcf8c923684f0d03c",
+    "file|units.exe|090eb37e9ae0a55907c1dde9660e4e13f8edd5e99c0bbd839f03c552cd79602c",
+    "file|units.pdf|6b759de89be0de4c4d255d355126bacbcaea2293270af2915b9d7d627fe1674a",
+    "file|unitsfile.ico|46c143bd8dfd68fffd490917f95adb605a249241d2b9e8db7506c20933bdaf6e",
+    "file|UnitsForWindows.pdf|09d44ab7372f9f174a0f8aace69dc1ff665cef86b4ab1c5bfaa8a62996311054",
+    "file|unitsprog.ico|16d8fd1d28250ba9d1fc09643279ee661f7722526665d62f25c2959950f40368"
   ]
 }

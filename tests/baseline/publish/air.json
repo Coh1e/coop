@@ -13,15 +13,13 @@
     "bin": "\"air.exe\""
   },
   "entries": [
-    [
-      "file|air.exe|bb7fbb3986e825561c53fee1c5bc61e9823ec677b3631d4f49eb5d5ea8b25774",
-      "file|LICENSE|d62f065830aa3739cc031156b9690805c7b2e811b4a178c8b4acd8725d561c94",
-      "file|README-ja.md|225ac77321a0e41132df3d71d7c0a0d03228d7fe3543ed949ba07f8acb44b425",
-      "file|README-zh_cn.md|822f05daa837c13c25212a7e038f431178d38f283b6a6cd62875203ac6a8938d",
-      "file|README-zh_tw.md|61a54804c14b8dd7b9d17668be68b03d695dc52dc739cd129bfa0a32d4e10b92",
-      "file|README.md|11a04dd7898623cc24e6cf54acfb3a3fbe9f78717c3e3cef5127e2a0321f7bc6",
-      "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
-      "file|scoop-manifest.json|1d9888c7a8dc8c087c61f55c9fd8aae198e51b27581b5a518081c9c73fbe8130"
-    ]
+    "file|air.exe|bb7fbb3986e825561c53fee1c5bc61e9823ec677b3631d4f49eb5d5ea8b25774",
+    "file|LICENSE|d62f065830aa3739cc031156b9690805c7b2e811b4a178c8b4acd8725d561c94",
+    "file|README-ja.md|225ac77321a0e41132df3d71d7c0a0d03228d7fe3543ed949ba07f8acb44b425",
+    "file|README-zh_cn.md|822f05daa837c13c25212a7e038f431178d38f283b6a6cd62875203ac6a8938d",
+    "file|README-zh_tw.md|61a54804c14b8dd7b9d17668be68b03d695dc52dc739cd129bfa0a32d4e10b92",
+    "file|README.md|11a04dd7898623cc24e6cf54acfb3a3fbe9f78717c3e3cef5127e2a0321f7bc6",
+    "file|scoop-install.json|baac97e92b9482ff90a35b591fe4da01f5982a09fd2b21d9305deb69e9baf95b",
+    "file|scoop-manifest.json|1d9888c7a8dc8c087c61f55c9fd8aae198e51b27581b5a518081c9c73fbe8130"
   ]
 }
