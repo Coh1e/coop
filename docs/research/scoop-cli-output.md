@@ -245,9 +245,12 @@ ERROR URL https://example.invalid/nothing.zip is not valid
 
 ## 未覆盖
 
+写完后已查清一项，从下面的清单里移出：`suggests installing` 的数据来源是 Manifest 的 `suggest` 字段（`lib/install.ps1:76` 收 `$manifest.suggest`，形状为 feature → `bucket/app`，实测 `ripgrep.json` 为 `{"vcredist":"extras/vcredist2022"}`）。这条不在本文件的实录范围内，改由 [#59](https://github.com/Coh1e/coop/issues/59) 承担。
+
+下面五项仍然未覆盖：
+
 - **中断（Ctrl+C）**：没有录制。需要一个足够慢的下载源（本地限速 HTTP 服务）才能在包安装中途打断；`file://` 太快。
 - **真实根上的首次输出**：`Updating Scoop...`、`Updating Buckets...` 在正常根上的出现条件未验证。
 - **真实 HTTP 下载**：本文全部用 `file://`，`Content-Length`、分块与重试路径都没有真实网络样本。进度条本身见源码结论，不需要样本。
 - **依赖安装**：没有录到 `depends` 场景（手写 Manifest 未构造依赖）。
-- **`suggests installing` 的数据来源**：只观察到它出现，未确认它读自 bucket 的哪个文件。
 - **hash 失败时的问题链接**：指向 `Coh1e/coop`，与真实根上的行为不同，未查明。
