@@ -482,6 +482,12 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         plan.steps = plan.retain_previous
             ? ir::plan(ir::Action::update,plan.package,&*plan.previous,true).steps
             : ir::plan(ir::Action::install,plan.package,nullptr,true).steps;
+        // Scoop's install of another version replaces entries and the current link, but it never runs
+        // the replaced version's uninstaller or its uninstall hooks: those belong to uninstall/update.
+        if (plan.retain_previous)
+            plan.steps.erase(std::remove_if(plan.steps.begin(),plan.steps.end(),[&](const ir::Step& step) {
+                return step.previous && (step.operation == ir::Operation::installer || step.operation == ir::Operation::hook);
+            }),plan.steps.end());
         break;
     case ir::Action::update: plan.steps = ir::plan(ir::Action::update,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
     case ir::Action::uninstall: plan.steps = ir::plan(ir::Action::uninstall,plan.package,nullptr,false).steps; break;
@@ -493,8 +499,11 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         plan.diagnostics.push_back({ir::Layer::validation,"empty-plan",
             "The IR planner produced no operation for this request; the plan cannot be executed"});
     }
-    if (action == ir::Action::update || action == ir::Action::uninstall || action == ir::Action::reset) {
-        const auto& installed_facts = (action == ir::Action::update || action == ir::Action::reset) && plan.previous ? *plan.previous : plan.package;
+    // An install that keeps the replaced version runs the update plan, so it needs the same
+    // wrapper retirement as an update: the old .cmd/.ps1 views must be moved aside, not
+    // published over the existing files.
+    if (action == ir::Action::update || action == ir::Action::uninstall || action == ir::Action::reset || plan.retain_previous) {
+        const auto& installed_facts = (action == ir::Action::update || action == ir::Action::reset || plan.retain_previous) && plan.previous ? *plan.previous : plan.package;
         std::vector<std::string> names;
         for (const auto& command : installed_facts.entries) names.push_back(command.alias);
         plan.scoop_entry_wrappers = scoop_entry_wrappers(context,installed_facts.name,names);
@@ -571,7 +580,7 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     const auto persistence_directory = (action == ir::Action::install || action == ir::Action::update || action == ir::Action::reset)
         ? context.root/L"apps"/wide(plan.package.name)/wide(plan.package.version) : plan.local.directory;
     result["persistence"] = persistence_plan_json(context,plan.package.name,plan.package.persistence,persistence_directory);
-    if (action == ir::Action::update || action == ir::Action::uninstall)
+    if (action == ir::Action::update || action == ir::Action::uninstall || plan.retain_previous)
         result["retained_versions"] = retained_versions(context,plan.package.name,plan.package.version);
     if (action == ir::Action::reset) {
         result["current_version"] = plan.previous ? plan.previous->version : std::string{};

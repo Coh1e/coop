@@ -629,11 +629,11 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
     if (plan.already_installed) return {};
     if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
-    // A different version of an installed package goes through `update`, which owns replacing entries
-    // and the current link; `install` refuses by name instead of duplicating that path.
-    if (plan.action == ir::Action::install && plan.local.exists && !plan.retain_previous) return "Package already exists; use update";
     // A different version of an installed package is a normal install, as in Scoop: the new version
     // directory is created beside the old one and `current` is repointed; cleanup retires the old one.
+    // A package installed only in the system-level root stays read-only, which the check below covers.
+
+
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
         return "No usable current installation exists for this package";
     // Shared Scoop installations have no Coop private record. Direct-file artifacts (including
@@ -816,7 +816,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         progress->package(lines::package_start(verb,package.name,package.version,package.architecture,
             package.bucket,plan.previous ? plan.previous->version : std::string{}));
     }
-    const bool updating = plan.action == ir::Action::update;
+    // An install that keeps the replaced version is an update of the same installation from the
+    // executor's point of view: `installed` is the version being replaced, and everything that
+    // retires, verifies or reports the old facts has to read that package.
+    const bool updating = plan.action == ir::Action::update || plan.retain_previous;
     const bool resetting = plan.action == ir::Action::reset;
     const auto& installed = (updating || resetting) ? plan.previous.value() : package;
     const auto state = context.root/L".coop";
@@ -843,6 +846,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     Json purge_entries = Json::array();
     std::vector<FilePrecondition> owned_inputs;
     const bool has_managed_record = fs::exists(record_path);
+    if (plan.action == ir::Action::install && plan.retain_previous && fs::exists(version))
+        throw std::runtime_error("Target version already exists; it will not be overwritten");
     if (plan.action == ir::Action::install && !plan.retain_previous) {
         // The existing version is a no-op, and a retained version directory is still refused by name;
         // anything else is an ordinary install of a different version.
@@ -911,7 +916,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         const auto coop_metadata = shims/(wide(command.alias)+L".coop-shim.json");
         const auto scoop_metadata = shims/(wide(command.alias)+L".shim");
         const auto kind = launcher_kind(fs::path(wide(command.target)));
-        if (plan.action == ir::Action::install && !plan.retain_previous) {
+        if (plan.action == ir::Action::install && plan.retain_previous && fs::exists(version))
+        throw std::runtime_error("Target version already exists; it will not be overwritten");
+    if (plan.action == ir::Action::install && !plan.retain_previous) {
             if (fs::exists(exe) || fs::exists(coop_metadata) || fs::exists(scoop_metadata)) {
                 // A package installation that Scoop removed can leave Coop's own entry files behind
                 // (Scoop's rm_shim removes the launcher and its .shim, not .coop-shim.json). Files
@@ -1033,7 +1040,9 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     std::vector<std::string> absent_shortcuts;
     for (const auto& shortcut : installed.shortcuts) {
         const auto link = shortcut_link_path(context,shortcut.name);
-        if (plan.action == ir::Action::install) {
+
+
+        if (plan.action == ir::Action::install && !plan.retain_previous) {
             if (fs::exists(link)) throw std::runtime_error("Shortcut conflicts with an existing file: "+path_text(link));
             continue;
         }
@@ -1368,7 +1377,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 bool from_cache = false;
                 // Scoop says what it is about to do before either the transfer line or the cache line,
                 // so a cached update announces the new version too.
-                if (plan.action == ir::Action::update) progress_stage("Downloading new version");
+                if (plan.action == ir::Action::update || plan.retain_previous) progress_stage("Downloading new version");
                 // A cache hit is timed inside the download step: the bytes are zero, so the record shows
                 // that no transfer happened, and the local time is not counted twice.
                 if (fs::is_regular_file(cached_file)) {
@@ -1647,7 +1656,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 ensure_preparation();
                 // Scoop removes the version directory without a line of its own; the uninstall block
                 // above already names the package that goes away.
-                if (!plan.retain_previous) move(version,transaction/L"removed-version");
+                move(version,transaction/L"removed-version");
                 break;
             case ir::Operation::publish_current: {
                 ensure_preparation();
@@ -1814,6 +1823,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     std::error_code error;
                     fs::create_directories(link.parent_path(),error);
                     if (error) throw std::runtime_error("Cannot create the shortcut directory: "+path_text(link.parent_path()));
+                    // A cross-version install replaces this package's own shortcut: the old link is
+                    // retired into the transaction so the publication below is not a move onto a file
+                    // that still exists.
+                    if (plan.retain_previous && fs::exists(link))
+                        move(link,transaction/(link.filename().wstring()+L".old"));
                     const auto temporary = link.parent_path()/(link.filename().wstring()+L".coop-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(shortcut_records.size()));
                     write_shortcut(temporary,target,shortcut_arguments,icon);
                     try { create(link,[&]() { publish_new(temporary,link); }); }
