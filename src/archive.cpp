@@ -9,8 +9,10 @@
 #include <archive_entry.h>
 #include <array>
 #include <cstdint>
+#include <cwctype>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -139,6 +141,17 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
     if (archive_read_open_filename_w(source.get(),archive_path.wstring().c_str(),64*1024) != ARCHIVE_OK)
         throw std::runtime_error("Cannot open archive: "+archive_error(source.get()));
     std::uint64_t entries = 0, total = 0;
+    // A declared extract_dir that selects nothing must fail instead of publishing a version that
+    // only looks installed. Counting selected entries is what distinguishes "empty selection" from
+    // a legitimate empty archive, and it does not depend on the entries being directories.
+    std::size_t published = 0;
+    // Two entries can collapse onto one target once the extract_dir prefix is removed (a/A.TXT and
+    // a/a.txt differ in the archive and not on disk). Overwriting silently would leave a version
+    // whose contents depend on entry order, so a collision is a failure.
+    std::set<std::wstring> targets;
+    // Only this call's own writes may be undone. The destination is the package staging directory,
+    // which other artifacts of the same package may already have written into.
+    std::vector<fs::path> created;
     try {
         for (;;) {
             archive_entry* raw = nullptr;
@@ -160,6 +173,10 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
             }
             const auto type = archive_entry_filetype(entry.get());
             const auto target = destination/relative;
+            auto folded = target.wstring();
+            for (auto& character : folded) character = static_cast<wchar_t>(towlower(character));
+            if (!targets.insert(folded).second)
+                throw std::runtime_error("Archive entries collide at "+path_text(relative));
             ensure_parents(destination,target);
             if (type == AE_IFDIR) {
                 ensure_directory(target);
@@ -172,10 +189,23 @@ void extract_archive(const fs::path& archive_path, const fs::path& destination, 
             } else {
                 throw std::runtime_error("Archive contains an unsupported entry type");
             }
+            created.push_back(target);
+            ++published;
             archive_read_data_skip(source.get());
         }
+        if (!extract_directory.empty() && published == 0)
+            throw std::runtime_error("Archive does not contain the declared extract_dir: "+path_text(extract_directory));
     } catch (...) {
-        try { erase_tree(destination); } catch (...) { /* Preserve the original archive failure. */ }
+        // Files first, then the directories this call created while they are still empty, so the
+        // cleanup never reaches an earlier artifact's content.
+        while (!created.empty()) {
+            try {
+                const auto& path = created.back();
+                if (fs::is_directory(fs::symlink_status(path))) fs::remove(path);
+                else fs::remove(path);
+            } catch (...) { /* Preserve the original archive failure. */ }
+            created.pop_back();
+        }
         throw;
     }
 }

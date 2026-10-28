@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+﻿cmake_minimum_required(VERSION 3.25)
 project(coop VERSION 0.1.0 LANGUAGES C CXX)
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/.local/deps/include/nlohmann/json.hpp")
   message(FATAL_ERROR "Run scripts/fetch-deps.ps1 to fetch pinned project-local dependencies")
@@ -190,7 +190,7 @@ if(BUILD_TESTING)
   endif()
   set_property(TARGET fixture-env PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_test(NAME cli COMMAND "${CMAKE_COMMAND}" "-DCOOP_EXE=$<TARGET_FILE:coop>"
-    "-DTEST_ROOT=${PROJECT_SOURCE_DIR}/.local/tests/测试 space" -P "${PROJECT_SOURCE_DIR}/tests/cli.cmake")
+    "-DTEST_ROOT=${PROJECT_SOURCE_DIR}/.local/tests/娴嬭瘯 space" -P "${PROJECT_SOURCE_DIR}/tests/cli.cmake")
   foreach(option IN ITEMS version help)
     add_test(NAME cli_no_children_${option} COMMAND process_guard "$<TARGET_FILE:coop>" "--${option}")
   endforeach()
@@ -198,14 +198,14 @@ if(BUILD_TESTING)
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
   add_test(NAME coverage_gaps COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-gaps.ps1")
   add_test(NAME query COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/query.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/query 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/query 涓枃 space")
   add_test(NAME path_batch COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/path-batch.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/path-batch 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/path-batch 涓枃 space")
   add_test(NAME initialization COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/initialization.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/initialization 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/initialization 涓枃 space")
   add_test(NAME init_no_children COMMAND process_guard "$<TARGET_FILE:coop>" --root "${PROJECT_SOURCE_DIR}/.local/tests/initialization no children" init)
   foreach(command IN ITEMS list search info)
-    set(query_args "--root" "${PROJECT_SOURCE_DIR}/.local/tests/query 中文 space/core" "${command}" "--json")
+    set(query_args "--root" "${PROJECT_SOURCE_DIR}/.local/tests/query 涓枃 space/core" "${command}" "--json")
     if(NOT command STREQUAL "list")
       list(APPEND query_args "jq")
     endif()
@@ -213,55 +213,58 @@ if(BUILD_TESTING)
     set_tests_properties(query_no_children_${command} PROPERTIES DEPENDS query)
   endforeach()
   add_test(NAME bucket COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/bucket.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/bucket 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/bucket 涓枃")
   add_test(NAME performance COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/perf.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/performance 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/performance 涓枃 space")
   add_test(NAME acceptance COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/acceptance.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/acceptance 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/acceptance 涓枃 space")
   add_test(NAME plan COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/plan.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/plan 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/plan 涓枃")
   add_test(NAME ir_pipeline COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/ir-pipeline.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/ir-pipeline 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/ir-pipeline 涓枃 space")
   add_test(NAME lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/lifecycle.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/lifecycle 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/lifecycle 涓枃")
   add_test(NAME archive_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/archive-lifecycle.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/archive 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/archive 涓枃 space")
   add_test(NAME archive_safety COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/archive-safety.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/archive-safety 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/archive-safety 涓枃 space")
   add_test(NAME publish_baseline COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/publish-baseline.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/publish baseline")
+  add_test(NAME publish_contracts COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/publish-contracts.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/publish contracts")
+
   foreach(scenario IN ITEMS interrupt race)
     add_test(NAME lifecycle_${scenario} COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/lifecycle-${scenario}.ps1"
       -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/lifecycle-${scenario}")
   endforeach()
   add_test(NAME cleanup COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/cleanup.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup 涓枃 space")
   add_test(NAME old_versions COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/old-versions.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/old-versions 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/old-versions 涓枃 space")
   add_test(NAME update COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update 涓枃")
   add_test(NAME multi_artifact COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/multi-artifact.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/multi-artifact 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/multi-artifact 涓枃 space")
   add_test(NAME persistence COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/persist.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/persist 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/persist 涓枃 space")
   add_test(NAME dependencies COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/dependencies.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/dependencies 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/dependencies 涓枃 space")
   add_test(NAME versions_bucket COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/versions-bucket.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/versions-bucket 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/versions-bucket 涓枃 space")
   add_test(NAME update_input_change COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update-input-change.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-input-change 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-input-change 涓枃")
   add_test(NAME scoop_interop COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/scoop-interop.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/scoop-interop 中文")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/scoop-interop 涓枃")
   add_test(NAME recovery COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/recovery.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/recovery 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/recovery 涓枃 space")
   add_test(NAME recovery_matrix COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/recovery-matrix.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/recovery-matrix 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/recovery-matrix 涓枃 space")
   add_test(NAME exposure COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/exposure.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/exposure 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/exposure 涓枃 space")
   add_test(NAME user_environment COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/user-environment.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/user-environment 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/user-environment 涓枃 space")
   add_test(NAME psmodule COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/psmodule.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/psmodule 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/psmodule 涓枃 space")
   # The generated Scoop bash wrapper substitutes its target without quoting the cygpath result,
   # exactly like Scoop; a root with spaces cannot exercise that branch, so this test uses a plain path.
   add_test(NAME command_entry_host COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/command-entry-host.ps1"
@@ -273,17 +276,17 @@ if(BUILD_TESTING)
   # separate ctest invocations.
   set_tests_properties(acceptance exposure user_environment psmodule old_versions recovery_matrix PROPERTIES RESOURCE_LOCK coop_user_environment)
   add_test(NAME hooks COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/hooks.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/hooks 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/hooks 涓枃 space")
   add_test(NAME installers COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/installers.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/installers 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/installers 涓枃 space")
   add_test(NAME installer_programs COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/installer-programs.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/installer-programs 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/installer-programs 涓枃 space")
   add_test(NAME msi_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/msi-lifecycle.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/msi-lifecycle 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/msi-lifecycle 涓枃 space")
   add_test(NAME inno_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/inno-lifecycle.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inno-lifecycle 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inno-lifecycle 涓枃 space")
   add_test(NAME nsis_lifecycle COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/nsis-lifecycle.ps1"
-    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/nsis-lifecycle 中文 space")
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/nsis-lifecycle 涓枃 space")
   add_executable(ir_reuse tests/ir_reuse_fixture.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp)
   target_include_directories(ir_reuse PRIVATE "${PROJECT_SOURCE_DIR}/src")
   target_compile_features(ir_reuse PRIVATE cxx_std_20)
