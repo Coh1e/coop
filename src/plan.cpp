@@ -518,6 +518,10 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
             if (fs::is_regular_file(record)) plan.preconditions.push_back({record,sha256_file(record)});
         }
     }
+    // The version directory `current` publishes is the installed version, so the comparison needs no
+    // second record: the same name on disk means the request would change nothing.
+    plan.already_installed = action == ir::Action::install && plan.local.exists &&
+        plan.local.directory.filename().wstring() == wide(plan.package.version);
     plan.blocker = execution_blocker(context,plan);
     return plan;
 }
@@ -540,6 +544,10 @@ static Json describe_plan(const Context& context, const Plan& plan) {
         {"artifacts",Json::array()},{"preconditions",Json::array()},
         {"diagnostics",Json::array()},{"warnings",Json::array()}};
     result["local_facts"] = {{"current",path_text(plan.local.current)},{"exists",plan.local.exists},{"current_directory",path_text(plan.local.directory)}};
+    // The preview states the no-op verdict too, so --dry-run never promises a write that install
+    // would refuse to perform.
+    result["already_installed"] = plan.already_installed;
+    if (plan.already_installed) result["status"] = "already-installed";
     if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
         {"directory",path_text(*plan.global_installation)}};
     result["scoop_entry_wrappers"] = Json::array();

@@ -612,7 +612,10 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     if (!plan.blocking_dependents.empty()) return "Installed packages still depend on this package: "+plan.blocking_dependents.front();
     if (!plan.unverified_dependents.empty()) return "Dependency evidence is incomplete for installed packages: "+plan.unverified_dependents.front();
     if (!plan.diagnostics.empty()) return "Plan has unresolved diagnostics";
+    if (plan.already_installed) return {};
     if (plan.steps.empty()) return "Plan contains no IR operations; execution is refused";
+    // A different version of an installed package goes through `update`, which owns replacing entries
+    // and the current link; `install` refuses by name instead of duplicating that path.
     if (plan.action == ir::Action::install && plan.local.exists) return "Package already exists; use update";
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) && !plan.local.exists)
         return "No usable current installation exists for this package";
@@ -646,6 +649,18 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     return {};
 }
 int execute_plan(const Context& context, const Plan& plan) {
+    // Nothing to do, and nothing may be written: the same verdict reaches text mode, --json and
+    // --dry-run, so a script and a person see one answer.
+    if (plan.already_installed) {
+        if (context.json_output) {
+            std::cout << Json{{"package",plan.package.name},{"version",plan.package.version},
+                {"status","already-installed"}}.dump(2) << '\n';
+            return 0;
+        }
+        std::cout << "WARN  '"+plan.package.name+"' ("+plan.package.version+") is already installed.\n";
+        std::cout << "Use 'scoop update "+plan.package.name+"' to install a new version.\n";
+        return 0;
+    }
     if (plan.purge && plan.action == ir::Action::uninstall && !context.json_output) {
         try {
             const auto scope = purge_scope(context,plan.package,plan.local.directory);
@@ -728,7 +743,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     std::vector<FilePrecondition> owned_inputs;
     const bool has_managed_record = fs::exists(record_path);
     if (plan.action == ir::Action::install) {
-        if (plan.local.exists || fs::exists(version)) throw std::runtime_error("Package already exists; use update");
+        // The existing version is a no-op, and a retained version directory is still refused by name;
+        // anything else is an ordinary install of a different version.
+        if (plan.already_installed)
+            return Json{{"package",package.name},{"version",package.version},{"status","already-installed"}};
+        if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
     } else {
         // Shared Scoop state is the authority. A Coop record is optional evidence: when it is
         // missing or stale, the current installation records and actual files are re-read instead

@@ -29,6 +29,10 @@ struct Plan {
     // reused; an uninstalled one carries its own normalized package and IR operation sequence.
     std::vector<ir::DependencyPlan> dependencies;
     bool purge = false;
+    // Installing the version that is already current is a no-op, not a failure. Scoop warns, names
+    // the command that would change something, and exits 0 without touching the root; the plan keeps
+    // that verdict here so preview, execution and the machine-readable result all agree.
+    bool already_installed = false;
     // The executability verdict, computed once by the plan builder from the plan and the current
     // environment. Preview and every execution entry point read this value instead of re-running
     // a copy of the same judgement.
