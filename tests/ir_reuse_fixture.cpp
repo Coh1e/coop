@@ -83,7 +83,7 @@ int main() {
 
     const auto removal = coop::ir::plan(coop::ir::Action::uninstall,package,nullptr,false);
     check(operations(removal.steps) ==
-        "unlink-current,remove-entries,remove-ps-module,remove-environment,unlink-persistence,remove-version,commit-state",
+        "remove-entries,unlink-current,remove-ps-module,remove-environment,unlink-persistence,remove-version,commit-state",
         "the planner did not produce the removal sequence for the foreign package: "+operations(removal.steps));
 
     // Dependency planning consumes the same normalized identities: the foreign adapter only
