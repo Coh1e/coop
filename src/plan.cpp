@@ -801,6 +801,9 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
         try {
             auto result = execute_plan_result(context,dependency_execution_plan(context,item,plan.dependencies));
             result["requested"] = false;
+            // Each package reports as it finishes, so a long dependency chain is not one silent wait.
+            if (!context.json_output)
+                std::cout << "\x27"+result.value("package",item.name)+"\x27 ("+result.value("version",item.version)+") was installed successfully!\n";
             packages.push_back(result);
         } catch (const std::exception& error) {
             outcome.failed = true;
@@ -814,6 +817,8 @@ PackageOutcome install_execute_plan(const Context& context, const Plan& plan, co
     if (!outcome.failed) try {
         auto result = execute_plan_result(context,plan);
         result["requested"] = true;
+        if (!context.json_output)
+            std::cout << "'"+result.value("package",plan.package.name)+"' ("+result.value("version",plan.package.version)+") was installed successfully!\n";
         packages.push_back(result);
         root_result = result;
     } catch (const std::exception& error) {
@@ -910,12 +915,8 @@ int install_single(const Context& context, const std::string& request, const std
     if (plan.dependencies.empty()) return execute_plan(context,plan);
     const auto outcome = install_execute_plan(context,plan,request);
     if (context.json_output) print_json(outcome.value);
-    else {
-        for (const auto& item : outcome.value.at("packages"))
-            std::cout << item.value("package",std::string{}) << ": " << item.value("status",std::string{}) << '\n';
-        if (outcome.failed) std::cerr << "coop: " << outcome.reason << '\n';
-        else std::cout << "Completed packages keep separate transactions; no global transaction is claimed\n";
-    }
+    // Text mode already reported each package as it finished; only a failure needs a closing line.
+    else if (outcome.failed) std::cerr << "coop: " << outcome.reason << '\n';
     return outcome.failed ? 1 : 0;
 }
 int install_batch(const Context& context, const std::vector<std::wstring>& names, const std::string& architecture, bool dry_run) {

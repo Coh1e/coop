@@ -86,6 +86,41 @@ Scoop 在文件名两侧硬编码 ANSI 青色（`lib/download.ps1:735` 直接写
 - 命中时打印 `Loading <文件名> from cache`，随后仍执行同一套校验与解压步骤。
 - 缓存命中的可见场景是 **update**：Scoop 在同一根上重装同一版本不读缓存、直接拒绝，Coop 现在同样拒绝（`WARN` 两行 + 退出码 0），见 #56。
 
+## 每个写命令的示例输出
+
+以下为文本模式的完整形状；`--json` 对每一条都只输出结果对象，不含任何进度行与控制字符。
+
+依赖安装：每个包各自走完整块，并在**自己完成时**报告结果，不攒到最后：
+
+```
+Installing 'dep' (1.0.0) [64bit] from 'test' bucket
+...
+'dep' (1.0.0) was installed successfully!
+Installing 'main' (1.0.0) [64bit] from 'test' bucket
+...
+'main' (1.0.0) was installed successfully!
+```
+
+`update`：版本移动行、标题、两段式（见「与 Scoop 的逐字对照」）。
+
+`reset`：`Resetting <包> (<版本>).` 加 Linking 与 shim 行，**无结尾行**。
+
+`cleanup`：删除了什么就列什么，随后空行与固定句；没有可删的版本时只打最后一句。
+
+```
+Removing old:
+ 2.0.0
+
+Everything is shiny now!
+```
+
+`recover`：每个待恢复事务一行结论，随后是它实际执行的动作；没有待恢复事务时打 `No pending transactions`。
+
+```
+pkg: install: recovered
+  <动作> <路径>
+```
+
 ## 实测记录
 
 2026-10-28 的旧记录（冷装 31.4 s → 40.0 s 并注明"网络波动"）**不能作为证据**：那次没有把下载时间与本地开销分开，且"再装 1.2 s 对比 Scoop 1.9 s"比的是两种不同行为（Coop 真重装、Scoop 直接拒绝）。可归因的测量方法由性能归因票建立，在此之前本文件不记录耗时数字。
