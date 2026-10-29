@@ -42,7 +42,7 @@ Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop
 
 ## 安装
 
-发布产物 `coop-v<版本>-x64.zip` 解压后 `coop.exe` 与 `scoop-lib/` 同级，两者需要放在一起。也可以从 Scoop bucket 安装：
+发布产物 `coop-v<版本>-x64.zip` 解压后 `coop.exe` 与 `scoop-lib/` 同级，两者需要放在一起；压缩包还带 `LICENSE`、`THIRD_PARTY.md` 和 `licenses/`。也可以从 Scoop bucket 安装：
 
 ```powershell
 scoop bucket add coh1e https://github.com/Coh1e/scoop-bucket
@@ -93,6 +93,10 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 - 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除声明的 store，`cleanup` 才删除已记录且摘要未变的旧版本。外部删除或修改入口、链接和 store 会被重新核对，不自动覆盖或猜测修复。`reset` 只回退程序，不重跑安装脚本或安装器程序，也不回退持久化数据；目标版本必须仍在本机且证据完整，远端历史版本查找仍不在范围。
 - 异常退出留下 pending 事务时阻止新的写入但仍允许查询；`coop list` 显示恢复方式，`coop recover [包名...] [--dry-run]` 只回滚可安全还原的 Coop 自有路径、恢复本事务写过的 HKCU 环境值，不重跑脚本或安装器程序，外部副作用标为未知。创建对象记录文件身份/摘要证据；被另一客户端替换、修改或重定向的对象以 `created-path-replaced`、`created-file-modified`、`created-link-repointed` 等稳定冲突码报告而不删除，后续 Scoop 操作安装的事实会重新识别。
 - 不自动同步 bucket、不自动发布；只有显式 `bucket update` 会刷新共用 bucket。真实共用根上的查询、预览、安装、更新、卸载、reset、恢复、入口/环境与 psmodule 写入已在受权的本机环境中逐项运行（证据与未运行项见[完整交付验收与人工验收说明](docs/final-acceptance.md)），但这些操作不会由后台自动触发，也不承诺两个客户端同时写入。Git 私有/SSH 来源与跨工具同时写入不在首版范围。`init` 只建立标准目录，不注册用户 PATH 或环境变量；无 Scoop 环境的真机验证使用项目内全新 root 与受限 `PATH`，没有卸载本机真实 Scoop/Git/7-Zip，详见[没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)；完整 Main／Extras 分母、机制缺口与真机验证数量见[Main／Extras 全量兼容盘点](docs/coverage-report.md)。
+
+## 许可证
+
+Coop 以 [MIT 许可证](LICENSE) 发布，可自由使用、修改、再发布和商用，只需保留版权与许可声明。随包分发的第三方组件（`scoop-lib`、静态链接的库）仍按各自许可证分发，来源与全文见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 ## 测试范围
 

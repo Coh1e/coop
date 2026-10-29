@@ -25,4 +25,4 @@ The ripgrep, air, luajit, tidy, curl, unzip, 7-Zip MSI, GNU Units, rizin and inn
 
 The libgit2 build uses WinHTTP, Windows hash facilities, and its bundled parser, regex, zlib and SHA1 collision detection. SSH, the upstream CLI and upstream tests are disabled.
 
-The libarchive build uses the zlib, liblzma, zstd and bzip2 sources listed above. It enables ordinary ZIP, tar and 7z reading for plain tar, gzip, xz, lzma, bzip2 and zstd streams, including the extracted tree behind a 7z self-extracting stub. Keep the complete accompanying notices with any distribution; the build copies them alongside the executable. This document does not assign a license to Coop itself.
+The libarchive build uses the zlib, liblzma, zstd and bzip2 sources listed above. It enables ordinary ZIP, tar and 7z reading for plain tar, gzip, xz, lzma, bzip2 and zstd streams, including the extracted tree behind a 7z self-extracting stub. Keep the complete accompanying notices with any distribution; the build copies them alongside the executable. Coop itself is released under the [MIT license](LICENSE); this document only records third-party provenance and does not relicense those components.

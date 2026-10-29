@@ -54,10 +54,13 @@ jobs:
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $asset = "coop-v$version-x64.zip"
-          Compress-Archive -Path ./.local/build/coop.exe, ./.local/build/scoop-lib -DestinationPath $asset
+          Compress-Archive -Path ./.local/build/coop.exe, ./.local/build/scoop-lib, ./.local/build/licenses, ./LICENSE, ./THIRD_PARTY.md -DestinationPath $asset
           Expand-Archive -Path $asset -DestinationPath ./.local/release-check
           if (-not (Test-Path ./.local/release-check/scoop-lib/core.ps1)) {
             throw 'scoop-lib was not packaged beside coop.exe'
+          }
+          if (-not (Test-Path ./.local/release-check/LICENSE)) {
+            throw 'LICENSE was not packaged'
           }
           $reported = (& ./.local/release-check/coop.exe --version | Out-String).Trim()
           if ($reported -ne "coop $version") {
