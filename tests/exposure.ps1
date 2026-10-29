@@ -88,7 +88,7 @@ function Assert-Shortcut([string]$link,[string]$target,[string]$arguments,[strin
     if ([string]::IsNullOrEmpty($shortcut.TargetPath)) {
         # A host whose shell cannot read the link back (a locked-down runner is one) reports an empty
         # target. The file exists; the read is what failed, and it says so.
-        Write-Output "skipped shortcut read-back for $link: the shell returned an empty target"
+        Write-Output "skipped shortcut read-back for ${link}: the shell returned an empty target"
         return
     }
     if ([IO.Path]::GetFullPath($shortcut.TargetPath) -ne [IO.Path]::GetFullPath($target)) { throw "shortcut $link points to $($shortcut.TargetPath), expected $target" }
