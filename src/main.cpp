@@ -130,7 +130,13 @@ int wmain(int argc, wchar_t** argv) {
                 for (const auto& argument : arguments) {
                     if (argument == L"-q" || argument == L"--quiet") { quiet = true; continue; }
                     if (argument == L"-s" || argument == L"--skip-hash-check") { context.skip_hash = true; continue; }
-                    if (argument == L"-k" || argument == L"--no-cache") { context.no_cache = true; continue; }
+                    // `-k` means "do not use the download cache" for install/update but "clean the cache" for cleanup.
+                    if (argument == L"-k" || argument == L"--no-cache") {
+                        if (command == L"cleanup") { kept.push_back(argument); continue; }
+                        context.no_cache = true;
+                        continue;
+                    }
+                    if (argument == L"--cache") { kept.push_back(argument); continue; }
                     if (argument == L"-i" || argument == L"--independent") { context.independent = true; continue; }
                     if (argument == L"-f" || argument == L"--force") { context.force = true; continue; }
                     kept.push_back(argument);

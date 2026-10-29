@@ -2,7 +2,9 @@
 #include "progress.hpp"
 #include "package.hpp"
 #include <windows.h>
+#include "ir.hpp"
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -760,7 +762,48 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
     });
     return result;
 }
-int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run) {
+// `cleanup -k/--cache` removes cached artifacts no installed version refers to. Scoop's cache names
+// carry `<app>#<version>#`, so an entry is kept exactly while that app's current version is
+// installed; anything else (an older version, an app that is gone) is removable. Files without the
+// two markers are left alone: Coop wrote them before this layout and cannot attribute them to a
+// package.
+static std::string lowercase_name(std::string value) {
+    for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    return value;
+}
+static int cache_cleanup(const Context& context, bool dry_run) {
+    std::map<std::string,std::string> current;
+    for (const auto& fact : ir::read_installations(context.root))
+        if (fact.present) current[lowercase_name(fact.name)] = fact.version;
+    std::error_code error;
+    const auto directory = context.root/L"cache";
+    std::vector<std::string> removals;
+    if (fs::is_directory(directory,error)) for (const auto& entry : fs::directory_iterator(directory,error)) {
+        if (error) break;
+        std::error_code type_error;
+        if (!entry.is_regular_file(type_error)) continue;
+        const auto name = utf8(entry.path().filename().wstring());
+        const auto first = name.find('#');
+        const auto second = first == std::string::npos ? std::string::npos : name.find('#',first+1);
+        if (first == std::string::npos || second == std::string::npos) continue;
+        const auto found = current.find(lowercase_name(name.substr(0,first)));
+        if (found != current.end() && found->second == name.substr(first+1,second-first-1)) continue;
+        removals.push_back(name);
+        if (!dry_run) { std::error_code remove_error; fs::remove(entry.path(),remove_error); }
+    }
+    if (context.json_output) {
+        Json output = Json::array();
+        for (const auto& name : removals)
+            output.push_back({{"artifact",name},{"action",dry_run ? "would-remove" : "removed"}});
+        std::cout << output.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
+        return 0;
+    }
+    for (const auto& name : removals) std::cout << "Removing " << name << '\n';
+    if (!dry_run) std::cout << "Everything is shiny now!\n";
+    return 0;
+}
+int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run, bool cache) {
+    if (cache) return cache_cleanup(context,dry_run);
     Json results = Json::array();
     std::vector<std::string> packages;
     for (const auto& name : names) packages.push_back(utf8(name));

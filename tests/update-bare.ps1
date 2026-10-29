@@ -62,4 +62,19 @@ $out = @(& $CoopExe --root $root update demo -k -s -i --dry-run)
 if ($LASTEXITCODE -cne 0) { throw "update -k -s -i failed: $($out -join ' | ')" }
 $out = @(& $CoopExe --root $root update demo -f --dry-run)
 if ($LASTEXITCODE -cne 0) { throw "update -f failed: $($out -join ' | ')" }
-Write-Output 'PASS: bare update, wildcard expansion, system-level boundary, bucket rm/known and Scoop switches'
+
+# `cleanup -k` removes cached artifacts no installed version refers to, and keeps the current one.
+New-Item -ItemType Directory -Path "$root/cache" -Force | Out-Null
+'keep' | Set-Content "$root/cache/demo#1.8.2#abc1234.zip" -Encoding ascii
+'stale' | Set-Content "$root/cache/oldpkg#0.9#abcdef1.zip" -Encoding ascii
+$out = @(& $CoopExe --root $root cleanup -k --dry-run)
+$dryRun = $out -join "`n"
+if ($LASTEXITCODE -cne 0 -or $dryRun -cnotmatch 'oldpkg#0\.9#abcdef1\.zip' -or $dryRun -cmatch 'demo#1\.8\.2') {
+    throw "cleanup -k dry run said '$($out -join ' | ')'"
+}
+if (-not (Test-Path "$root/cache/oldpkg#0.9#abcdef1.zip")) { throw 'cleanup -k dry run removed a file' }
+$out = @(& $CoopExe --root $root cleanup -k)
+if ($LASTEXITCODE -cne 0) { throw "cleanup -k failed: $($out -join ' | ')" }
+if (Test-Path "$root/cache/oldpkg#0.9#abcdef1.zip") { throw 'cleanup -k kept the stale cache entry' }
+if (-not (Test-Path "$root/cache/demo#1.8.2#abc1234.zip")) { throw 'cleanup -k removed the current version cache entry' }
+Write-Output 'PASS: bare update, wildcard expansion, system-level boundary, bucket rm/known, Scoop switches and cache cleanup'

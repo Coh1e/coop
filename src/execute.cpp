@@ -1371,25 +1371,41 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 // <root>/cache is shared with Scoop: a file whose declared digest still matches is
                 // reused instead of downloaded again (GLOSSARY: Download Cache).
                 const auto cache_directory = context.root/L"cache";
-                const auto cached_file = cache_directory/wide(artifact.filename);
+                // Scoop names a cached artifact `<app>#<version>#<sha256(url)[0..7]><extension>`; Coop
+                // writes the same name so either client can find and clean the other's cache, and it
+                // still reads the older `<filename>` layout it wrote before this change.
+                const auto cache_suffix = wide(sha256_text(artifact.url).substr(0,7))+
+                    fs::path(wide(artifact.url)).extension().wstring();
+                const auto cached_file = cache_directory/(wide(package.name)+L"#"+wide(package.version)+L"#"+cache_suffix);
+                std::vector<fs::path> candidates{cached_file,cache_directory/wide(artifact.filename)};
+                // An update normally re-downloads the same artifact under the new version, so a
+                // version-less match is also a candidate; the declared digest decides whether the
+                // bytes are usable either way.
+                std::error_code cache_error;
+                const auto key_prefix = wide(package.name)+L"#";
+                if (fs::is_directory(cache_directory,cache_error)) for (const auto& entry : fs::directory_iterator(cache_directory,cache_error)) {
+                    const auto name = entry.path().filename().wstring();
+                    if (name.starts_with(key_prefix) && name.ends_with(cache_suffix)) candidates.push_back(entry.path());
+                }
                 bool from_cache = false;
                 // Scoop says what it is about to do before either the transfer line or the cache line,
                 // so a cached update announces the new version too.
                 if (plan.action == ir::Action::update || plan.retain_previous) progress_stage("Downloading new version");
                 // A cache hit is timed inside the download step: the bytes are zero, so the record shows
                 // that no transfer happened, and the local time is not counted twice.
-                if (!context.no_cache && fs::is_regular_file(cached_file)) {
+                for (const auto& candidate : candidates) {
+                    if (context.no_cache || !fs::is_regular_file(candidate)) continue;
                     try {
-                        if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
-                            progress_stage(lines::loading_cache(artifact.filename));
-                            fs::copy_file(cached_file,downloaded,fs::copy_options::overwrite_existing);
-                            from_cache = true;
-                            journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
-                                {"filename",artifact.filename},{"renamed",artifact.renamed},
-                                {"algorithm",ir::digest_algorithm_name(artifact.digest.algorithm)},
-                                {"expected_digest",artifact.digest.value},{"bytes",fs::file_size(downloaded)},
-                                {"cache","hit"}});
-                        }
+                        if (digest_file(candidate,artifact.digest.algorithm) != artifact.digest.value) continue;
+                        progress_stage(lines::loading_cache(artifact.filename));
+                        fs::copy_file(candidate,downloaded,fs::copy_options::overwrite_existing);
+                        from_cache = true;
+                        journal["downloads"].push_back({{"index",step.index},{"url",artifact.url},
+                            {"filename",artifact.filename},{"renamed",artifact.renamed},
+                            {"algorithm",ir::digest_algorithm_name(artifact.digest.algorithm)},
+                            {"expected_digest",artifact.digest.value},{"bytes",fs::file_size(downloaded)},
+                            {"cache","hit"}});
+                        break;
                     } catch (const std::exception&) { from_cache = false; }
                 }
                 if (from_cache) { downloaded_files[step.index] = downloaded; cache_hits.insert(step.index); break; }
@@ -1446,7 +1462,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     std::error_code cache_error;
                     const auto cache_directory = context.root/L"cache";
                     fs::create_directories(cache_directory,cache_error);
-                    const auto cached_file = cache_directory/wide(artifact.filename);
+                    const auto cached_file = cache_directory/(wide(package.name)+L"#"+wide(package.version)+
+                        L"#"+wide(sha256_text(artifact.url).substr(0,7))+fs::path(wide(artifact.url)).extension().wstring());
                     std::error_code digest_error;
                     const bool reusable = fs::is_regular_file(cached_file,digest_error) && !digest_error &&
                         digest_file(cached_file,algorithm) == expected;

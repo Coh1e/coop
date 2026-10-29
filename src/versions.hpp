@@ -18,6 +18,7 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
 // history. The caller computes the predicate once and every package reuses it read-only.
 Json version_cleanup_inventory(const Context& context, const std::string& package_name,
                                const std::string& current_version, bool recovery_protected);
-int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run);
+int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run,
+                    bool cache = false);
 Json cleanup_recovery_status(const Context& context, const fs::path& journal_path, bool execute);
 }

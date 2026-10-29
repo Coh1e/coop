@@ -1020,6 +1020,7 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
 int package_command(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args, const std::string& architecture) {
     bool dry_run = false;
     bool purge = false;
+    bool cache_cleanup = false;
     std::vector<std::wstring> names;
     for (const auto& arg : args) {
         if (arg == L"--dry-run") {
@@ -1035,6 +1036,9 @@ int package_command(const Context& context, const std::wstring& command, const s
         } else if (arg == L"-a" || arg == L"--all") {
             if (command != L"cleanup") throw UsageError("-a/--all is only supported by cleanup");
             // `cleanup -a` is the long form of "every app", which a bare cleanup already means.
+        } else if (arg == L"-k" || arg == L"--cache") {
+            if (command != L"cleanup") throw UsageError("-k/--cache is only supported by cleanup");
+            cache_cleanup = true;
         } else if (arg == L"-g" || arg == L"--global") {
             // A system-level write is a product boundary, not an unknown switch. Scoop users type `-g`
             // and must read the boundary instead of "unknown option".
@@ -1045,7 +1049,7 @@ int package_command(const Context& context, const std::wstring& command, const s
     }
     if (command == L"cleanup") {
         if (purge) throw UsageError("--purge is only supported by uninstall");
-        return cleanup_command(context,names,dry_run);
+        return cleanup_command(context,names,dry_run,cache_cleanup);
     }
     if (purge && command != L"uninstall") throw UsageError("--purge is only supported by uninstall");
     if (names.empty()) throw UsageError("Use one or more packages [--dry-run]");
