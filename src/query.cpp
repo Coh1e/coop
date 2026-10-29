@@ -6,6 +6,7 @@
 #include "versions.hpp"
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <cctype>
@@ -646,7 +647,171 @@ static void print_info_block(const Context& context, const Json& item, const std
         std::cout << key << std::string(width-display_width(key)+1,' ') << ": " << text << '\n';
     }
 }
+// ---------------------------------------------------------------------------
+// Read-only inspection commands: `status`, `prefix`, `cat`, `which`, `home`. They answer questions
+// about the local state and never write it; `home` only opens the declared homepage.
+// ---------------------------------------------------------------------------
+static std::string friendly_path(std::string value) {
+    // Scoop prints shim paths with the profile replaced by `~\`.
+    wchar_t profile[32768]{};
+    const auto length = GetEnvironmentVariableW(L"USERPROFILE",profile,32768);
+    if (!length || length >= 32768) return value;
+    const auto home = path_text(fs::path(std::wstring(profile,length)));
+    if (value.size() <= home.size()) return value;
+    if (CompareStringOrdinal(wide(value.substr(0,home.size())).c_str(),-1,wide(home).c_str(),-1,TRUE) != CSTR_EQUAL)
+        return value;
+    auto rest = value.substr(home.size());
+    while (!rest.empty() && (rest.front() == '\\' || rest.front() == '/')) rest.erase(rest.begin());
+    return "~\\"+rest;
+}
+static std::vector<std::string> declared_depends(const fs::path& path) {
+    std::vector<std::string> names;
+    try {
+        const auto manifest = read_json(path);
+        if (!manifest.contains("depends") || !manifest.at("depends").is_array()) return names;
+        for (const auto& dependency : manifest.at("depends")) {
+            if (!dependency.is_string()) continue;
+            auto name = dependency.get<std::string>();
+            if (const auto at = name.find('@'); at != std::string::npos) name.resize(at);
+            if (const auto slash = name.find('/'); slash != std::string::npos) name.erase(0,slash+1);
+            if (!name.empty()) names.push_back(name);
+        }
+    } catch (const std::exception&) { /* An unreadable manifest reports no dependencies, not a failure. */ }
+    return names;
+}
+static std::string manifest_version_text(const fs::path& path) {
+    try { return read_json(path).value("version",std::string{}); }
+    catch (const std::exception&) { return {}; }
+}
+static int status_command(const Context& context) {
+    std::map<std::string,fs::path> catalogue_paths;
+    for (const auto& entry : catalogue(context))
+        if (!catalogue_paths.contains(lowercase(entry.name))) catalogue_paths[lowercase(entry.name)] = entry.manifest_path;
+    const auto installed = installed_packages(context);
+    std::set<std::string> installed_names;
+    for (const auto& item : installed) installed_names.insert(lowercase(field_text(item,"name")));
+    const auto deprecated = deprecated_names(context);
+    std::vector<std::vector<std::string>> rows;
+    Json json = Json::array();
+    for (const auto& item : installed) {
+        const auto name = field_text(item,"name");
+        const auto current = field_text(item,"version");
+        const auto found = catalogue_paths.find(lowercase(name));
+        std::string latest, missing, info;
+        if (found == catalogue_paths.end()) info = "Manifest removed";
+        else {
+            const auto candidate = manifest_version_text(found->second);
+            // `update` changes a package whenever the manifest names a different version, so `status`
+            // answers with the same predicate instead of a second, differently-ordered comparison.
+            if (!candidate.empty() && candidate != current) latest = candidate;
+            std::vector<std::string> absent;
+            for (const auto& dependency : declared_depends(found->second))
+                if (!installed_names.contains(lowercase(dependency))) absent.push_back(dependency);
+            for (const auto& dependency : absent) missing += (missing.empty() ? "" : " | ")+dependency;
+        }
+        std::string flags;
+        for (const auto& flag : {current.empty() ? "Install failed" : "",
+                 deprecated.contains(lowercase(name)) ? "Deprecated" : ""})
+            if (*flag) flags += (flags.empty() ? "" : ", ")+std::string(flag);
+        if (latest.empty() && missing.empty() && flags.empty() && info.empty()) continue;
+        rows.push_back({name,current,latest,missing,info.empty() ? flags : info});
+        json.push_back({{"name",name},{"installed_version",current},{"latest_version",latest},
+            {"missing_dependencies",missing},{"info",info.empty() ? flags : info}});
+    }
+    if (context.json_output) { std::cout << json.dump(2,' ',false,Json::error_handler_t::replace) << '\n'; return 0; }
+    if (rows.empty()) { std::cout << "Everything is ok!\n"; return 0; }
+    print_table({"Name","Installed Version","Latest Version","Missing Dependencies","Info"},rows);
+    return 0;
+}
+static const Json& single_catalog_item(const Context& context, const std::string& needle) {
+    static Json item;
+    auto result = matching_catalog(context,L"info",lowercase(needle));
+    if (result.empty()) throw std::runtime_error("Couldn't find manifest for '"+needle+"'.");
+    if (result.size() > 1) throw std::runtime_error("Ambiguous package; qualify it with its bucket");
+    item = std::move(result.front());
+    return item;
+}
+static std::string read_text_file(const fs::path& path) {
+    std::ifstream stream(path,std::ios::binary);
+    if (!stream) throw std::runtime_error("Cannot read "+path_text(path));
+    return std::string(std::istreambuf_iterator<char>(stream),{});
+}
+static int prefix_command(const Context& context, const std::string& name) {
+    // Scoop prints the `current` path itself, not the version directory it points at.
+    std::vector<const fs::path*> roots{&context.root};
+    if (context.global_root && !context.global_root->empty()) roots.push_back(&*context.global_root);
+    for (const auto* root : roots) {
+        std::error_code error;
+        const auto current = *root/L"apps"/wide(name)/L"current";
+        if (!fs::exists(current,error)) continue;
+        std::cout << path_text(current) << '\n';
+        return 0;
+    }
+    throw std::runtime_error("Could not find app path for '"+name+"'.");
+}
+static int cat_command(const Context& context, const std::string& name) {
+    const auto& item = single_catalog_item(context,name);
+    // The Manifest is printed as it is on disk. Scoop pretty-prints it and loses the declaration
+    // order; showing the stored bytes is the honest form of "show the content".
+    const auto text = read_text_file(fs::path(wide(item.at("path").get<std::string>())));
+    std::cout << text;
+    if (text.empty() || text.back() != '\n') std::cout << '\n';
+    return 0;
+}
+static int which_command(const Context& context, const std::string& name) {
+    // Scoop prints the shim's target: `<shims>\<name>.shim` records `path = "<target>"`.
+    std::error_code error;
+    const auto shim = context.root/L"shims"/(wide(name)+L".shim");
+    if (fs::is_regular_file(shim,error)) {
+        const auto text = read_text_file(shim);
+        const auto marker = text.find("path = ");
+        const auto quote = marker == std::string::npos ? std::string::npos : text.find('"',marker);
+        const auto end = quote == std::string::npos ? std::string::npos : text.find('"',quote+1);
+        if (end != std::string::npos) {
+            const auto target = text.substr(quote+1,end-quote-1);
+            if (!target.empty()) {
+                std::cout << friendly_path(target) << '\n';
+                return 0;
+            }
+        }
+    }
+    // Script-host wrappers publish no `.shim`; their own file is the answer.
+    for (const auto* extension : {L".cmd", L".ps1", L".sh", L".exe", L".bat"}) {
+        const auto candidate = context.root/L"shims"/(wide(name)+extension);
+        if (!fs::is_regular_file(candidate,error)) continue;
+        std::cout << friendly_path(path_text(candidate)) << '\n';
+        return 0;
+    }
+    // Scoop exits 2 here; Coop keeps its own 0/1/2 contract, where 2 means the command line was
+    // wrong. The message is Scoop's.
+    std::cout << "WARN  '" << name << "' not found, not a scoop shim, or a broken shim.\n";
+    return 1;
+}
+static int home_command(const Context& context, const std::string& name) {
+    const auto& item = single_catalog_item(context,name);
+    const auto manifest = read_json(fs::path(wide(item.at("path").get<std::string>())));
+    const auto homepage = manifest.value("homepage",std::string{});
+    if (homepage.empty()) throw std::runtime_error("No homepage is declared for '"+name+"'.");
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr,L"open",wide(homepage).c_str(),nullptr,nullptr,SW_SHOWNORMAL)) <= 32)
+        throw std::runtime_error("Could not open "+homepage);
+    return 0;
+}
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
+    if (command == L"status" || command == L"prefix" || command == L"cat" || command == L"which" || command == L"home") {
+        if (command == L"status") {
+            // `scoop status -l` only disables remote fetching, and Coop never fetches here, so both
+            // spellings mean the same thing.
+            for (const auto& argument : args)
+                if (argument != L"-l" && argument != L"--local") throw UsageError("status accepts only -l/--local");
+            return status_command(context);
+        }
+        if (args.size() != 1) throw UsageError(utf8(command)+" requires exactly one package or command");
+        const auto name = utf8(args.front());
+        if (command == L"prefix") return prefix_command(context,name);
+        if (command == L"cat") return cat_command(context,name);
+        if (command == L"which") return which_command(context,name);
+        return home_command(context,name);
+    }
     Json result = Json::array();
     std::string query_text;
     bool any_installed = false;

@@ -70,6 +70,31 @@ Notes       : Scoop persists data since version 0.11.16. ...
 5. **`info` 缺 `Updated at` / `Updated by`**：Scoop 从 bucket 的 git log 取 `%aI#%an`，只有非 git 树才退回文件时间 + 所有者。Coop 两条都没打印，避免给出与 Scoop 不同源的时间。
 6. **`info` 缺 `-v/--verbose`** 对应的 `Manifest`、`Installed size`、`Download size`。
 7. **尾随空行**：Scoop 的表格结尾多一个空行，Coop 不打。
+8. **`status` 的更新判定是"清单版本 ≠ 已装版本"**，Scoop 用 `Compare-Version` 排序。Coop 的 `update` 本来以"版本不同"为触发条件，`status` 用同一谓词，避免出现 `status` 说最新而 `update` 仍然动作；代价是清单版本回退时也会列为可更新。
+9. **`which` 未找到退出 1**（Scoop 退出 2），消息与 Scoop 相同。理由同偏离 1：2 在 Coop 的契约里是用法错误。
+10. **`cat` 原样输出存储的清单字节**；Scoop 会 pretty-print，并因此丢失声明顺序。
+11. **`status` 默认即本地**，接受 `-l`/`--local` 但不改变行为（Coop 从不在这里 fetch）。
+
+## 检查类读命令
+
+`status`：
+
+```
+Name  Installed Version  Latest Version  Missing Dependencies  Info
+----  -----------------  --------------  --------------------  ----
+demo  1.7.1              1.8.2
+```
+
+只列异常项（有更新、缺依赖、Install failed、Deprecated、Manifest removed）；全部正常时只打 `Everything is ok!`。`--json` 给同样的字段。
+
+`prefix <包>`：打印 `<根>\apps\<包>\current`（与 Scoop 相同，不解析成版本目录）。
+
+`cat <包>`：打印清单原文。
+
+`which <命令>`：读 `<根>\shims\<命令>.shim` 的 `path = "..."`，打印它的目标（profile 前缀缩成 `~\`）；脚本包装没有 `.shim` 时打印包装文件本身；都没有时打 Scoop 的 WARN 并退出 1。
+
+`home <包>`：打开清单声明的 homepage；没有 homepage 时报错而不是打开空 URL。
+
 
 ## 证据
 

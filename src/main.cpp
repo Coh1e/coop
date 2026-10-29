@@ -61,9 +61,10 @@ int wmain(int argc, wchar_t** argv) {
                      "\nOutput is UTF-8; exit codes: 0 success, 1 operational or partial-batch failure,\n"
                      "2 command-line misuse.\n"
                      "\nCommands:\n  init [--dry-run]\n  list [query]\n  search [query]\n  info [bucket/]package\n"
-                     "  bucket list|add|remove|update ...\n"
+                     "  status\n  prefix <package>\n  cat <package>\n  which <command>\n  home <package>\n"
+                     "  bucket list|add|rm|remove|update ...\n"
                      "  install <package>... [--dry-run]\n"
-                     "  update <package>... [--dry-run]\n"
+                     "  update [package... | *] [--dry-run]\n"
                      "  uninstall <package>... [--purge] [--dry-run]\n"
                      "  reset <package>@<version> [--dry-run]\n"
                      "  cleanup [package...] [--dry-run]\n"
@@ -103,7 +104,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (arg == L"--timings") context.timings = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"status" || arguments[0] == L"prefix" || arguments[0] == L"cat" || arguments[0] == L"which" || arguments[0] == L"home" || arguments[0] == L"bucket" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
