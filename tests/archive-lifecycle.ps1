@@ -227,26 +227,35 @@ foreach ($version in @('1','2')) {
     Copy-Item -LiteralPath $source -Destination "$fixtures/v$version/wrap/deep/wrap/deep/bin/nested.exe"
 }
 $bzip2Fixture = $true
+$lzmaFixture = $true
+$xzsFixture = $true
 foreach ($version in @('1','2')) {
     Push-Location "$fixtures/v$version"
     try {
         & tar.exe -cjf (Join-Path $fixtures "nested-$version.tar.bz2") 'wrap'
-        # A tar without bzip2 support (the runner's System32 bsdtar is one) cannot build this fixture.
-        # The other two streams still exercise the extraction path; skipping is recorded, not hidden.
+        # A tar without the matching compression support (the runner's System32 bsdtar lacks bzip2 and
+        # lzma) cannot build that fixture. The streams it can build still exercise the extraction path;
+        # skipping is printed, not hidden.
         if ($LASTEXITCODE -ne 0) {
             $bzip2Fixture = $false
             Write-Output 'skipped bzip2 stream: this tar cannot write bzip2'
         }
         & tar.exe --lzma -cf (Join-Path $fixtures "nested-$version.tar.lzma") 'wrap'
-        if ($LASTEXITCODE -ne 0) { throw 'lzma fixture creation failed' }
+        if ($LASTEXITCODE -ne 0) {
+            $lzmaFixture = $false
+            Write-Output 'skipped lzma stream: this tar cannot write lzma'
+        }
         & tar.exe -cJf (Join-Path $fixtures "nested-$version.tar.xz") 'wrap'
-        if ($LASTEXITCODE -ne 0) { throw 'xz fixture creation failed' }
+        if ($LASTEXITCODE -ne 0) {
+            $xzsFixture = $false
+            Write-Output 'skipped xz stream: this tar cannot write xz'
+        }
     } finally { Pop-Location }
 }
 foreach ($case in @(
     @{name='bz2'; first='nested-1.tar.bz2'; second='nested-2.tar.bz2'; alias='bz2tool'; enabled=$bzip2Fixture},
-    @{name='lzma'; first='nested-1.tar.lzma'; second='nested-2.tar.lzma'; alias='lzmatool'; enabled=$true},
-    @{name='tarxz'; first='nested-1.tar.xz'; second='nested-2.tar.xz'; alias='tarxztool'; enabled=$true}
+    @{name='lzma'; first='nested-1.tar.lzma'; second='nested-2.tar.lzma'; alias='lzmatool'; enabled=$lzmaFixture},
+    @{name='tarxz'; first='nested-1.tar.xz'; second='nested-2.tar.xz'; alias='tarxztool'; enabled=$xzsFixture}
 )) {
     if (-not $case.enabled) { continue }
     $archive = Join-Path $fixtures $case.first

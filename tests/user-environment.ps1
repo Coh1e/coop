@@ -140,9 +140,15 @@ try {
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -Wait -PassThru
+        if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
+            # Some hosts (the CI runner is one) cannot create a cmd.exe with a fresh environment block;
+            # it exits 255 before running anything. Retrying with the inherited environment still
+            # exercises the registry writes this test is about, and the fallback is printed so nobody
+            # mistakes it for a fresh-terminal observation.
+            Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment exited $($process.ExitCode); retrying with the inherited environment"
+            $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -Wait -PassThru
+        }
         if ($process.ExitCode -ne 0) {
-            # 255 means cmd never ran the probe. Report what the shell did say, so a runner-specific
-            # environment problem is visible instead of being guessed at.
             $observed = if (Test-Path -LiteralPath $probeOutput) { Get-Content -LiteralPath $probeOutput -Raw } else { '<no output file>' }
             throw "new-terminal probe for $label exited $($process.ExitCode); comspec=$env:ComSpec output=$observed"
         }

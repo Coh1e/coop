@@ -1,8 +1,23 @@
-# Preserve the exact upstream bytes used by the corpus SHA256 index.
+# Every text file is checked out with LF, whatever the local core.autocrlf says, so a byte-level
+# assertion in a test means the same thing on every machine. The corpus rules at the bottom are the
+# deliberate exception: those bytes are pinned by the SHA256 index.
+* text=auto eol=lf
+*.ps1 text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.yml text eol=lf
+
+# Preserve the exact upstream bytes used by the corpus SHA256 index. These rules come after the
+# generic ones because the later rule wins.
 tests/corpus/**/*.json text eol=crlf
 tests/corpus/**/LICENSE text eol=crlf
 tests/corpus/extras-scripts/**/*.reg text eol=crlf
 tests/corpus/main-scripts/**/*.reg text eol=crlf
+
 # Keep the vendored Scoop compatibility library and the copied bucket scripts byte-identical to the
 # pinned upstream blobs (LF) regardless of the local core.autocrlf setting, so the documented Git
 # blob ids and SHA256 values keep matching the committed and runtime bytes.
