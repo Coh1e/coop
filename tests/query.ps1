@@ -59,7 +59,7 @@ foreach ($bucket in 'main','extras') {
     New-Item -ItemType Directory -Path "$corpusRoot/buckets/$bucket/bucket" -Force | Out-Null
     Copy-Item "$PSScriptRoot/corpus/$bucket/*.json" "$corpusRoot/buckets/$bucket/bucket" -Force
 }
-$items = (& $CoopExe --root $corpusRoot search / --json) | ConvertFrom-Json
+$items = (& $CoopExe --root $corpusRoot search . --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 20 -or @($items | Where-Object { $_.diagnostics.Count }).Count) { throw 'real corpus query failed' }
 $snapshot = @(Get-ChildItem -LiteralPath $corpusRoot -Recurse -File | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash })
 & $CoopExe --root $corpusRoot info main/git --json | Out-Null

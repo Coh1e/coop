@@ -8,7 +8,8 @@
 
 namespace coop {
 namespace {
-constexpr int index_format = 1;
+// 2 adds the binary names `search` matches against (Scoop matches app names and binaries).
+constexpr int index_format = 2;
 
 fs::path catalog_directory(const Json& source) {
     const auto location = fs::path(wide(source.at("path").get<std::string>()));
@@ -39,6 +40,24 @@ Json scan_entries(const fs::path& directory) {
             item["version"] = manifest.at("version").get<std::string>();
             item["description"] = manifest.value("description",std::string{});
             item["homepage"] = manifest.value("homepage",std::string{});
+            // `bin` may be a string, a list of strings, or tuples of [target, alias, arguments...],
+            // declared at the top level or per architecture. Every string in it can be the name a
+            // user searches for, which is what Scoop matches against.
+            Json binaries = Json::array();
+            const auto collect = [&binaries](const Json& value) {
+                if (value.is_string()) { binaries.push_back(value); return; }
+                if (!value.is_array()) return;
+                for (const auto& entry : value) {
+                    if (entry.is_string()) { binaries.push_back(entry); continue; }
+                    if (!entry.is_array()) continue;
+                    for (const auto& part : entry) if (part.is_string()) binaries.push_back(part);
+                }
+            };
+            if (manifest.contains("bin")) collect(manifest.at("bin"));
+            if (manifest.contains("architecture") && manifest.at("architecture").is_object())
+                for (const auto& [architecture,variants] : manifest.at("architecture").items())
+                    if (variants.is_object() && variants.contains("bin")) collect(variants.at("bin"));
+            item["bin"] = std::move(binaries);
         } catch (const std::exception& error) {
             item["diagnostics"].push_back(error.what());
         }

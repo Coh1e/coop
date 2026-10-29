@@ -66,9 +66,9 @@ Notes       : Scoop persists data since version 0.11.16. ...
 1. **空结果退出码 0**：`list` 空表、`search` 无匹配在 Scoop 里退出 1。Coop 保持自己的 CLI 契约（1 = 操作失败），空表不是失败。要改必须同时改 [CLI 路径、退出码与批量边界](cli-boundaries.md)。
 2. **`list [query]` 用大小写不敏感子串**，Scoop 用正则 `-match`。
 3. **`Updated` 的时间格式固定为 `YYYY-MM-DD HH:MM:SS`**；Scoop 走宿主区域性格式化，同一台机器上可能显示 `2026/10/28`。
-4. **`search` 的匹配范围是包名 + 描述**；Scoop 匹配包名 + bin 名，且支持正则。因此 `coop search ripgrep` 会多列 `igrep`、`repgrep`。
-5. **`info` 缺 `Updated at` / `Updated by`**：Scoop 从 bucket 的 git log 取 `%aI#%an`，只有非 git 树才退回文件时间 + 所有者。Coop 两条都没打印，避免给出与 Scoop 不同源的时间。
-6. **`info` 缺 `-v/--verbose`** 对应的 `Manifest`、`Installed size`、`Download size`。
+4. **`search` 匹配包名 + bin 名，查询按正则解释**（与 Scoop 无 sqlite 缓存时一致）。bin 名来自 bucket 索引（索引格式 2 起记录），因此升级后第一次搜索会退化为扫描目录，直到下一次 `bucket update` 重写索引。`search` 的匹配文本不再包含描述：`coop search ripgrep` 现在只列 `rga`（bin 名 `ripgrep-all`）与 `ripgrep`，与 `scoop search ripgrep` 一致。
+5. **`info` 的 `Updated at` / `Updated by` 来自 bucket 的 Git 提交**（`libgit2`，首个改动该清单的提交；遍历上限 20000 个提交）。非 Git 目录不打印这两行，而不是编造一个文件时间。实测 `coop info main/ripgrep` 与 `scoop info ripgrep` **逐行相同**。
+6. **`info -v` 提供 `Manifest` 与 `Installed size`**；`Installed size` 只给一个总数（当前版本目录 + 持久化目录），Scoop 会分成 current/old/persisted/cached 四行；`Download size` 需要一次网络探测，未实现。
 7. **尾随空行**：Scoop 的表格结尾多一个空行，Coop 不打。
 8. **`status` 的更新判定是"清单版本 ≠ 已装版本"**，Scoop 用 `Compare-Version` 排序。Coop 的 `update` 本来以"版本不同"为触发条件，`status` 用同一谓词，避免出现 `status` 说最新而 `update` 仍然动作；代价是清单版本回退时也会列为可更新。
 9. **`which` 未找到退出 1**（Scoop 退出 2），消息与 Scoop 相同。理由同偏离 1：2 在 Coop 的契约里是用法错误。

@@ -14,6 +14,10 @@
 #include <stdexcept>
 #include <cctype>
 #include <map>
+#include <optional>
+#include <regex>
+#include <ctime>
+#include <git2.h>
 #include <set>
 #include <windows.h>
 
@@ -228,6 +232,13 @@ static std::string lowercase(std::string value) {
 // cost as much as listing every package in the bucket.
 static Json matching_catalog(const Context& context, const std::wstring& command, const std::string& needle) {
     Json result = Json::array();
+    // Scoop's `search` matches app names and binary names, and treats the query as a regular
+    // expression unless the sqlite cache is enabled. The expression is compiled once.
+    std::optional<std::regex> pattern;
+    if (command == L"search") {
+        try { pattern.emplace(needle,std::regex::icase); }
+        catch (const std::regex_error&) { throw std::runtime_error("Invalid regular expression: "+needle); }
+    }
     for (const auto& source : bucket_sources(context)) {
         if (source.value("kind",std::string{}) == "removed") continue;
         const fs::path location(wide(source.at("path").get<std::string>()));
@@ -238,8 +249,14 @@ static Json matching_catalog(const Context& context, const std::wstring& command
             if (!entry.is_object() || !entry.contains("name") || !entry.at("name").is_string()) continue;
             const auto name = entry.at("name").get<std::string>();
             const auto qualified = bucket+"/"+name;
-            const bool match = command == L"info" ? lowercase(name) == needle || lowercase(qualified) == needle :
-                lowercase(qualified+" "+entry.value("description",std::string{})).find(needle) != std::string::npos;
+            bool match = false;
+            if (command == L"info") match = lowercase(name) == needle || lowercase(qualified) == needle;
+            else if (pattern) {
+                match = std::regex_search(name,*pattern);
+                if (!match && entry.contains("bin") && entry.at("bin").is_array())
+                    for (const auto& binary : entry.at("bin"))
+                        if (binary.is_string() && std::regex_search(binary.get<std::string>(),*pattern)) { match = true; break; }
+            }
             if (match) result.push_back(catalog_item(source,entry,directory));
         }
     }
@@ -567,7 +584,77 @@ static void print_search_table(const Json& result) {
     }
     print_table({"Name","Version","Source","Binaries"},rows);
 }
-static void print_info_block(const Context& context, const Json& item, const std::set<std::string>& deprecated) {
+// Scoop reports the bucket's last commit that touched the manifest, not its file time. The bucket is
+// a Git working tree, so the same information is available through the embedded library; a walk that
+// never finds a change in the first 20000 commits falls back to "unknown" instead of walking history
+// forever.
+struct CommitStamp { std::string time; std::string author; };
+static std::optional<CommitStamp> last_manifest_commit(const fs::path& manifest) {
+    // libgit2 has to be initialized before any call; `git_bucket` does this through its own session.
+    struct GitSession {
+        GitSession() { git_libgit2_init(); }
+        ~GitSession() { git_libgit2_shutdown(); }
+    } session;
+    git_repository* repository = nullptr;
+    if (git_repository_open_ext(&repository,path_text(manifest.parent_path()).c_str(),0,nullptr) != 0) {
+        return std::nullopt;
+    }
+    const auto workdir = git_repository_workdir(repository);
+    std::error_code error;
+    const auto relative = workdir ? fs::relative(manifest,fs::path(wide(workdir)),error) : fs::path();
+    if (!workdir || error) { git_repository_free(repository); return std::nullopt; }
+    // libgit2 addresses tree entries with forward slashes, whatever the host separator is.
+    auto relative_text = path_text(relative);
+    std::replace(relative_text.begin(),relative_text.end(),'\\','/');
+    const auto entry_oid = [](git_commit* commit,const std::string& path) -> std::optional<git_oid> {
+        git_tree* tree = nullptr;
+        if (git_commit_tree(&tree,commit) != 0) return std::nullopt;
+        git_tree_entry* entry = nullptr;
+        const auto status = git_tree_entry_bypath(&entry,tree,path.c_str());
+        std::optional<git_oid> result;
+        if (status == 0) result = *git_tree_entry_id(entry);
+        if (entry) git_tree_entry_free(entry);
+        git_tree_free(tree);
+        return result;
+    };
+    std::optional<CommitStamp> stamp;
+    git_revwalk* walk = nullptr;
+    if (git_revwalk_new(&walk,repository) == 0) {
+        git_revwalk_push_head(walk);
+        git_oid oid;
+        int steps = 0;
+        while (!stamp && git_revwalk_next(&oid,walk) == 0 && ++steps <= 20000) {
+            git_commit* commit = nullptr;
+            if (git_commit_lookup(&commit,repository,&oid) != 0) break;
+            const auto current = entry_oid(commit,relative_text);
+            if (current) {
+                std::optional<git_oid> parent_oid;
+                if (git_commit_parentcount(commit) > 0) {
+                    git_commit* parent = nullptr;
+                    if (git_commit_parent(&parent,commit,0) == 0) {
+                        parent_oid = entry_oid(parent,relative_text);
+                        git_commit_free(parent);
+                    }
+                }
+                if (!parent_oid || !git_oid_equal(&*parent_oid,&*current)) {
+                    const auto seconds = static_cast<std::time_t>(git_commit_time(commit));
+                    std::tm local{};
+                    localtime_s(&local,&seconds);
+                    char text[48]{};
+                    std::snprintf(text,sizeof text,"%d/%d/%d %d:%02d:%02d",local.tm_year+1900,local.tm_mon+1,
+                        local.tm_mday,local.tm_hour,local.tm_min,local.tm_sec);
+                    const auto* author = git_commit_author(commit);
+                    stamp = CommitStamp{text,author && author->name ? author->name : ""};
+                }
+            }
+            git_commit_free(commit);
+        }
+        git_revwalk_free(walk);
+    }
+    git_repository_free(repository);
+    return stamp;
+}
+static void print_info_block(const Context& context, const Json& item, const std::set<std::string>& deprecated, bool verbose) {
     const auto name = field_text(item,"name");
     Json manifest = Json::object();
     try { manifest = read_json(fs::path(wide(item.at("path").get<std::string>()))); }
@@ -605,10 +692,34 @@ static void print_info_block(const Context& context, const Json& item, const std
             add("License",license.at("identifier").get<std::string>());
     }
     if (manifest.contains("depends")) add("Dependencies",joined(manifest.at("depends")));
+    if (const auto stamp = last_manifest_commit(fs::path(wide(item.at("path").get<std::string>())))) {
+        add("Updated at",stamp->time);
+        add("Updated by",stamp->author);
+    }
+    if (verbose) add("Manifest",item.at("path").get<std::string>());
     if (const auto versions = installed_versions(context,name); !versions.empty()) {
         std::string text;
         for (const auto& version : versions) text += (text.empty() ? "" : "\n")+version;
         add("Installed",text);
+    }
+    if (verbose) {
+        // Scoop's verbose view reports how much the installation occupies. Coop reports one total:
+        // the current version plus the persisted data the Manifest declares.
+        std::uintmax_t total = 0;
+        std::error_code error;
+        const auto collect = [&total](const fs::path& directory) {
+            std::error_code walk_error;
+            if (!fs::is_directory(directory,walk_error)) return;
+            for (const auto& entry : fs::recursive_directory_iterator(directory,
+                     fs::directory_options::skip_permission_denied,walk_error)) {
+                if (walk_error) return;
+                std::error_code size_error;
+                if (entry.is_regular_file(size_error)) total += entry.file_size(size_error);
+            }
+        };
+        collect(context.root/L"apps"/wide(name)/L"current");
+        collect(context.root/L"persist"/wide(name));
+        if (total) add("Installed size",human_bytes(total));
     }
     add("Binaries",binaries_text(manifest,architecture));
     add("Shortcuts",shortcuts_text(manifest,architecture));
@@ -1005,6 +1116,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
     Json result = Json::array();
     std::string query_text;
     bool any_installed = false;
+    bool verbose = false;
     if (command == L"list") {
         // `scoop list [query]` filters installed apps; the filter is a case-insensitive substring
         // here rather than Scoop's regular expression, which is the one deliberate difference.
@@ -1020,12 +1132,21 @@ int query(const Context& context, const std::wstring& command, const std::vector
             result = std::move(filtered);
         }
     } else {
-        if (command == L"search" && args.empty()) {
+        // `info -v/--verbose` asks for the paths and sizes; the option is taken out before the
+        // package-or-query count is checked.
+        std::vector<std::wstring> effective;
+        for (const auto& argument : args) {
+            if (command == L"info" && (argument == L"-v" || argument == L"--verbose")) { verbose = true; continue; }
+            effective.push_back(argument);
+        }
+        if (command == L"search" && effective.empty()) {
             result = matching_catalog(context,command,std::string{});
         } else {
-            if (args.size() != 1) throw UsageError("search/info accepts exactly one package or query");
-            if (!args.empty()) query_text = utf8(args[0]);
-            result = matching_catalog(context,command,lowercase(query_text));
+            if (effective.size() != 1) throw UsageError("search/info accepts exactly one package or query");
+            query_text = utf8(effective.front());
+            // `info` matches a package name, so it is compared case-insensitively; `search` receives
+            // the query as written, because it is a regular expression.
+            result = matching_catalog(context,command,command == L"info" ? lowercase(query_text) : query_text);
         }
         if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
         if (command == L"info" && result.size() > 1)
@@ -1037,7 +1158,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
     else if (command == L"search") print_search_table(result);
     else {
         const auto deprecated = deprecated_names(context);
-        for (const auto& item : result) print_info_block(context,item,deprecated);
+        for (const auto& item : result) print_info_block(context,item,deprecated,verbose);
     }
     if (!context.json_output) for (const auto& item : result)
         for (const auto& error : item.value("diagnostics",Json::array()))
