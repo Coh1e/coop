@@ -2,7 +2,7 @@
 
 Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop 安装共用安装根、bucket、软件、入口、持久化数据与安装记录，复用其 bucket 与 Manifest 生态；不需要接管、迁移或私有记录前置。
 
-首版已具备原生 CLI、本地查询与 bucket 管理，以及共享状态下的安装、更新、卸载、入口/快捷方式/真实用户环境与 PATH、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。共享状态的双向流程、独立初始化、目标机制、失败恢复与性能已在最终构建上重新验收：本机实际安装的 15 个软件在同一真实 Scoop 根上逐项通过，结果、未运行项与人类验收步骤见[完整交付验收与人工验收说明](docs/final-acceptance.md)。当前仍未获得正式发布授权，日常使用请按该页的范围与证据判断。
+首版已具备原生 CLI、本地查询与 bucket 管理，以及共享状态下的安装、更新、卸载、入口/快捷方式/真实用户环境与 PATH、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。共享状态的双向流程、独立初始化、目标机制、失败恢复与性能已在最终构建上重新验收：本机实际安装的 15 个软件在同一真实 Scoop 根上逐项通过，结果、未运行项与人类验收步骤见[完整交付验收与人工验收说明](docs/final-acceptance.md)。2026-10-29 人类决定发布 `v0.1.0`：Release 提供 x64 构建产物，并收录于 [Coh1e/scoop-bucket](https://github.com/Coh1e/scoop-bucket)；日常使用仍请按该页的范围与证据判断。
 
 当前产品方向已由 [正式规格 #21](https://github.com/Coh1e/coop/issues/21) 更新为与 Scoop 共用安装与状态：查询、预览与实际写入使用同一条独立的包管理 IR、校验与计划路径，直接读取本机真实 Scoop 安装事实，无需先执行接管；旧预览操作列表、旧执行记录与私有接管路径已由 R22 移除。模块边界与证据见 [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)，本轮真实安装与只读核对见 [真实 Scoop 安装基线](docs/real-scoop-baseline.md)；本机实际安装的 15 个软件已在同一真实 Scoop 根上完成逐项交替验收，见 [逐项交替验收](docs/real-machine-acceptance.md)。
 
@@ -39,6 +39,15 @@ Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop
 - [本机 15 个安装软件的逐项交替验收](docs/real-machine-acceptance.md)
 - [Main／Extras 全量兼容盘点](docs/coverage-report.md)
 - [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
+
+## 安装
+
+发布产物 `coop-v<版本>-x64.zip` 解压后 `coop.exe` 与 `scoop-lib/` 同级，两者需要放在一起。也可以从 Scoop bucket 安装：
+
+```powershell
+scoop bucket add coh1e https://github.com/Coh1e/scoop-bucket
+scoop install coh1e/coop
+```
 
 ## 项目内准备、构建与运行
 
