@@ -1,8 +1,8 @@
 # Preserve the exact upstream bytes used by the corpus SHA256 index.
-tests/corpus/**/*.json -text
-tests/corpus/**/LICENSE -text
-tests/corpus/extras-scripts/**/*.reg -text
-tests/corpus/main-scripts/**/*.reg -text
+tests/corpus/**/*.json text eol=crlf
+tests/corpus/**/LICENSE text eol=crlf
+tests/corpus/extras-scripts/**/*.reg text eol=crlf
+tests/corpus/main-scripts/**/*.reg text eol=crlf
 # Keep the vendored Scoop compatibility library and the copied bucket scripts byte-identical to the
 # pinned upstream blobs (LF) regardless of the local core.autocrlf setting, so the documented Git
 # blob ids and SHA256 values keep matching the committed and runtime bytes.

@@ -140,7 +140,12 @@ try {
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -Wait -PassThru
-        if ($process.ExitCode -ne 0) { throw "new-terminal probe for $label exited $($process.ExitCode)" }
+        if ($process.ExitCode -ne 0) {
+            # 255 means cmd never ran the probe. Report what the shell did say, so a runner-specific
+            # environment problem is visible instead of being guessed at.
+            $observed = if (Test-Path -LiteralPath $probeOutput) { Get-Content -LiteralPath $probeOutput -Raw } else { '<no output file>' }
+            throw "new-terminal probe for $label exited $($process.ExitCode); comspec=$env:ComSpec output=$observed"
+        }
         if (-not (Test-Path -LiteralPath $probeOutput)) { throw "new-terminal probe for $label wrote no observation" }
         return (Get-Content -LiteralPath $probeOutput -Raw)
     }

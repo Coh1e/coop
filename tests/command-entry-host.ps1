@@ -130,7 +130,10 @@ function Assert-Content([string]$path,[string]$expected,[string]$label) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "missing $label`: $path"
     $actual = Get-Content -LiteralPath $path -Raw
     if ($actual -ne $expected) {
-        throw "$label content differs`nexpected:`n$expected`nactual:`n$actual"
+        # The exact bytes matter here, so the failure shows the line endings instead of letting the
+        # console silently normalise them.
+        $show = { param($text) $text -replace "`r",'<CR>' -replace "`n",'<LF>' }
+        throw "$label content differs`nexpected:`n$(& $show $expected)`nactual:`n$(& $show $actual)"
     }
 }
 function Assert-EntryFiles([string]$name,[string]$kind,[string]$target,[string]$arguments) {

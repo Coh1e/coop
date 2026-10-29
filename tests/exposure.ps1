@@ -146,6 +146,7 @@ if ($javac -and $jarTool -and (Test-Path -LiteralPath $javac) -and (Test-Path -L
     $builtJar = Join-Path $buildRoot 'fixture.jar'
     & $jarTool --create --file $builtJar --main-class App -C (Join-Path $source 'classes') . | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'jar failed to build the JAR fixture' }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $jarPath) -Force | Out-Null
     Copy-Item -LiteralPath $builtJar -Destination $jarPath -Force
     Remove-Item -LiteralPath $buildRoot -Recurse -Force -ErrorAction SilentlyContinue
     $jarAvailable = $true
