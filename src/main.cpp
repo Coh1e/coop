@@ -105,7 +105,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (arg == L"--timings") context.timings = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"status" || arguments[0] == L"prefix" || arguments[0] == L"cat" || arguments[0] == L"which" || arguments[0] == L"home" || arguments[0] == L"help" || arguments[0] == L"depends" || arguments[0] == L"export" || arguments[0] == L"checkup" || arguments[0] == L"bucket" || arguments[0] == L"cache" || arguments[0] == L"download" || arguments[0] == L"hold" || arguments[0] == L"unhold" || arguments[0] == L"config" || arguments[0] == L"alias" || arguments[0] == L"import" || arguments[0] == L"shim" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"status" || arguments[0] == L"prefix" || arguments[0] == L"cat" || arguments[0] == L"which" || arguments[0] == L"home" || arguments[0] == L"help" || arguments[0] == L"depends" || arguments[0] == L"export" || arguments[0] == L"checkup" || arguments[0] == L"bucket" || arguments[0] == L"cache" || arguments[0] == L"download" || arguments[0] == L"hold" || arguments[0] == L"unhold" || arguments[0] == L"config" || arguments[0] == L"alias" || arguments[0] == L"import" || arguments[0] == L"shim" || arguments[0] == L"create" || arguments[0] == L"virustotal" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
@@ -128,6 +128,8 @@ int wmain(int argc, wchar_t** argv) {
                 struct ResetImport { ~ResetImport() { coop::set_progress(nullptr); } } reset_import;
                 return coop::import_command(context,arguments,architecture);
             }
+            if (command == L"create") return coop::create_command(context,arguments);
+            if (command == L"virustotal") return coop::virustotal_command(context,arguments);
             if (command == L"shim") return coop::shim_command(context,arguments);
             if (command == L"config") return coop::config_command(context,arguments);
             if (command == L"alias") return coop::alias_command(context,arguments);

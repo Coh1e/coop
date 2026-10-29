@@ -106,6 +106,57 @@ void download_file(const std::string& url, const fs::path& destination,
     output.close();
     if (!output) throw std::runtime_error("Cannot finish artifact file");
 }
+std::string http_get_text(const std::string& url,const std::vector<std::pair<std::string,std::string>>& headers,
+                          int& status) {
+    if (url.starts_with("file://")) {
+        std::ifstream input(local_file_path(url),std::ios::binary);
+        if (!input) { status = 404; return {}; }
+        status = 200;
+        return std::string(std::istreambuf_iterator<char>(input),{});
+    }
+    URL_COMPONENTS components{};
+    components.dwStructSize = sizeof(components);
+    components.dwHostNameLength = components.dwUrlPathLength = components.dwExtraInfoLength = static_cast<DWORD>(-1);
+    components.dwUserNameLength = components.dwPasswordLength = static_cast<DWORD>(-1);
+    const auto address = wide(url);
+    if (!WinHttpCrackUrl(address.c_str(),0,0,&components) ||
+        (components.nScheme != INTERNET_SCHEME_HTTPS && components.nScheme != INTERNET_SCHEME_HTTP))
+        throw std::runtime_error("Unsupported API URL");
+    InternetHandle session{WinHttpOpen(L"Coop/0.1",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
+    if (!session.value) throw std::runtime_error("Cannot initialize the HTTPS client");
+    WinHttpSetTimeouts(session.value,15000,15000,30000,30000);
+    const std::wstring host(components.lpszHostName,components.dwHostNameLength);
+    std::wstring path(components.lpszUrlPath,components.dwUrlPathLength);
+    if (components.dwExtraInfoLength) path.append(components.lpszExtraInfo,components.dwExtraInfoLength);
+    InternetHandle connection{WinHttpConnect(session.value,host.c_str(),components.nPort,0)};
+    InternetHandle request{connection.value ? WinHttpOpenRequest(connection.value,L"GET",path.c_str(),nullptr,WINHTTP_NO_REFERER,
+        WINHTTP_DEFAULT_ACCEPT_TYPES,components.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : nullptr};
+    if (!request.value) throw std::runtime_error("Cannot open the API request");
+    std::wstring header_block;
+    for (const auto& [name,value] : headers) header_block += wide(name)+L": "+wide(value)+L"\r\n";
+    if (!header_block.empty() &&
+        !WinHttpAddRequestHeaders(request.value,header_block.c_str(),static_cast<DWORD>(header_block.size()),
+            WINHTTP_ADDREQ_FLAG_ADD|WINHTTP_ADDREQ_FLAG_REPLACE))
+        throw std::runtime_error("Cannot add the API request headers");
+    if (!WinHttpSendRequest(request.value,WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0) ||
+        !WinHttpReceiveResponse(request.value,nullptr))
+        throw std::runtime_error("API request failed (Windows error "+std::to_string(GetLastError())+")");
+    DWORD code = 0, size = sizeof(code);
+    if (!WinHttpQueryHeaders(request.value,WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,
+        &code,&size,WINHTTP_NO_HEADER_INDEX))
+        throw std::runtime_error("Cannot read the API HTTP status");
+    status = static_cast<int>(code);
+    std::string body;
+    std::array<char,65536> buffer{};
+    DWORD count = 0;
+    for (;;) {
+        if (!WinHttpReadData(request.value,buffer.data(),static_cast<DWORD>(buffer.size()),&count))
+            throw std::runtime_error("API response interrupted");
+        if (!count) break;
+        body.append(buffer.data(),count);
+    }
+    return body;
+}
 std::optional<std::uint64_t> artifact_size(const std::string& url) {
     // Only a local artifact is measured here. A HEAD probe was tried for http(s) and withdrawn: the
     // extra request broke servers that answer exactly one connection (archive_safety, lifecycle_race

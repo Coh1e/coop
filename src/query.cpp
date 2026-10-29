@@ -799,7 +799,7 @@ static const HelpEntry kHelpEntries[] = {
     {"checkup","","Check for potential problems",true},
     {"cleanup","<app> [options]","Cleanup apps by removing old versions",true},
     {"config","[rm] name [value]","Get or set configuration values",true},
-    {"create","<url>","Create a custom app manifest",false},
+    {"create","<url>","Create a custom app manifest",true},
     {"depends","<app>","List dependencies for an app, in the order they'll be installed",true},
     {"download","<app> [options]","Download apps in the cache folder and verify hashes",true},
     {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true},
@@ -818,7 +818,7 @@ static const HelpEntry kHelpEntries[] = {
     {"unhold","<app>","Unhold an app to enable updates",true},
     {"uninstall","<app> [options]","Uninstall an app",true},
     {"update","<app> [options]","Update apps, or Scoop itself",true},
-    {"virustotal","[* | app1 app2 ...] [options]","Look for app's hash or url on virustotal.com",false},
+    {"virustotal","[* | app1 app2 ...] [options]","Look for app's hash or url on virustotal.com",true},
     {"which","<command>","Locate a shim/executable",true}
 };
 static int help_command(const std::vector<std::wstring>& args) {

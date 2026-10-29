@@ -12,6 +12,11 @@ void download_file(const std::string& url, const fs::path& destination,
 // Size of an artifact before the transfer starts, when it can be known without touching the network:
 // only a local file is measured. nullopt means "unknown", never an error.
 std::optional<std::uint64_t> artifact_size(const std::string& url);
+// A JSON/text GET for service APIs. `headers` are added verbatim; the HTTP status is reported to the
+// caller, which decides how to read it. A `file://` URL is read from disk so the caller can be
+// exercised without a network.
+std::string http_get_text(const std::string& url,const std::vector<std::pair<std::string,std::string>>& headers,
+                          int& status);
 void make_junction(const fs::path& link, const fs::path& target);
 // Reads the target of an NTFS directory junction (mount point). Used wherever a managed link must
 // be proven to belong to Coop's own object instead of being followed or deleted blindly.

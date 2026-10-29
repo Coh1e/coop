@@ -53,6 +53,10 @@ int shim_command(const Context& context, const std::vector<std::wstring>& args);
 bool package_is_held(const fs::path& version_directory);
 // `config` and `alias` read and write the Scoop configuration file, which both clients share.
 int config_command(const Context& context, const std::vector<std::wstring>& args);
+std::string config_value(const std::string& key);
+// `create` emits a manifest skeleton; `virustotal` looks the declared digest up on the service.
+int create_command(const Context& context, const std::vector<std::wstring>& args);
+int virustotal_command(const Context& context, const std::vector<std::wstring>& args);
 int alias_command(const Context& context, const std::vector<std::wstring>& args);
 int run_alias_script(const Context& context, const std::string& name, const std::vector<std::wstring>& arguments);
 // `import` reads a Scoopfile, registers missing buckets and installs every declared app.

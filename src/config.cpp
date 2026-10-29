@@ -23,7 +23,7 @@ fs::path config_file() {
 }
 // Only the keys Coop implements may be written. Everything else is read, reported and preserved:
 // overwriting `root_path` or `last_update` would silently change the other client's behaviour.
-bool coop_owned(const std::string& key) { return key == "ALIAS"; }
+bool coop_owned(const std::string& key) { return key == "ALIAS" || key == "virustotal_api_key"; }
 Json read_config() {
     const auto path = config_file();
     std::error_code error;
@@ -79,6 +79,11 @@ std::string script_command(const std::string& content) {
     while (!command.empty() && (command.back() == '\n' || command.back() == '\r')) command.pop_back();
     return command;
 }
+}
+std::string config_value(const std::string& key) {
+    const auto config = read_config();
+    if (!config.contains(key)) return {};
+    return value_text(config.at(key));
 }
 int config_command(const Context& context,const std::vector<std::wstring>& args) {
     (void)context;
