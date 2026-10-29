@@ -792,13 +792,13 @@ static int home_command(const Context& context, const std::string& name) {
 // ---------------------------------------------------------------------------
 struct HelpEntry { const char* name; const char* usage; const char* summary; bool implemented; };
 static const HelpEntry kHelpEntries[] = {
-    {"alias","<subcommand> [options] [<args>]","Manage scoop aliases",false},
+    {"alias","<subcommand> [options] [<args>]","Manage scoop aliases",true},
     {"bucket","add|list|known|rm [<args>]","Manage Scoop buckets",true},
     {"cache","show|rm [app(s)]","Show or clear the download cache",true},
     {"cat","<app>","Show content of specified manifest",true},
     {"checkup","","Check for potential problems",true},
     {"cleanup","<app> [options]","Cleanup apps by removing old versions",true},
-    {"config","[rm] name [value]","Get or set configuration values",false},
+    {"config","[rm] name [value]","Get or set configuration values",true},
     {"create","<url>","Create a custom app manifest",false},
     {"depends","<app>","List dependencies for an app, in the order they'll be installed",true},
     {"download","<app> [options]","Download apps in the cache folder and verify hashes",true},
@@ -806,7 +806,7 @@ static const HelpEntry kHelpEntries[] = {
     {"help","<command>","Show help for a command",true},
     {"hold","<apps>","Hold an app to disable updates",true},
     {"home","<app>","Opens the app homepage",true},
-    {"import","<path/url to scoopfile.json>","Imports apps, buckets and configs from a Scoopfile in JSON format",false},
+    {"import","<path/url to scoopfile.json>","Imports apps, buckets and configs from a Scoopfile in JSON format",true},
     {"info","<app> [options]","Display information about an app",true},
     {"install","<app> [options]","Install apps",true},
     {"list","[query]","List installed apps",true},

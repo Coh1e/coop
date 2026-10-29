@@ -49,4 +49,10 @@ int download_command(const Context& context, const std::vector<std::wstring>& ar
 // `hold`/`unhold` flip the `hold` flag in the install record Scoop itself reads.
 int hold_command(const Context& context, const std::vector<std::wstring>& args, bool hold);
 bool package_is_held(const fs::path& version_directory);
+// `config` and `alias` read and write the Scoop configuration file, which both clients share.
+int config_command(const Context& context, const std::vector<std::wstring>& args);
+int alias_command(const Context& context, const std::vector<std::wstring>& args);
+int run_alias_script(const Context& context, const std::string& name, const std::vector<std::wstring>& arguments);
+// `import` reads a Scoopfile, registers missing buckets and installs every declared app.
+int import_command(const Context& context, const std::vector<std::wstring>& args, const std::string& architecture);
 }

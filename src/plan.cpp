@@ -1,4 +1,5 @@
 #include "package.hpp"
+#include "native.hpp"
 #include "data.hpp"
 #include "persist.hpp"
 #include "versions.hpp"
@@ -11,6 +12,7 @@
 #include "nsis.hpp"
 #include "msi.hpp"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -1066,5 +1068,69 @@ int package_command(const Context& context, const std::wstring& command, const s
         : install_single(context,utf8(names.front()),architecture,dry_run);
     if (names.size() > 1) return simple_batch(context,action,names,architecture,dry_run,purge);
     return simple_single(context,action,utf8(names.front()),architecture,dry_run,purge);
+}
+// `import` consumes a Scoopfile: missing buckets are registered, then every declared app is installed
+// through the same batch path `install a b c` uses. A `Global install` entry is a system-level write,
+// which Coop refuses by design; it is reported and skipped instead of failing the whole import.
+static std::string lowercase_name(std::string value) {
+    for (auto& character : value) character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    return value;
+}
+int import_command(const Context& context, const std::vector<std::wstring>& args, const std::string& architecture) {
+    if (args.size() != 1) throw UsageError("import requires one path or URL");
+    const auto source = utf8(args.front());
+    Json file;
+    fs::path local;
+    if (source.starts_with("http://") || source.starts_with("https://")) {
+        const auto directory = context.root/L".coop"/L"import";
+        std::error_code error;
+        fs::create_directories(directory,error);
+        local = directory/(wide(sha256_text(source).substr(0,16))+L".json");
+        download_file(source,local);
+    } else {
+        local = fs::path(wide(source));
+        if (!fs::is_regular_file(local)) throw std::runtime_error("Scoopfile not found: "+source);
+    }
+    try { file = read_json(local); }
+    catch (const std::exception&) { throw std::runtime_error("Input file is not valid JSON."); }
+    if (!file.is_object()) throw std::runtime_error("Input file is not a valid Scoopfile.");
+    int result = 0;
+    std::set<std::string> registered;
+    for (const auto& bucket : bucket_sources(context))
+        if (bucket.value("kind",std::string{}) != "removed") registered.insert(lowercase_name(bucket.at("name").get<std::string>()));
+    if (file.contains("buckets") && file.at("buckets").is_array()) for (const auto& bucket : file.at("buckets")) {
+        if (!bucket.is_object() || !bucket.contains("Name") || !bucket.at("Name").is_string()) continue;
+        const auto name = bucket.at("Name").get<std::string>();
+        if (registered.contains(lowercase_name(name))) continue;
+        const auto repository = bucket.value("Source",std::string{});
+        if (repository.empty()) {
+            std::cerr << "coop: bucket '"<<name<<"' has no source and is not registered here; skipped\n";
+            continue;
+        }
+        try {
+            std::vector<std::wstring> add{L"add",wide(name),wide(repository)};
+            if (bucket_command(context,add,true) != 0) result = 1;
+            else registered.insert(lowercase_name(name));
+        } catch (const std::exception& error) {
+            std::cerr << "coop: bucket '"<<name<<"': "<<error.what()<<'\n';
+            result = 1;
+        }
+    }
+    std::vector<std::wstring> requests;
+    if (file.contains("apps") && file.at("apps").is_array()) for (const auto& app : file.at("apps")) {
+        if (!app.is_object() || !app.contains("Name") || !app.at("Name").is_string()) continue;
+        const auto name = app.at("Name").get<std::string>();
+        const auto info = app.value("Info",std::string{});
+        if (info.find("Global install") != std::string::npos) {
+            std::cerr << "coop: '"<<name<<"' is a global install; global-scope-readonly skips it\n";
+            continue;
+        }
+        const auto bucket = app.value("Source",std::string{});
+        const auto request = registered.contains(lowercase_name(bucket)) ? bucket+"/"+name : name;
+        requests.push_back(wide(request));
+    }
+    if (requests.empty()) return result;
+    const auto exit = install_batch(context,requests,architecture,false);
+    return exit != 0 ? 1 : result;
 }
 }

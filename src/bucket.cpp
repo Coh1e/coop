@@ -165,7 +165,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         else *found = record;
         write_json(registry_path,registry);
         refresh_index(context,record,false);
-        report_source(record);
+        if (!quiet_report) report_source(record);
         return 0;
     }
     if (remove) {

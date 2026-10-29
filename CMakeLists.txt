@@ -123,7 +123,7 @@ set(ENABLE_TEST OFF CACHE BOOL "" FORCE)
 set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7" "${PROJECT_BINARY_DIR}/archive" EXCLUDE_FROM_ALL)
 add_dependencies(archive_static coop_bzip2 libzstd_static)
-add_executable(coop src/main.cpp src/init.cpp src/data.cpp src/query.cpp src/cache.cpp src/appstate.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp src/plan.cpp src/native.cpp src/archive.cpp src/msi.cpp src/inno.cpp src/nsis.cpp src/publish.cpp src/persist.cpp src/execute.cpp src/exposure.cpp src/user_environment.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp src/faults.cpp src/progress.cpp src/timings.cpp)
+add_executable(coop src/main.cpp src/init.cpp src/data.cpp src/query.cpp src/cache.cpp src/appstate.cpp src/config.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp src/plan.cpp src/native.cpp src/archive.cpp src/msi.cpp src/inno.cpp src/nsis.cpp src/publish.cpp src/persist.cpp src/execute.cpp src/exposure.cpp src/user_environment.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp src/faults.cpp src/progress.cpp src/timings.cpp)
 # Lifecycle hook hosts load the pinned Scoop compatibility library from disk. It is shipped beside
 # the executable so its provenance, version and license stay inspectable instead of being compiled
 # into an opaque blob. The copy runs on every build because the library is data, not a compiled
@@ -209,6 +209,10 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cache")
   add_test(NAME inspect COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/inspect.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inspect")
+  add_test(NAME config COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/config.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/config")
+  add_test(NAME import COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/import.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/import")
   add_test(NAME path_batch COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/path-batch.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/path-batch 中文 space")
   add_test(NAME initialization COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/initialization.ps1"
