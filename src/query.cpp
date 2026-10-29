@@ -63,6 +63,9 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
             item["synced_at"] = nullptr;
             item["architecture"] = fact.architecture;
             item["directory"] = path_text(fact.directory);
+            // `hold` lives in the install record Scoop itself writes, so a hold set by either client
+            // is visible here without any Coop-private state.
+            item["hold"] = package_is_held(fact.directory);
             item["status"] = "installed";
             if (scope == "user")
                 item["persistence"] = persistence_plan_json(context,fact.name,fact.persistence,fact.directory);
@@ -369,6 +372,7 @@ static std::set<std::string> deprecated_names(const Context& context) {
 static std::string exception_labels(const Json& item, const std::set<std::string>& deprecated) {
     std::vector<std::string> labels;
     if (field_text(item,"scope") == "global") labels.push_back("Global install");
+    if (item.value("hold",false)) labels.push_back("Held package");
     if (const auto architecture = field_text(item,"architecture"); !architecture.empty() && architecture != "64bit")
         labels.push_back(architecture);
     if (item.contains("version") && item.at("version").is_null()) labels.push_back("Install failed");
@@ -800,7 +804,7 @@ static const HelpEntry kHelpEntries[] = {
     {"download","<app> [options]","Download apps in the cache folder and verify hashes",true},
     {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true},
     {"help","<command>","Show help for a command",true},
-    {"hold","<apps>","Hold an app to disable updates",false},
+    {"hold","<apps>","Hold an app to disable updates",true},
     {"home","<app>","Opens the app homepage",true},
     {"import","<path/url to scoopfile.json>","Imports apps, buckets and configs from a Scoopfile in JSON format",false},
     {"info","<app> [options]","Display information about an app",true},
@@ -811,7 +815,7 @@ static const HelpEntry kHelpEntries[] = {
     {"search","<query>","Search available apps",true},
     {"shim","<subcommand> [<shim_name>...] [options] [other_args]","Manipulate Scoop shims",false},
     {"status","","Show status and check for new app versions",true},
-    {"unhold","<app>","Unhold an app to enable updates",false},
+    {"unhold","<app>","Unhold an app to enable updates",true},
     {"uninstall","<app> [options]","Uninstall an app",true},
     {"update","<app> [options]","Update apps, or Scoop itself",true},
     {"virustotal","[* | app1 app2 ...] [options]","Look for app's hash or url on virustotal.com",false},

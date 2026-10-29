@@ -46,4 +46,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
 // `cache show|rm` and `download`: both work on <root>/cache, which Scoop shares.
 int cache_command(const Context& context, const std::vector<std::wstring>& args);
 int download_command(const Context& context, const std::vector<std::wstring>& args, const std::string& architecture);
+// `hold`/`unhold` flip the `hold` flag in the install record Scoop itself reads.
+int hold_command(const Context& context, const std::vector<std::wstring>& args, bool hold);
+bool package_is_held(const fs::path& version_directory);
 }

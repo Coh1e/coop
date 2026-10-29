@@ -105,7 +105,7 @@ int wmain(int argc, wchar_t** argv) {
             else if (arg == L"--timings") context.timings = true;
             else arguments.emplace_back(arg);
         }
-        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"status" || arguments[0] == L"prefix" || arguments[0] == L"cat" || arguments[0] == L"which" || arguments[0] == L"home" || arguments[0] == L"help" || arguments[0] == L"depends" || arguments[0] == L"export" || arguments[0] == L"checkup" || arguments[0] == L"bucket" || arguments[0] == L"cache" || arguments[0] == L"download" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
+        if (arguments.size() >= 1 && (arguments[0] == L"init" || arguments[0] == L"list" || arguments[0] == L"search" || arguments[0] == L"info" || arguments[0] == L"status" || arguments[0] == L"prefix" || arguments[0] == L"cat" || arguments[0] == L"which" || arguments[0] == L"home" || arguments[0] == L"help" || arguments[0] == L"depends" || arguments[0] == L"export" || arguments[0] == L"checkup" || arguments[0] == L"bucket" || arguments[0] == L"cache" || arguments[0] == L"download" || arguments[0] == L"hold" || arguments[0] == L"unhold" || arguments[0] == L"install" || arguments[0] == L"update" || arguments[0] == L"uninstall" || arguments[0] == L"reset" || arguments[0] == L"cleanup" || arguments[0] == L"recover")) {
             if (context.root.empty()) {
                 wchar_t profile[32768]{};
                 const auto length = GetEnvironmentVariableW(L"USERPROFILE", profile, 32768);
@@ -122,6 +122,8 @@ int wmain(int argc, wchar_t** argv) {
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);
             if (command == L"cache") return coop::cache_command(context,arguments);
+            if (command == L"hold") return coop::hold_command(context,arguments,true);
+            if (command == L"unhold") return coop::hold_command(context,arguments,false);
             if (command == L"download") {
                 // Downloading is a write command for the cache; its stage lines need the text progress.
                 coop::TextProgress progress;

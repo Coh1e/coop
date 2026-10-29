@@ -333,6 +333,11 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
     plan.local.current = context.root/L"apps"/wide(name)/L"current";
     plan.local.exists = fs::is_directory(plan.local.current);
     if (plan.local.exists) plan.local.directory = operating_path(fs::canonical(plan.local.current));
+    // `hold` disables updates, which is what both Scoop and Coop read from the install record. The
+    // plan refuses before any write instead of silently updating a held package.
+    if (action == ir::Action::update && plan.local.exists && package_is_held(plan.local.directory))
+        plan.diagnostics.push_back({ir::Layer::environment,"held-package",
+            "Package is held; run 'coop unhold "+name+"' to allow updates"});
     // The system-level root is a read-only source of installation facts. A request that names a
     // package installed only there must not be reinterpreted as a user-scope change: update,
     // uninstall and reset would otherwise silently target a different installation than the one

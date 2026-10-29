@@ -90,9 +90,29 @@ if (($lines -join "`n") -cnotmatch "Shim 'broken' points to a missing target") {
 # help: the command list, a per-command usage, and an honest marker for what Coop does not have.
 $lines = @(& $CoopExe help)
 if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'Command\s+Summary') { throw 'help printed no command list' }
-if (($lines -join "`n") -cnotmatch 'hold\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
+if (($lines -join "`n") -cnotmatch 'shim\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
 $lines = @(& $CoopExe --root $root list --help)
 if ($LASTEXITCODE -cne 0 -or $lines[0] -cne 'Usage: coop list [query]') { throw "list --help printed '$($lines -join ' | ')'" }
-$lines = & $CoopExe help hold 2>&1
-if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help hold said '$($lines -join ' | ')'" }
+$lines = & $CoopExe help shim 2>&1
+if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help shim said '$($lines -join ' | ')'" }
+
+# hold writes the flag Scoop itself reads; list shows it and update refuses until unhold.
+$lines = @(& $CoopExe --root $root hold demo)
+if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'is now held and can not be updated anymore') {
+    throw "hold said '$($lines -join ' | ')'"
+}
+$lines = @(& $CoopExe --root $root list)
+if ($lines -join "`n" -cnotmatch 'Held package') { throw 'list did not report the held package' }
+$plan = (& $CoopExe --root $root update demo --dry-run 2>&1) -join "`n"
+if ($plan -cnotmatch 'held-package' -or $plan -cnotmatch '"execution_available": false') {
+    throw 'a held package was allowed to update'
+}
+$lines = @(& $CoopExe --root $root hold demo)
+if ($lines -join "`n" -cnotmatch 'is already held') { throw "a second hold said '$($lines -join ' | ')'" }
+$lines = @(& $CoopExe --root $root unhold demo)
+if ($LASTEXITCODE -cne 0 -or $lines -join "`n" -cnotmatch 'is no longer held') { throw "unhold said '$($lines -join ' | ')'" }
+$lines = @(& $CoopExe --root $root list)
+if ($lines -join "`n" -cmatch 'Held package') { throw 'list still reports a held package after unhold' }
+$lines = & $CoopExe --root $root hold nosuchpackage 2>&1
+if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'is not installed') { throw "hold on a missing package said '$($lines -join ' | ')'" }
 Write-Output 'PASS: status, prefix, cat, which, home, depends, export, checkup and help'

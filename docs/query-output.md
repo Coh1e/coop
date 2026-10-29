@@ -15,7 +15,7 @@ Name            Version  Source Updated             Info
 ```
 
 - 列宽取表头与该列最宽单元格，列间一个空格，最后一列同样补齐。
-- `Info` 只在异常时非空：`Global install`、`Deprecated package`、`Install failed`、非默认架构，以及 Coop 自有的 `Pending recovery`（[query.cpp:371](../src/query.cpp)）。
+- `Info` 只在异常时非空：`Global install`、`Held package`、`Deprecated package`、`Install failed`、非默认架构；待恢复事务不占用这一列，改为表格后的 `WARN` 行。
 - `list [query]`：表头变成 `Installed apps matching '<query>':`。只有**没有任何已装软件**时才打 `WARN  There aren't any apps installed.`；查询无匹配时保留表头、不打印数据行。
 - `Updated` 取 `scoop-install.json`（旧名 `install.json`）的写入时间，格式 `YYYY-MM-DD HH:MM:SS`。
 
