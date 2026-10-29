@@ -58,4 +58,8 @@ $out = @(& $CoopExe --root $root cleanup -a --dry-run)
 if ($LASTEXITCODE -cne 0) { throw "cleanup -a failed: $($out -join ' | ')" }
 $out = @(& $CoopExe --root $root update demo -u -q --dry-run)
 if ($LASTEXITCODE -cne 0) { throw "update -u -q failed: $($out -join ' | ')" }
+$out = @(& $CoopExe --root $root update demo -k -s -i --dry-run)
+if ($LASTEXITCODE -cne 0) { throw "update -k -s -i failed: $($out -join ' | ')" }
+$out = @(& $CoopExe --root $root update demo -f --dry-run)
+if ($LASTEXITCODE -cne 0) { throw "update -f failed: $($out -join ' | ')" }
 Write-Output 'PASS: bare update, wildcard expansion, system-level boundary, bucket rm/known and Scoop switches'

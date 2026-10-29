@@ -77,7 +77,7 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 
 `install|update|uninstall|reset <包名>... --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本、依赖顺序及预计操作；`ir_operations` 就是执行器消费的唯一序列。已知不支持/无效项与尚未验证的生命周期分别报告。
 
-`install` 读取 Manifest 显式 `depends`，由 IR Planner 解析依赖图并写入计划：已安装依赖从共享 `apps/<包>/current` 复用，未安装依赖各自带有预览可核对的 IR 操作序列；执行按同一计划顺序逐包进行，每个包有独立事务。缺失、循环、跨 bucket 歧义和来源冲突在写入前明确失败，带版本的依赖写法仍拒绝。`install|update|uninstall|reset` 可一次接收多个包，按请求顺序逐包报告 `success`、`skipped`、`failed`、`blocked` 或 `partial`；部分失败总体非零且不回滚已完成项，不声称全局事务。JSON 为逐项数组，文本模式每包一行并在末尾给出总体计数（如 `2 package(s): 1 succeeded, 0 skipped, 1 failed`）。依赖安装、更新前检查和批量结果见 [依赖安装与反向依赖保护](docs/dependency-support.md)，路径与退出码约定见 [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)。
+`install` 读取 Manifest 显式 `depends`，由 IR Planner 解析依赖图并写入计划：已安装依赖从共享 `apps/<包>/current` 复用，未安装依赖各自带有预览可核对的 IR 操作序列；执行按同一计划顺序逐包进行，每个包有独立事务。写命令接受 Scoop 的开关：`-i/--independent` 不把声明的依赖加入本次计划，`-k/--no-cache` 忽略 `<根>/cache` 重新下载，`-s/--skip-hash-check` 把摘要不符降级为 `WARN` 而不失败，`-f/--force` 在版本未变时仍然执行，`-q/--quiet` 隐藏进度行，`-u/--no-update-scoop` 恒成立（Coop 从不自更新）。缺失、循环、跨 bucket 歧义和来源冲突在写入前明确失败，带版本的依赖写法仍拒绝；`install <包>@<版本>` 只接受与当前清单一致的版本，其他版本报 `version-unavailable` 而不猜下载地址。`install|update|uninstall|reset` 可一次接收多个包，按请求顺序逐包报告 `success`、`skipped`、`failed`、`blocked` 或 `partial`；部分失败总体非零且不回滚已完成项，不声称全局事务。JSON 为逐项数组，文本模式每包一行并在末尾给出总体计数（如 `2 package(s): 1 succeeded, 0 skipped, 1 failed`）。依赖安装、更新前检查和批量结果见 [依赖安装与反向依赖保护](docs/dependency-support.md)，路径与退出码约定见 [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)。
 
 卸载前检查所有已安装包保存 Manifest 的已知依赖，包括未接管的安装；被依赖时列出依赖方并拒绝卸载，证据不可读时也不会假定没有依赖。Coop 不自动连带卸载，不自动清理疑似无用依赖，也不删除 Manifest 声明的外部工具需求。
 

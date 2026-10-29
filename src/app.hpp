@@ -14,6 +14,11 @@ struct Context {
     // --timings prints the network/local split after a write command. The machine-readable record is
     // written either way, so a human and a harness see the same numbers.
     bool timings = false;
+    // Write-command switches. They change how a plan is executed, never what the manifest means.
+    bool no_cache = false;      // -k/--no-cache: ignore <root>/cache
+    bool skip_hash = false;     // -s/--skip-hash-check: report a digest mismatch instead of failing
+    bool independent = false;   // -i/--independent: do not plan the declared dependencies
+    bool force = false;         // -f/--force: act even when the installed version already matches
 };
 // Command-line misuse is reported separately from an operational failure so scripts can tell a
 // rejected request (exit 2) from a package action that ran and failed (exit 1).

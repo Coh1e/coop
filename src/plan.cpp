@@ -113,6 +113,9 @@ void collect_reverse_dependencies(const Context& context, Plan& plan) {
 // normalized package IR; it does not decide order, cycles or source conflicts itself.
 ir::DependencyResolution resolve_package_dependencies(const Context& context, const ir::Package& package,
                                                       bool require_installed) {
+    // `-i/--independent` is Scoop's "do not install dependencies automatically". The manifest still
+    // declares them; they are simply not part of this plan.
+    if (context.independent) return {};
     const auto index = catalogue(context);
     ir::DependencySource source;
     source.buckets = [index](const std::string& name) {

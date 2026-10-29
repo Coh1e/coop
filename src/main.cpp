@@ -123,11 +123,16 @@ int wmain(int argc, wchar_t** argv) {
             if (command == L"recover") return coop::recovery_command(context,arguments);
             if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"reset" || command == L"cleanup") {
                 // `-q/--quiet` hides the progress lines. It is a presentation switch, so it is taken
-                // out here rather than reaching the package argument parser.
+                // out here rather than reaching the package argument parser. The same holds for the
+                // execution switches, which the plan reads from the context.
                 bool quiet = false;
                 std::vector<std::wstring> kept;
                 for (const auto& argument : arguments) {
                     if (argument == L"-q" || argument == L"--quiet") { quiet = true; continue; }
+                    if (argument == L"-s" || argument == L"--skip-hash-check") { context.skip_hash = true; continue; }
+                    if (argument == L"-k" || argument == L"--no-cache") { context.no_cache = true; continue; }
+                    if (argument == L"-i" || argument == L"--independent") { context.independent = true; continue; }
+                    if (argument == L"-f" || argument == L"--force") { context.force = true; continue; }
                     kept.push_back(argument);
                 }
                 arguments = std::move(kept);

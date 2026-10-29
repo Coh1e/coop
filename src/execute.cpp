@@ -1050,7 +1050,8 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
-        if (package.version == installed.version && package.manifest_digest == installed.manifest_digest) {
+        // `-f/--force` is Scoop's "update even when there is no newer version".
+        if (!context.force && package.version == installed.version && package.manifest_digest == installed.manifest_digest) {
             return Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}};
         }
         if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
@@ -1377,7 +1378,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (plan.action == ir::Action::update || plan.retain_previous) progress_stage("Downloading new version");
                 // A cache hit is timed inside the download step: the bytes are zero, so the record shows
                 // that no transfer happened, and the local time is not counted twice.
-                if (fs::is_regular_file(cached_file)) {
+                if (!context.no_cache && fs::is_regular_file(cached_file)) {
                     try {
                         if (digest_file(cached_file,artifact.digest.algorithm) == artifact.digest.value) {
                             progress_stage(lines::loading_cache(artifact.filename));
@@ -1429,9 +1430,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 const auto algorithm = artifact.digest.algorithm;
                 const auto expected = artifact.digest.value;
                 const auto actual = digest_file(downloaded_files[step.index],algorithm);
-                if (actual != expected)
-                    throw std::runtime_error("Artifact "+std::string(ir::digest_algorithm_name(algorithm))+
-                        " mismatch: "+artifact.filename+" (expected "+expected+", observed "+actual+")");
+                if (actual != expected) {
+                    // `-s/--skip-hash-check` keeps the observation and reports it instead of failing.
+                    if (!context.skip_hash)
+                        throw std::runtime_error("Artifact "+std::string(ir::digest_algorithm_name(algorithm))+
+                            " mismatch: "+artifact.filename+" (expected "+expected+", observed "+actual+")");
+                    std::cout << "WARN  Hash check skipped: "+artifact.filename+" does not match its declared digest\n";
+                }
                 journal["downloads"][std::size_t(step.index)]["observed_digest"] = actual;
                 journal["downloads"][std::size_t(step.index)]["verified"] = true;
                 save();
