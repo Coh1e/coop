@@ -126,16 +126,18 @@ function Get-Snapshot([string]$name) {
 
 function Assert-Matches([string]$name,[string]$actual) {
     $file = Join-Path $baseline "$name.json"
+    # The baseline encodes JSON content, not the bytes of the file it lives in, so both sides are
+    # compared with the same line endings. Otherwise a fresh checkout (LF) and a local one (CRLF)
+    # disagree about a snapshot whose content is identical.
+    $normalise = { param($text) (($text -replace "`r`n","`n") -replace "`r","`n") }
     if ($Update) {
-        # One consistent line ending: the JSON serialiser emits CRLF, so an appended bare LF would
-        # leave the file mixed and trip the source hygiene check.
-        $normalised = ($actual -replace "`r`n","`n") -replace "`n","`r`n"
-        [IO.File]::WriteAllText($file,($normalised+"`r`n"),[Text.UTF8Encoding]::new($false))
+        [IO.File]::WriteAllText($file,((& $normalise $actual)+"`n"),[Text.UTF8Encoding]::new($false))
         return $null
     }
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing baseline $file; rerun with -Update" }
-    $expected = (Get-Content -LiteralPath $file -Raw).TrimEnd("`r","`n")
-    if ($expected -ne $actual) { throw "Publish baseline changed for '$name'.`n--- expected ---`n$expected`n--- actual ---`n$actual" }
+    $expected = (& $normalise (Get-Content -LiteralPath $file -Raw)).TrimEnd("`n")
+    $actualText = (& $normalise $actual).TrimEnd("`n")
+    if ($expected -ne $actualText) { throw "Publish baseline changed for '$name'.`n--- expected ---`n$expected`n--- actual ---`n$actualText" }
     return $null
 }
 
