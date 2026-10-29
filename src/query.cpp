@@ -5,11 +5,13 @@
 #include "recovery.hpp"
 #include "versions.hpp"
 #include <algorithm>
+#include <cstdio>
 #include <iostream>
 #include <stdexcept>
 #include <cctype>
 #include <map>
 #include <set>
+#include <windows.h>
 
 namespace coop {
 static std::string lowercase(std::string value);
@@ -303,33 +305,375 @@ static Json validation_json(const Context& context, const Json& item) {
     }
     return validation;
 }
+// ---------------------------------------------------------------------------
+// Default (non-`--json`) output follows Scoop's shapes: one header line, a blank line, then a table
+// whose columns are as wide as their widest cell. `--json` is unaffected and stays the machine
+// contract; every provenance field the old table printed (management, scope, synced, status, last
+// operation) still lives there.
+// ---------------------------------------------------------------------------
+static std::size_t display_width(const std::string& value) {
+    // Column widths count characters, not bytes, so a non-ASCII name still lines up.
+    std::size_t width = 0;
+    for (const auto character : value) if ((static_cast<unsigned char>(character) & 0xC0) != 0x80) ++width;
+    return width;
+}
+static void print_row(const std::vector<std::string>& cells, const std::vector<std::size_t>& widths) {
+    for (std::size_t index = 0; index < cells.size(); ++index) {
+        if (index) std::cout << ' ';
+        std::cout << cells[index];
+        const auto width = display_width(cells[index]);
+        if (width < widths[index]) std::cout << std::string(widths[index]-width,' ');
+    }
+    std::cout << '\n';
+}
+static void print_table(const std::vector<std::string>& header,
+                        const std::vector<std::vector<std::string>>& rows) {
+    std::vector<std::size_t> widths(header.size(),0);
+    for (std::size_t index = 0; index < header.size(); ++index) widths[index] = display_width(header[index]);
+    for (const auto& row : rows) for (std::size_t index = 0; index < row.size(); ++index)
+        widths[index] = (std::max)(widths[index],display_width(row[index]));
+    print_row(header,widths);
+    std::vector<std::string> rule;
+    for (const auto& cell : header) rule.push_back(std::string(display_width(cell),'-'));
+    print_row(rule,widths);
+    for (const auto& row : rows) print_row(row,widths);
+}
+static std::string field_text(const Json& item, const char* key) {
+    if (!item.contains(key) || !item.at(key).is_string()) return {};
+    return item.at(key).get<std::string>();
+}
+// Scoop reports the install record's write time; `scoop-install.json` is the current name and
+// `install.json` the legacy one, the same order the fact reader accepts.
+static std::string record_time(const fs::path& directory) {
+    for (const auto* name : {L"scoop-install.json", L"install.json"}) {
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        if (!GetFileAttributesExW((directory/name).wstring().c_str(),GetFileExInfoStandard,&data)) continue;
+        FILETIME local_time{};
+        if (!FileTimeToLocalFileTime(&data.ftLastWriteTime,&local_time)) continue;
+        SYSTEMTIME time{};
+        if (!FileTimeToSystemTime(&local_time,&time)) continue;
+        char buffer[32]{};
+        std::snprintf(buffer,sizeof buffer,"%04u-%02u-%02u %02u:%02u:%02u",
+            time.wYear,time.wMonth,time.wDay,time.wHour,time.wMinute,time.wSecond);
+        return buffer;
+    }
+    return {};
+}
+// Deleting a manifest only moves it to the bucket's `deprecated` directory, so the package still
+// resolves but Scoop marks it in `list`/`info`.
+static std::set<std::string> deprecated_names(const Context& context) {
+    std::set<std::string> names;
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        std::error_code error;
+        const fs::path directory = fs::path(wide(source.at("path").get<std::string>()))/L"deprecated";
+        if (!fs::is_directory(directory,error)) continue;
+        for (fs::recursive_directory_iterator entry(directory,fs::directory_options::skip_permission_denied,error), end;
+             !error && entry != end; entry.increment(error)) {
+            std::error_code type_error;
+            if (!entry->is_regular_file(type_error)) continue;
+            if (entry->path().extension() == L".json")
+                names.insert(lowercase(utf8(entry->path().stem().wstring())));
+        }
+    }
+    return names;
+}
+// Scoop's `Info` column carries exceptions only: `Deprecated package`, `Global install`, `Held
+// package` and a non-default architecture. Coop adds its own pending-recovery state there because a
+// write that needs recovery must be visible without reading `--json`.
+static std::string exception_labels(const Json& item, const std::set<std::string>& deprecated) {
+    std::vector<std::string> labels;
+    if (field_text(item,"scope") == "global") labels.push_back("Global install");
+    if (const auto architecture = field_text(item,"architecture"); !architecture.empty() && architecture != "64bit")
+        labels.push_back(architecture);
+    if (item.contains("version") && item.at("version").is_null()) labels.push_back("Install failed");
+    if (field_text(item,"last_operation") == "pending-recovery") labels.push_back("Pending recovery");
+    if (deprecated.contains(lowercase(field_text(item,"name")))) labels.push_back("Deprecated package");
+    std::string text;
+    for (const auto& label : labels) text += (text.empty() ? "" : ", ")+label;
+    return text;
+}
+// Non-verbose `info` prints every root variable as the literal `<root>` placeholder, exactly as
+// Scoop does. `env_set` values are narrower: Scoop substitutes only `$dir` there, so `$persist_dir`
+// stays literal in that block.
+static std::string substitute_roots(std::string value) {
+    for (const auto* token : {"$original_dir", "$persist_dir", "$dir"}) {
+        const auto length = std::char_traits<char>::length(token);
+        for (std::size_t at = value.find(token); at != std::string::npos; at = value.find(token,at+length))
+            value.replace(at,length,"<root>");
+    }
+    return value;
+}
+static std::string substitute_dir(std::string value) {
+    for (std::size_t at = value.find("$dir"); at != std::string::npos; at = value.find("$dir",at+4))
+        value.replace(at,4,"<root>");
+    return value;
+}
+// A manifest property may be overridden inside `architecture.<arch>`; that override wins, exactly as
+// Scoop's `arch_specific` does.
+static Json arch_value(const Json& manifest, const char* key, const std::string& architecture) {
+    if (manifest.contains("architecture") && manifest.at("architecture").is_object()) {
+        const auto& variants = manifest.at("architecture");
+        if (variants.contains(architecture) && variants.at(architecture).is_object() &&
+            variants.at(architecture).contains(key)) return variants.at(architecture).at(key);
+    }
+    return manifest.contains(key) ? manifest.at(key) : Json();
+}
+static std::string joined(const Json& value) {
+    // A Manifest may declare one entry as a bare string or as a list; Scoop's `@()`/`-join` treats
+    // both as a one-element list, so the display must too.
+    if (value.is_string()) return value.get<std::string>();
+    std::string text;
+    if (value.is_array()) for (const auto& element : value) {
+        if (!element.is_string()) continue;
+        text += (text.empty() ? "" : " | ")+element.get<std::string>();
+    }
+    return text;
+}
+static std::string binaries_text(const Json& manifest, const std::string& architecture) {
+    const auto binaries = arch_value(manifest,"bin",architecture);
+    if (binaries.is_string()) return binaries.get<std::string>();
+    if (!binaries.is_array()) return {};
+    std::string text;
+    for (const auto& entry : binaries) {
+        std::string cell;
+        if (entry.is_string()) cell = entry.get<std::string>();
+        else if (entry.is_array() && entry.size() >= 2 && entry.at(0).is_string() && entry.at(1).is_string()) {
+            // `["target.exe","alias"]` publishes `alias.exe`: the alias replaces the name, the
+            // extension is inherited from the target.
+            const auto target = entry.at(0).get<std::string>();
+            const auto dot = target.find_last_of('.');
+            const auto extension = dot == std::string::npos ? std::string{} : target.substr(dot);
+            cell = entry.at(1).get<std::string>()+extension;
+        } else return {};
+        if (!cell.empty()) text += (text.empty() ? "" : " | ")+cell;
+    }
+    return text;
+}
+static std::string shortcuts_text(const Json& manifest, const std::string& architecture) {
+    const auto shortcuts = arch_value(manifest,"shortcuts",architecture);
+    if (shortcuts.is_string()) return shortcuts.get<std::string>();
+    if (!shortcuts.is_array()) return {};
+    std::string text;
+    for (const auto& entry : shortcuts) {
+        std::string cell;
+        if (entry.is_array() && entry.size() >= 2 && entry.at(1).is_string()) cell = entry.at(1).get<std::string>();
+        else if (entry.is_string()) cell = entry.get<std::string>();
+        if (!cell.empty()) text += (text.empty() ? "" : " | ")+cell;
+    }
+    return text;
+}
+static std::string environment_text(const Json& manifest, const std::string& architecture) {
+    const auto environment = arch_value(manifest,"env_set",architecture);
+    if (!environment.is_object()) return {};
+    std::string text;
+    for (const auto& [variable,value] : environment.items()) {
+        if (!value.is_string()) continue;
+        text += (text.empty() ? "" : "\n")+variable+" = "+substitute_dir(value.get<std::string>());
+    }
+    return text;
+}
+static std::string path_added_text(const Json& manifest, const std::string& architecture) {
+    const auto entries = arch_value(manifest,"env_add_path",architecture);
+    if (entries.is_string()) return "<root>\\"+entries.get<std::string>();
+    if (!entries.is_array()) return {};
+    std::string text;
+    for (const auto& entry : entries) {
+        if (!entry.is_string()) continue;
+        const auto value = entry.get<std::string>();
+        const auto relative = value == "." || value == "./" || value.empty() ? std::string{} :
+            value+((value.back() == '\\' || value.back() == '/') ? "" : "\\");
+        text += (text.empty() ? std::string{} : std::string{"\n"})+"<root>\\"+relative;
+    }
+    return text;
+}
+static std::string suggestions_text(const Json& manifest) {
+    if (!manifest.contains("suggest") || !manifest.at("suggest").is_object()) return {};
+    std::string text;
+    for (const auto& [feature,candidates] : manifest.at("suggest").items()) {
+        const auto cells = joined(candidates);
+        if (cells.empty()) continue;
+        text += (text.empty() ? "" : " | ")+cells;
+    }
+    return text;
+}
+static std::string notes_text(const Json& manifest) {
+    if (!manifest.contains("notes")) return {};
+    const auto& notes = manifest.at("notes");
+    std::string text;
+    const auto append = [&text](const std::string& value) {
+        text += (text.empty() ? "" : "\n")+substitute_roots(value);
+    };
+    if (notes.is_string()) append(notes.get<std::string>());
+    else if (notes.is_array()) for (const auto& line : notes) if (line.is_string()) append(line.get<std::string>());
+    return text;
+}
+// Installed versions are the version directories beside the `current` link; `current` itself is a
+// link, not a version. Lexical order is what the directory listing gives and what Scoop prints.
+static std::vector<std::string> installed_versions(const Context& context, const std::string& name) {
+    std::vector<std::string> versions;
+    const auto directory = context.root/L"apps"/wide(name);
+    std::error_code error;
+    if (!fs::is_directory(directory,error)) return versions;
+    for (const auto& entry : fs::directory_iterator(directory,error)) {
+        if (error) break;
+        if (entry.path().filename() == L"current") continue;
+        std::error_code type_error;
+        if (!entry.is_directory(type_error)) continue;
+        versions.push_back(utf8(entry.path().filename().wstring()));
+    }
+    std::sort(versions.begin(),versions.end());
+    return versions;
+}
+static std::string current_version(const Context& context, const std::string& name) {
+    std::error_code error;
+    const auto target = fs::canonical(context.root/L"apps"/wide(name)/L"current",error);
+    if (error) return {};
+    return utf8(target.filename().wstring());
+}
+static void print_installed_table(const Context& context, const Json& result, const std::string& query,
+                                  bool any_installed) {
+    // Scoop warns only when nothing is installed at all, and warns before any header; a query that
+    // matches nothing still prints the header over an empty table.
+    if (!any_installed) {
+        std::cout << "WARN  There aren't any apps installed.\n";
+        return;
+    }
+    std::cout << "Installed apps";
+    if (!query.empty()) std::cout << " matching '" << query << "'";
+    std::cout << ":\n\n";
+    const auto deprecated = deprecated_names(context);
+    std::vector<std::vector<std::string>> rows;
+    for (const auto& item : result) {
+        const auto version = field_text(item,"version");
+        const auto directory = field_text(item,"directory");
+        rows.push_back({field_text(item,"name"),version,field_text(item,"bucket"),
+            directory.empty() ? std::string{} : record_time(wide(directory)),
+            exception_labels(item,deprecated)});
+    }
+    print_table({"Name","Version","Source","Updated","Info"},rows);
+}
+static void print_search_table(const Json& result) {
+    if (result.empty()) {
+        std::cout << "WARN  No matches found.\n";
+        return;
+    }
+    std::cout << "Results from local buckets...\n\n";
+    std::vector<std::vector<std::string>> rows;
+    for (const auto& item : result) {
+        std::string binaries;
+        try {
+            const auto manifest = read_json(fs::path(wide(item.at("path").get<std::string>())));
+            const auto architecture = field_text(item,"architecture");
+            binaries = binaries_text(manifest,architecture.empty() ? std::string("64bit") : architecture);
+        } catch (const std::exception&) { /* A manifest the adapter rejects still appears in search. */ }
+        rows.push_back({field_text(item,"name"),field_text(item,"version"),
+            field_text(item,"bucket"),binaries});
+    }
+    print_table({"Name","Version","Source","Binaries"},rows);
+}
+static void print_info_block(const Context& context, const Json& item, const std::set<std::string>& deprecated) {
+    const auto name = field_text(item,"name");
+    Json manifest = Json::object();
+    try { manifest = read_json(fs::path(wide(item.at("path").get<std::string>()))); }
+    catch (const std::exception&) { /* The declared metadata is shown when it can be read. */ }
+    const auto architecture = [&context,&name] {
+        for (const auto& fact : ir::read_installations(context.root)) {
+            if (!equal_name(fact.name,name) || !fact.present) continue;
+            return fact.architecture.empty() ? std::string("64bit") : fact.architecture;
+        }
+        return std::string("64bit");
+    }();
+    std::vector<std::pair<std::string,std::string>> lines;
+    const auto add = [&lines](std::string key, std::string value) {
+        if (!value.empty()) lines.emplace_back(std::move(key),std::move(value));
+    };
+    add("Name",name+(deprecated.contains(lowercase(name)) ? " (DEPRECATED)" : ""));
+    if (manifest.contains("description") && manifest.at("description").is_string())
+        add("Description",manifest.at("description").get<std::string>());
+    const auto manifest_version = manifest.value("version",field_text(item,"version"));
+    const auto installed = current_version(context,name);
+    auto version_text = manifest_version;
+    if (!installed.empty() && installed != manifest_version)
+        version_text = installed+" (Update to "+manifest_version+" available)";
+    add("Version",version_text);
+    add("Source",field_text(item,"bucket"));
+    if (manifest.contains("homepage") && manifest.at("homepage").is_string()) {
+        auto homepage = manifest.at("homepage").get<std::string>();
+        while (!homepage.empty() && homepage.back() == '/') homepage.pop_back();
+        add("Website",homepage);
+    }
+    if (manifest.contains("license")) {
+        const auto& license = manifest.at("license");
+        if (license.is_string()) add("License",license.get<std::string>());
+        else if (license.is_object() && license.contains("identifier") && license.at("identifier").is_string())
+            add("License",license.at("identifier").get<std::string>());
+    }
+    if (manifest.contains("depends")) add("Dependencies",joined(manifest.at("depends")));
+    if (const auto versions = installed_versions(context,name); !versions.empty()) {
+        std::string text;
+        for (const auto& version : versions) text += (text.empty() ? "" : "\n")+version;
+        add("Installed",text);
+    }
+    add("Binaries",binaries_text(manifest,architecture));
+    add("Shortcuts",shortcuts_text(manifest,architecture));
+    add("Environment",environment_text(manifest,architecture));
+    add("Path Added",path_added_text(manifest,architecture));
+    add("Suggestions",suggestions_text(manifest));
+    add("Notes",notes_text(manifest));
+    std::size_t width = 0;
+    for (const auto& [key,value] : lines) width = (std::max)(width,display_width(key));
+    for (const auto& [key,value] : lines) {
+        // Scoop's formatter aligns a multi-line value under the first line, so the key column width
+        // sets the indent of continuation lines too.
+        std::string text = value;
+        const auto indent = std::string(width+3,' ');
+        for (std::size_t at = text.find('\n'); at != std::string::npos; at = text.find('\n',at+indent.size()+1))
+            text.replace(at,1,"\n"+indent);
+        std::cout << key << std::string(width-display_width(key)+1,' ') << ": " << text << '\n';
+    }
+}
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
     Json result = Json::array();
+    std::string query_text;
+    bool any_installed = false;
     if (command == L"list") {
-        if (!args.empty()) throw UsageError("list does not accept package arguments");
+        // `scoop list [query]` filters installed apps; the filter is a case-insensitive substring
+        // here rather than Scoop's regular expression, which is the one deliberate difference.
+        if (args.size() > 1) throw UsageError("list accepts at most one query");
+        if (!args.empty()) query_text = utf8(args[0]);
         result = installed_packages(context);
+        any_installed = !result.empty();
+        if (!query_text.empty()) {
+            Json filtered = Json::array();
+            for (auto& item : result)
+                if (lowercase(field_text(item,"name")).find(lowercase(query_text)) != std::string::npos)
+                    filtered.push_back(item);
+            result = std::move(filtered);
+        }
     } else {
-        if (args.size() != 1) throw UsageError("search/info requires exactly one package or query");
-        result = matching_catalog(context,command,lowercase(utf8(args[0])));
+        if (command == L"search" && args.empty()) {
+            result = matching_catalog(context,command,std::string{});
+        } else {
+            if (args.size() != 1) throw UsageError("search/info accepts exactly one package or query");
+            if (!args.empty()) query_text = utf8(args[0]);
+            result = matching_catalog(context,command,lowercase(query_text));
+        }
         if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
         if (command == L"info" && result.size() > 1)
             throw std::runtime_error("Ambiguous package; qualify it with its bucket");
         if (command == L"info") for (auto& item : result) item["validation"] = validation_json(context,item);
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
+    else if (command == L"list") print_installed_table(context,result,query_text,any_installed);
+    else if (command == L"search") print_search_table(result);
     else {
-        std::cout << "Name\tVersion\tBucket\tManagement\tScope\tSource\tSynced\tStatus\tLast operation\n";
-        for (const auto& item : result) {
-            const auto display = [&item](const char* key) {
-                return item.contains(key) && item.at(key).is_string() ? item.at(key).get<std::string>() : std::string("unknown");
-            };
-            std::cout << item.at("name").get<std::string>() << '\t'
-                      << display("version") << '\t' << display("bucket") << '\t'
-                      << display("management") << '\t' << display("scope") << '\t'
-                      << display("source") << '\t' << display("synced_at") << '\t' << display("status") << '\t' << display("last_operation") << '\n';
-            for (const auto& error : item.at("diagnostics")) std::cerr << "coop: " << error.get<std::string>() << '\n';
-        }
+        const auto deprecated = deprecated_names(context);
+        for (const auto& item : result) print_info_block(context,item,deprecated);
     }
+    if (!context.json_output) for (const auto& item : result)
+        for (const auto& error : item.value("diagnostics",Json::array()))
+            if (error.is_string()) std::cerr << "coop: " << error.get<std::string>() << '\n';
     return 0;
 }
 }

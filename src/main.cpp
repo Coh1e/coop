@@ -60,7 +60,7 @@ int wmain(int argc, wchar_t** argv) {
                      "             under <root>/.coop/timings/ for later comparison\n"
                      "\nOutput is UTF-8; exit codes: 0 success, 1 operational or partial-batch failure,\n"
                      "2 command-line misuse.\n"
-                     "\nCommands:\n  init [--dry-run]\n  list\n  search <query>\n  info [bucket/]package\n"
+                     "\nCommands:\n  init [--dry-run]\n  list [query]\n  search [query]\n  info [bucket/]package\n"
                      "  bucket list|add|remove|update ...\n"
                      "  install <package>... [--dry-run]\n"
                      "  update <package>... [--dry-run]\n"
