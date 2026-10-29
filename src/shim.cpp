@@ -136,6 +136,10 @@ ShimMetadata read_shim_metadata(const fs::path& path) {
     }
     if (result.target.size() >= 2 && result.target.front() == '"' && result.target.back() == '"')
         result.target = result.target.substr(1,result.target.size()-2);
+    // Scoop writes `args = "..."` with the quotes as delimiters, and its own shim passes only the
+    // inner text to the target. Keeping the quotes would append a literal quote to the child line.
+    if (result.arguments.size() >= 2 && result.arguments.front() == '"' && result.arguments.back() == '"')
+        result.arguments = result.arguments.substr(1,result.arguments.size()-2);
     if (result.target.empty()) throw std::runtime_error("Scoop shim metadata has no target path");
     return result;
 }

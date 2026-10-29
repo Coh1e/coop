@@ -48,6 +48,8 @@ int cache_command(const Context& context, const std::vector<std::wstring>& args)
 int download_command(const Context& context, const std::vector<std::wstring>& args, const std::string& architecture);
 // `hold`/`unhold` flip the `hold` flag in the install record Scoop itself reads.
 int hold_command(const Context& context, const std::vector<std::wstring>& args, bool hold);
+// `shim add|rm|list|info|alter` manages the shared <root>/shims entries.
+int shim_command(const Context& context, const std::vector<std::wstring>& args);
 bool package_is_held(const fs::path& version_directory);
 // `config` and `alias` read and write the Scoop configuration file, which both clients share.
 int config_command(const Context& context, const std::vector<std::wstring>& args);

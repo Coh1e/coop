@@ -90,11 +90,11 @@ if (($lines -join "`n") -cnotmatch "Shim 'broken' points to a missing target") {
 # help: the command list, a per-command usage, and an honest marker for what Coop does not have.
 $lines = @(& $CoopExe help)
 if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'Command\s+Summary') { throw 'help printed no command list' }
-if (($lines -join "`n") -cnotmatch 'shim\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
+if (($lines -join "`n") -cnotmatch 'create\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
 $lines = @(& $CoopExe --root $root list --help)
 if ($LASTEXITCODE -cne 0 -or $lines[0] -cne 'Usage: coop list [query]') { throw "list --help printed '$($lines -join ' | ')'" }
-$lines = & $CoopExe help shim 2>&1
-if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help shim said '$($lines -join ' | ')'" }
+$lines = & $CoopExe help create 2>&1
+if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help create said '$($lines -join ' | ')'" }
 
 # hold writes the flag Scoop itself reads; list shows it and update refuses until unhold.
 $lines = @(& $CoopExe --root $root hold demo)

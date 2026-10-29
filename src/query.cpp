@@ -813,7 +813,7 @@ static const HelpEntry kHelpEntries[] = {
     {"prefix","<app>","Returns the path to the specified app",true},
     {"reset","<app>","Reset an app to resolve conflicts",true},
     {"search","<query>","Search available apps",true},
-    {"shim","<subcommand> [<shim_name>...] [options] [other_args]","Manipulate Scoop shims",false},
+    {"shim","<subcommand> [<shim_name>...] [options] [other_args]","Manipulate Scoop shims",true},
     {"status","","Show status and check for new app versions",true},
     {"unhold","<app>","Unhold an app to enable updates",true},
     {"uninstall","<app> [options]","Uninstall an app",true},
