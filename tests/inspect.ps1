@@ -1,6 +1,8 @@
 # Red when: `status` stops reporting an outdated package or stops saying `Everything is ok!`,
 # `prefix` stops printing the current path Scoop prints, `cat` stops echoing the stored manifest,
-# `which` stops resolving a shim's target, or `home` stops failing on a manifest without a homepage.
+# `which` stops resolving a shim's target, `home` stops failing on a manifest without a homepage,
+# `depends` stops listing the declared dependency before the app itself, `export` stops listing
+# buckets/apps, `checkup` stops reporting a broken shim, or `help` stops marking what is missing.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -62,4 +64,35 @@ Copy-Item "$PSScriptRoot/corpus/main/jq.json" "$root/apps/demo/1.8.2/scoop-manif
 New-Item -ItemType Junction -Path "$root/apps/demo/current" -Target "$root/apps/demo/1.8.2" | Out-Null
 $lines = @(& $CoopExe --root $root status)
 if ($LASTEXITCODE -cne 0 -or ($lines -join '|') -cne 'Everything is ok!') { throw "clean status said '$($lines -join ' | ')'" }
-Write-Output 'PASS: status, prefix, cat, which and home'
+
+# depends lists the declared dependency first and the app itself last, like Scoop.
+'{"version":"2.0","url":"https://example.invalid/dep.zip","hash":"1111111111111111111111111111111111111111111111111111111111111111","depends":"demo"}' |
+    Set-Content "$root/buckets/main/bucket/dep.json" -Encoding utf8
+$lines = @(& $CoopExe --root $root depends dep)
+if ($LASTEXITCODE -cne 0) { throw "depends failed: $($lines -join ' | ')" }
+if (($lines -join "`n") -cnotmatch '(?s)^Source\s+Name\s+------\s+----\s+main\s+demo\s+main\s+dep\s*$') {
+    throw "depends printed '`n$($lines -join "`n")'"
+}
+
+# export is a Scoopfile: buckets and apps with Scoop's field names.
+$export = (& $CoopExe --root $root export) -join "`n"
+if ($LASTEXITCODE -cne 0) { throw 'export failed' }
+$file = $export | ConvertFrom-Json
+if (@($file.buckets | Where-Object Name -CEQ 'main').Count -cne 1) { throw 'export omitted the bucket' }
+if (@($file.apps | Where-Object Name -CEQ 'demo').Count -cne 1) { throw 'export omitted the installed app' }
+
+# checkup reports a shim whose target disappeared, and still exits 0.
+"path = `"$root\apps\demo\current\gone.exe`"" | Set-Content "$root/shims/broken.shim" -Encoding utf8
+$lines = @(& $CoopExe --root $root checkup)
+if ($LASTEXITCODE -cne 0) { throw "checkup exited $LASTEXITCODE" }
+if (($lines -join "`n") -cnotmatch "Shim 'broken' points to a missing target") { throw "checkup said '`n$($lines -join "`n")'" }
+
+# help: the command list, a per-command usage, and an honest marker for what Coop does not have.
+$lines = @(& $CoopExe help)
+if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'Command\s+Summary') { throw 'help printed no command list' }
+if (($lines -join "`n") -cnotmatch 'cache\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
+$lines = @(& $CoopExe --root $root list --help)
+if ($LASTEXITCODE -cne 0 -or $lines[0] -cne 'Usage: coop list [query]') { throw "list --help printed '$($lines -join ' | ')'" }
+$lines = & $CoopExe help cache 2>&1
+if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help cache said '$($lines -join ' | ')'" }
+Write-Output 'PASS: status, prefix, cat, which, home, depends, export, checkup and help'

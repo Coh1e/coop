@@ -5,8 +5,10 @@
 #include "recovery.hpp"
 #include "versions.hpp"
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 #include <cctype>
@@ -664,14 +666,22 @@ static std::string friendly_path(std::string value) {
     while (!rest.empty() && (rest.front() == '\\' || rest.front() == '/')) rest.erase(rest.begin());
     return "~\\"+rest;
 }
+// A Manifest may declare `depends` as one string or as a list; Scoop's `@()` treats both as a list.
+static std::vector<std::string> depends_entries(const Json& manifest) {
+    std::vector<std::string> spelled;
+    if (!manifest.contains("depends")) return spelled;
+    const auto add = [&spelled](const Json& value) {
+        if (value.is_string()) spelled.push_back(value.get<std::string>());
+    };
+    const auto& depends = manifest.at("depends");
+    if (depends.is_string()) add(depends);
+    else if (depends.is_array()) for (const auto& entry : depends) add(entry);
+    return spelled;
+}
 static std::vector<std::string> declared_depends(const fs::path& path) {
     std::vector<std::string> names;
     try {
-        const auto manifest = read_json(path);
-        if (!manifest.contains("depends") || !manifest.at("depends").is_array()) return names;
-        for (const auto& dependency : manifest.at("depends")) {
-            if (!dependency.is_string()) continue;
-            auto name = dependency.get<std::string>();
+        for (auto name : depends_entries(read_json(path))) {
             if (const auto at = name.find('@'); at != std::string::npos) name.resize(at);
             if (const auto slash = name.find('/'); slash != std::string::npos) name.erase(0,slash+1);
             if (!name.empty()) names.push_back(name);
@@ -796,7 +806,208 @@ static int home_command(const Context& context, const std::string& name) {
         throw std::runtime_error("Could not open "+homepage);
     return 0;
 }
+// ---------------------------------------------------------------------------
+// `help`, `depends`, `export` and `checkup`. Command names, usage strings and summaries follow
+// Scoop 0.6.0's own help headers; the `implemented` flag is Coop's, so help never promises a command
+// that does not exist yet.
+// ---------------------------------------------------------------------------
+struct HelpEntry { const char* name; const char* usage; const char* summary; bool implemented; };
+static const HelpEntry kHelpEntries[] = {
+    {"alias","<subcommand> [options] [<args>]","Manage scoop aliases",false},
+    {"bucket","add|list|known|rm [<args>]","Manage Scoop buckets",true},
+    {"cache","show|rm [app(s)]","Show or clear the download cache",false},
+    {"cat","<app>","Show content of specified manifest",true},
+    {"checkup","","Check for potential problems",true},
+    {"cleanup","<app> [options]","Cleanup apps by removing old versions",true},
+    {"config","[rm] name [value]","Get or set configuration values",false},
+    {"create","<url>","Create a custom app manifest",false},
+    {"depends","<app>","List dependencies for an app, in the order they'll be installed",true},
+    {"download","<app> [options]","Download apps in the cache folder and verify hashes",false},
+    {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true},
+    {"help","<command>","Show help for a command",true},
+    {"hold","<apps>","Hold an app to disable updates",false},
+    {"home","<app>","Opens the app homepage",true},
+    {"import","<path/url to scoopfile.json>","Imports apps, buckets and configs from a Scoopfile in JSON format",false},
+    {"info","<app> [options]","Display information about an app",true},
+    {"install","<app> [options]","Install apps",true},
+    {"list","[query]","List installed apps",true},
+    {"prefix","<app>","Returns the path to the specified app",true},
+    {"reset","<app>","Reset an app to resolve conflicts",true},
+    {"search","<query>","Search available apps",true},
+    {"shim","<subcommand> [<shim_name>...] [options] [other_args]","Manipulate Scoop shims",false},
+    {"status","","Show status and check for new app versions",true},
+    {"unhold","<app>","Unhold an app to enable updates",false},
+    {"uninstall","<app> [options]","Uninstall an app",true},
+    {"update","<app> [options]","Update apps, or Scoop itself",true},
+    {"virustotal","[* | app1 app2 ...] [options]","Look for app's hash or url on virustotal.com",false},
+    {"which","<command>","Locate a shim/executable",true}
+};
+static int help_command(const std::vector<std::wstring>& args) {
+    if (args.size() > 1) throw UsageError("help accepts at most one command");
+    if (args.empty()) {
+        std::cout << "Available commands are listed below.\n\n"
+                     "Type 'coop help <command>' to get more help for a specific command.\n\n";
+        std::vector<std::vector<std::string>> rows;
+        for (const auto& entry : kHelpEntries)
+            rows.push_back({entry.name,std::string(entry.summary)+(entry.implemented ? "" : " (not implemented yet)")});
+        print_table({"Command","Summary"},rows);
+        return 0;
+    }
+    const auto name = lowercase(utf8(args.front()));
+    for (const auto& entry : kHelpEntries) {
+        if (name != entry.name) continue;
+        std::cout << "Usage: coop " << entry.name;
+        if (*entry.usage) std::cout << ' ' << entry.usage;
+        std::cout << "\n\n" << entry.summary << '\n';
+        if (entry.implemented) return 0;
+        std::cout << "\nWARN  this Scoop command is not implemented in Coop yet.\n";
+        return 1;
+    }
+    throw UsageError("unknown command; use --help");
+}
+static int depends_command(const Context& context, const std::string& request) {
+    const auto& item = single_catalog_item(context,request);
+    std::map<std::string,fs::path> paths;
+    std::map<std::string,std::string> buckets;
+    for (const auto& entry : catalogue(context)) {
+        const auto key = lowercase(entry.name);
+        if (!paths.contains(key)) { paths[key] = entry.manifest_path; buckets[key] = entry.bucket; }
+    }
+    std::vector<std::pair<std::string,std::string>> order;
+    std::set<std::string> seen;
+    std::function<void(const fs::path&)> visit = [&](const fs::path& manifest_path) {
+        Json manifest;
+        try { manifest = read_json(manifest_path); } catch (const std::exception&) { return; }
+        for (auto spelled : depends_entries(manifest)) {
+            if (const auto at = spelled.find('@'); at != std::string::npos) spelled.resize(at);
+            std::string bucket;
+            auto name = spelled;
+            if (const auto slash = spelled.find('/'); slash != std::string::npos) {
+                bucket = spelled.substr(0,slash);
+                name = spelled.substr(slash+1);
+            }
+            const auto key = lowercase(name);
+            if (!seen.insert(key).second) continue;
+            const auto found = paths.find(key);
+            if (found != paths.end()) visit(found->second);
+            // A dependency the bucket does not publish still appears: it is declared, and a missing
+            // manifest is a fact the user must see rather than a reason to hide the line.
+            order.emplace_back(bucket.empty() ? buckets[key] : bucket,name);
+        }
+    };
+    visit(fs::path(wide(item.at("path").get<std::string>())));
+    // Scoop's list ends with the requested app itself: it installs after its dependencies.
+    order.emplace_back(item.value("bucket",std::string{}),item.at("name").get<std::string>());
+    if (context.json_output) {
+        Json output = Json::array();
+        for (const auto& [source,name] : order) output.push_back({{"source",source},{"name",name}});
+        std::cout << output.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
+        return 0;
+    }
+    if (order.empty()) return 0;
+    std::vector<std::vector<std::string>> rows;
+    for (const auto& [source,name] : order) rows.push_back({source,name});
+    print_table({"Source","Name"},rows);
+    return 0;
+}
+static int export_command(const Context& context) {
+    Json buckets = Json::array();
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        const fs::path location(wide(source.at("path").get<std::string>()));
+        const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
+        std::uintmax_t manifests = 0;
+        std::error_code error;
+        for (fs::recursive_directory_iterator entry(directory,fs::directory_options::skip_permission_denied,error), end;
+             !error && entry != end; entry.increment(error)) {
+            std::error_code type_error;
+            if (entry->is_regular_file(type_error) && entry->path().extension() == L".json") ++manifests;
+        }
+        buckets.push_back({{"Name",source.at("name")},{"Source",source.value("url",std::string{})},
+            {"Manifests",manifests}});
+    }
+    Json apps = Json::array();
+    for (const auto& item : installed_packages(context)) {
+        if (item.value("scope",std::string{}) != "user") continue;
+        apps.push_back({{"Name",item.at("name")},{"Version",item.value("version",Json(nullptr))},
+            {"Source",item.value("bucket",std::string{})},{"Info",""}});
+    }
+    Json output = {{"buckets",buckets},{"apps",apps}};
+    std::cout << output.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
+    return 0;
+}
+static int checkup_command(const Context& context) {
+    int issues = 0;
+    const auto report = [&issues](const std::string& text) {
+        std::cout << "WARN  " << text << '\n';
+        ++issues;
+    };
+    // Long paths: without this switch a deep package path fails at MAX_PATH during extraction.
+    DWORD long_paths = 0, size = sizeof(long_paths);
+    const auto status = RegGetValueW(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\FileSystem",
+        L"LongPathsEnabled",RRF_RT_REG_DWORD,nullptr,&long_paths,&size);
+    if (status != ERROR_SUCCESS || long_paths == 0)
+        report("Long paths are disabled; set HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled to 1.");
+    bool main_bucket = false;
+    for (const auto& source : bucket_sources(context)) {
+        if (source.value("kind",std::string{}) == "removed") continue;
+        if (source.at("name") == "main") main_bucket = true;
+        const fs::path location(wide(source.at("path").get<std::string>()));
+        std::error_code error;
+        if (!fs::is_directory(location,error))
+            report("Bucket '"+source.at("name").get<std::string>()+"' is registered but its directory is missing: "+path_text(location));
+    }
+    if (!main_bucket) report("The 'main' bucket is not installed.");
+    // A pending transaction blocks new writes; it must be visible here, not only in `list`.
+    const auto transactions = context.root/L".coop"/L"transactions";
+    std::error_code error;
+    if (fs::is_directory(transactions,error)) for (const auto& entry : fs::directory_iterator(transactions,error)) {
+        if (error) break;
+        const auto journal_path = entry.path()/L"journal.json";
+        if (!fs::is_regular_file(journal_path,error)) continue;
+        try {
+            const auto journal = read_json(journal_path);
+            if (journal.value("state",std::string{}) != "pending") continue;
+            report("Package '"+journal.value("package",std::string{})+"' has a pending transaction; run 'coop recover'.");
+        } catch (const std::exception&) { /* An unreadable journal is reported by `list`, not here. */ }
+    }
+    // A shim whose target disappeared leaves a broken command on PATH.
+    const auto shims = context.root/L"shims";
+    std::size_t checked_shims = 0;
+    if (fs::is_directory(shims,error)) for (const auto& entry : fs::directory_iterator(shims,error)) {
+        if (error || checked_shims > 1000) break;
+        if (entry.path().extension() != L".shim") continue;
+        ++checked_shims;
+        try {
+            const auto text = read_text_file(entry.path());
+            const auto marker = text.find("path = ");
+            const auto quote = marker == std::string::npos ? std::string::npos : text.find('"',marker);
+            const auto end = quote == std::string::npos ? std::string::npos : text.find('"',quote+1);
+            if (end == std::string::npos) continue;
+            const auto target = text.substr(quote+1,end-quote-1);
+            std::error_code target_error;
+            if (!target.empty() && !fs::is_regular_file(fs::path(wide(target)),target_error))
+                report("Shim '"+utf8(entry.path().stem().wstring())+"' points to a missing target: "+target);
+        } catch (const std::exception&) { /* A shim that cannot be read is not a problem this check proves. */ }
+    }
+    if (issues == 0) { std::cout << "No problems identified!\n"; return 0; }
+    std::cout << "Found " << issues << " potential problem" << (issues == 1 ? "" : "s") << ".\n";
+    return 0;
+}
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
+    if (command == L"help") return help_command(args);
+    if (command == L"checkup") {
+        if (!args.empty()) throw UsageError("checkup takes no arguments");
+        return checkup_command(context);
+    }
+    if (command == L"export") {
+        if (!args.empty()) throw UsageError("export takes no arguments");
+        return export_command(context);
+    }
+    if (command == L"depends") {
+        if (args.size() != 1) throw UsageError("depends requires exactly one package");
+        return depends_command(context,utf8(args.front()));
+    }
     if (command == L"status" || command == L"prefix" || command == L"cat" || command == L"which" || command == L"home") {
         if (command == L"status") {
             // `scoop status -l` only disables remote fetching, and Coop never fetches here, so both

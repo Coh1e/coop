@@ -81,7 +81,7 @@ ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|buc
 
 卸载前检查所有已安装包保存 Manifest 的已知依赖，包括未接管的安装；被依赖时列出依赖方并拒绝卸载，证据不可读时也不会假定没有依赖。Coop 不自动连带卸载，不自动清理疑似无用依赖，也不删除 Manifest 声明的外部工具需求。
 
-`list`、`search`、`info` 的默认文本输出与 Scoop 同形（`Installed apps:` 表、`Results from local buckets...` 表、`info` 的键值块）；管理权（`managed`/`unadopted`）、安装状态、上次操作、`synced_at` 等字段只保留在 `--json`。`list [查询]` 接受一个过滤词，`search` 不带查询时列出全部本地清单。`status` 只比较已装版本与本地已同步清单（不联网、不 fetch），无差异时打印 `Everything is ok!`；`prefix`、`cat`、`which`、`home` 分别打印 `current` 路径、清单原文、shim 指向的目标与声明的 homepage。形状、刻意偏离与证据见[读命令的文本输出](docs/query-output.md)。
+`list`、`search`、`info` 的默认文本输出与 Scoop 同形（`Installed apps:` 表、`Results from local buckets...` 表、`info` 的键值块）；管理权（`managed`/`unadopted`）、安装状态、上次操作、`synced_at` 等字段只保留在 `--json`。`list [查询]` 接受一个过滤词，`search` 不带查询时列出全部本地清单。`status` 只比较已装版本与本地已同步清单（不联网、不 fetch），无差异时打印 `Everything is ok!`；`prefix`、`cat`、`which`、`home` 分别打印 `current` 路径、清单原文、shim 指向的目标与声明的 homepage；`depends` 按安装顺序列出依赖（含包自己），`export` 输出 `scoop import` 能读的 scoopfile，`checkup` 检查 Coop 自己的不变量（长路径、bucket 目录、pending 事务、失效 shim），`help [命令]` 列出全部命令并标注 Coop 尚未实现的那几个。形状、刻意偏离与证据见[读命令的文本输出](docs/query-output.md)。
 
 `list` 的 JSON 分开给出管理权（`managed`/`unadopted`）、安装状态和上次操作状态，更新失败不会被报告为未安装或已成功。系统级项在 JSON 中带 `scope: global` 与 `read_only: true`；仅存在于系统级根的包可查询、可预览，但 `update`、`uninstall`、`reset` 会以稳定标记 `global-scope-readonly` 在执行前拒绝，不会写入该系统级根；当前用户级 `install` 仍只写用户根，并在计划与结果中报告 `global_installation` 只读事实。Windows 文件名不区分大小写，包名与安装目录的身份比较同样不区分大小写。
 

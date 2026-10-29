@@ -95,6 +95,21 @@ demo  1.7.1              1.8.2
 
 `home <包>`：打开清单声明的 homepage；没有 homepage 时报错而不是打开空 URL。
 
+`depends <包>`：输出 `Source / Name` 两列，依赖在前、被请求的包自己在最后一行——与 `scoop depends` 逐行相同。`depends` 支持字符串与数组两种声明写法。
+
+`export`：输出 scoopfile JSON，`buckets` 每项 `Name/Source/Manifests`、`apps` 每项 `Name/Version/Source/Info`，字段名与 `scoop import` 读取的一致。
+
+`checkup`：只检查 Coop 自己的不变量——长路径开关、`main` bucket 是否存在、已注册 bucket 的目录是否存在、pending 事务、shim 指向的目标是否存在。有问题逐条 `WARN`，结尾 `Found N potential problem(s).` 或 `No problems identified!`，退出码始终 0。
+
+`help [命令]`：命令名、用法串与摘要取自 Scoop 0.6.0 的 help 头，未实现的命令显式标注 `(not implemented yet)` 并在 `coop help <未实现命令>` 时退出 1。`coop <命令> --help` 打印同一段文本。
+
+### 这三条的偏离
+
+12. **`export` 不含 `Updated` 与配置项**：Scoop 会写 `Updated`（bucket 的 git 提交时间或目录时间）并可用 `-c` 导出配置。Coop 先不写这两项，`scoop import` 不读它们。
+13. **`checkup` 的检查项是 Coop 的不变量**，不含 Scoop 的 Defender 排除项、7-Zip/innounp/dark helper、NTFS 卷检查。那些项目要么越过包管理器该做的事，要么与 Coop 的核心不依赖外部 helper 这一事实不符。
+14. **`help` 对未实现命令返回 1**，Scoop 对所有命令都返回 0。Coop 用这个退出码表达"这个命令还不存在"。
+
+
 
 ## 证据
 
