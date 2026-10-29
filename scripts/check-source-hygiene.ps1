@@ -9,9 +9,8 @@ param(
 # Deliberate whole-file line-ending conversion is not detected here: it stays a review concern. The
 # aim is to catch the invisible, accidental class that has actually happened.
 #
-# -Staged chooses which file *names* to check; the bytes come from the working tree, so a file whose
-# staged content differs from disk is checked as it is on disk. Reading the staged blob instead would
-# need a git-show round trip per file, which this check is deliberately too cheap to do.
+# -Staged reads the bytes git has staged, not the working tree, so a file whose staged content differs
+# from disk is checked as it will be committed.
 $ErrorActionPreference = 'Stop'
 $Root = [IO.Path]::GetFullPath($Root)
 Push-Location $Root
@@ -21,6 +20,7 @@ try {
     } else {
         @(git ls-files)
     }
+    $addedStaged = if ($Staged) { @(git diff --cached --name-only --diff-filter=A) } else { @() }
 } finally {
     Pop-Location
 }
@@ -35,6 +35,19 @@ $allowed = @{
 foreach ($relative in $files) {
     if (-not $relative) { continue }
     if ($allowed.ContainsKey($relative)) { continue }
+    # Staged mode answers one question only: does a file this commit adds declare what reddens it. The
+    # encoding and line-ending rules read the working tree, where the bytes are exact; reconstructing
+    # them from a pipeline would be a worse approximation of the file than the file.
+    if ($Staged) {
+        if ($relative -like 'tests/*.ps1' -and ($addedStaged -contains $relative)) {
+            $path = Join-Path $Root $relative
+            $text = if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { '' }
+            if ($text -notmatch '(?m)^# Red when:') {
+                [void]$violations.Add("$relative : a new test needs a '# Red when: <behaviour change>' line")
+            }
+        }
+        continue
+    }
     $path = Join-Path $Root $relative
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
     $info = Get-Item -LiteralPath $path
@@ -49,7 +62,6 @@ foreach ($relative in $files) {
     $binary = $false
     for ($i = 0; $i -lt $read; $i++) { if ($head[$i] -eq 0) { $binary = $true; break } }
     if ($binary) { continue }
-
     if ($read -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
         [void]$violations.Add("$relative : starts with a UTF-8 byte-order mark")
         continue

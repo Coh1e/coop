@@ -1,4 +1,4 @@
-param([ValidateSet('configure','build','test','all')][string]$Action = 'all')
+param([ValidateSet('configure','build','test','test-fast','all')][string]$Action = 'all')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -15,6 +15,8 @@ $steps = @()
 if ($Action -in 'configure','all') { $steps += ('"{0}" -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE=Release' -f $cmakeExe,$projectRoot,$buildRoot) }
 if ($Action -in 'build','all') { $steps += ('"{0}" --build "{1}"' -f $cmakeExe,$buildRoot) }
 if ($Action -in 'test','all') { $steps += ('"{0}" --test-dir "{1}" --output-on-failure' -f $ctestExe,$buildRoot) }
+# The inner loop: only the tests labelled fast, which finish in a couple of seconds each.
+if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --output-on-failure' -f $ctestExe,$buildRoot) }
 # vcvars and TEMP/TMP are scoped to this child cmd process, never persisted.
 $command = 'call "{0}" >nul && set "TEMP={1}" && set "TMP={1}" && {2}' -f $vcvars,$tempRoot,($steps -join ' && ')
 & $env:ComSpec /d /s /c $command

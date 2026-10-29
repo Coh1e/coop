@@ -316,4 +316,13 @@ if(BUILD_TESTING)
   target_compile_options(ir_reuse PRIVATE /W4 /WX /utf-8 /permissive-)
   set_property(TARGET ir_reuse PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_test(NAME ir_reuse COMMAND ir_reuse)
+
+  # The fast lane: the tests that finish in a couple of seconds and cover the output contract, the
+  # plan pipeline and the small helpers. `scripts/build.ps1 -Action test-fast` runs exactly these;
+  # the full suite stays the closing step.
+  set_property(TEST source_hygiene coverage_features coverage_gaps query plan ir_pipeline ir_reuse
+    manifest_shape command_lines update_lines output_gaps progress_coverage suggest_notes ansi_colors
+    reinstall_refusal cross_version sync_points perf_attribution publish_contracts publish_write_once
+    bucket cleanup dependencies path_batch
+    PROPERTY LABELS fast)
 endif()

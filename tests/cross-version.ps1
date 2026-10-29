@@ -1,3 +1,5 @@
+# Red when: the install refuses a different version again, keeps the replaced version directory out of
+# `versions`, skips the target-version guard, or stops retiring this package's own entries and shortcut.
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 # #74: installing a different version behaves like Scoop's install - the new version is created beside
 # the old one, `current` moves, the old version stays and cleanup can still retire it. The file is kept

@@ -1,0 +1,29 @@
+name: CI
+
+# The local guardrails (pre-commit hook, scripts/build.ps1) only run when someone remembers to run
+# them. This workflow is the net that does not depend on memory: every push and pull request builds
+# the project and runs the full CTest suite on a clean machine.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch pinned dependencies
+        shell: pwsh
+        run: ./scripts/fetch-deps.ps1
+
+      - name: Source hygiene
+        shell: pwsh
+        run: ./scripts/check-source-hygiene.ps1
+
+      - name: Configure, build and test
+        shell: pwsh
+        run: ./scripts/build.ps1 -Action all
