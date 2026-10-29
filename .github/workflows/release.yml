@@ -32,6 +32,10 @@ jobs:
         shell: pwsh
         run: ./scripts/fetch-deps.ps1
 
+      - name: Configure
+        shell: pwsh
+        run: ./scripts/build.ps1 -Action configure
+
       - name: Build Release
         shell: pwsh
         run: ./scripts/build.ps1 -Action build
