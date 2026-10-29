@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <array>
 #include <cctype>
+#include <chrono>
+#include <thread>
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -1390,6 +1392,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 bool from_cache = false;
                 // Scoop says what it is about to do before either the transfer line or the cache line,
                 // so a cached update announces the new version too.
+                // Test seam: a long silent window is otherwise hard to produce without a slow server.
+                wchar_t stall[32]{};
+                const auto stall_length = GetEnvironmentVariableW(L"COOP_TEST_STALL_MS",stall,32);
+                if (stall_length && stall_length < 32)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(std::stoi(stall)));
                 if (plan.action == ir::Action::update || plan.retain_previous) progress_stage("Downloading new version");
                 // A cache hit is timed inside the download step: the bytes are zero, so the record shows
                 // that no transfer happened, and the local time is not counted twice.

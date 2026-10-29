@@ -1,7 +1,9 @@
 #pragma once
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace coop {
@@ -20,6 +22,22 @@ public:
     virtual void finish_stage() {}
 };
 
+// Reports when a write command has produced no output for a while. A step that can block (name
+// resolution, TCP connect, TLS handshake, an occupied lock) prints nothing of its own, so without
+// this the command looks frozen. The watchdog is text-mode only and never changes the plan, the
+// execution order or the exit code.
+class StallWatchdog {
+public:
+    explicit StallWatchdog(int threshold_seconds = 5);
+    ~StallWatchdog();
+    StallWatchdog(const StallWatchdog&) = delete;
+    StallWatchdog& operator=(const StallWatchdog&) = delete;
+private:
+    int threshold_seconds_ = 5;
+    std::atomic<bool> stop_{false};
+    std::thread worker_;
+    long long warned_ms_ = 0;
+};
 // Installed by the CLI for the duration of one write command; null in tests and --json runs.
 void set_progress(Progress* progress);
 Progress* active_progress();

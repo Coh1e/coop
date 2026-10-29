@@ -1,18 +1,57 @@
 #include "progress.hpp"
 #include <io.h>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <iostream>
+#include <mutex>
+#include <thread>
 
 namespace coop {
 namespace {
 Progress* g_progress = nullptr;
+// Every emitted line and every progress tick updates this stamp; the stall watchdog compares it with
+// the current time. A write command that reaches a step which can block (name resolution, TCP connect,
+// TLS, a lock) leaves no other visible trace until that step returns, which is how `coop update coop`
+// once looked frozen without printing a single line.
+std::atomic<long long> g_last_output_ms{0};
+long long now_ms() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
-void set_progress(Progress* progress) { g_progress = progress; }
+std::mutex g_output_mutex;
+void note_output() { g_last_output_ms.store(now_ms()); }
+}
+void set_progress(Progress* progress) { g_progress = progress; note_output(); }
 Progress* active_progress() { return g_progress; }
-void progress_package(const std::string& text) { if (g_progress) g_progress->package(text); }
-void progress_stage(const std::string& text) { if (g_progress) g_progress->stage(text); }
-void progress_bytes(std::uint64_t done, std::uint64_t total) { if (g_progress) g_progress->bytes(done,total); }
+void progress_package(const std::string& text) { note_output(); if (g_progress) g_progress->package(text); }
+void progress_stage(const std::string& text) { note_output(); if (g_progress) g_progress->stage(text); }
+void progress_bytes(std::uint64_t done, std::uint64_t total) { note_output(); if (g_progress) g_progress->bytes(done,total); }
 void progress_finish_stage() { if (g_progress) g_progress->finish_stage(); }
+StallWatchdog::StallWatchdog(int threshold_seconds) : threshold_seconds_(threshold_seconds) {
+    note_output();
+    worker_ = std::thread([this] {
+        using namespace std::chrono;
+        while (!stop_.load()) {
+            std::this_thread::sleep_for(milliseconds(500));
+            if (stop_.load()) break;
+            const auto now = now_ms();
+            const auto stamp = g_last_output_ms.load();
+            if (!stamp || now-stamp < static_cast<long long>(threshold_seconds_)*1000) continue;
+            if (warned_ms_ && now-warned_ms_ < 10000) continue;
+            warned_ms_ = now;
+            // The stamp moves forward so the next warning is one interval away, not immediate.
+            g_last_output_ms.store(now);
+            const std::lock_guard<std::mutex> lock(g_output_mutex);
+            std::cout << "\ncoop: still working, "<<(now-stamp)/1000<<"s without progress\n";
+            std::cout.flush();
+        }
+    });
+}
+StallWatchdog::~StallWatchdog() {
+    stop_.store(true);
+    if (worker_.joinable()) worker_.join();
+}
 
 bool stdout_is_terminal() {
     static const bool terminal = _isatty(_fileno(stdout)) != 0;

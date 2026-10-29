@@ -194,6 +194,10 @@ int wmain(int argc, wchar_t** argv) {
                 coop::TextProgress progress;
                 if (!context.json_output && !quiet) coop::set_progress(&progress);
                 struct Reset { ~Reset() { coop::set_progress(nullptr); } } reset;
+                // A silent step must not look like a frozen process: the watchdog prints when the
+                // command has produced no output for a while.
+                std::optional<coop::StallWatchdog> watchdog;
+                if (!context.json_output && !quiet) watchdog.emplace();
                 coop::Timings timings;
                 coop::set_timings(&timings);
                 struct ResetTimings { ~ResetTimings() { coop::set_timings(nullptr); } } reset_timings;
