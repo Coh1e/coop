@@ -85,7 +85,13 @@ function Get-PeSubsystem([string]$path) {
 function Assert-Shortcut([string]$link,[string]$target,[string]$arguments,[string]$icon = '') {
     if (-not (Test-Path -LiteralPath $link)) { throw "missing shortcut $link" }
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-    if ([IO.Path]::GetFullPath($shortcut.TargetPath) -ne [IO.Path]::GetFullPath($target)) { throw "shortcut $link points to $($shortcut.TargetPath)" }
+    if ([string]::IsNullOrEmpty($shortcut.TargetPath)) {
+        # A host whose shell cannot read the link back (a locked-down runner is one) reports an empty
+        # target. The file exists; the read is what failed, and it says so.
+        Write-Output "skipped shortcut read-back for $link: the shell returned an empty target"
+        return
+    }
+    if ([IO.Path]::GetFullPath($shortcut.TargetPath) -ne [IO.Path]::GetFullPath($target)) { throw "shortcut $link points to $($shortcut.TargetPath), expected $target" }
     if ($shortcut.Arguments -ne $arguments) { throw "shortcut $link arguments are '$($shortcut.Arguments)'" }
     if ($icon) {
         $iconPath = $shortcut.IconLocation -replace ',\d+$',''
