@@ -1025,6 +1025,11 @@ int package_command(const Context& context, const std::wstring& command, const s
         } else if (arg == L"--purge") {
             if (purge) throw UsageError("--purge was specified more than once");
             purge = true;
+        } else if (arg == L"-g" || arg == L"--global") {
+            // A system-level write is a product boundary, not an unknown switch. Scoop users type `-g`
+            // and must read the boundary instead of "unknown option".
+            throw std::runtime_error("global-scope-readonly: Coop does not write a system-level installation; "
+                                     "use --global-root to read one");
         } else if (arg.starts_with(L"--")) throw UsageError("Unknown package option: "+utf8(arg));
         else names.push_back(arg);
     }

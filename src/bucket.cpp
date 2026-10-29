@@ -59,7 +59,7 @@ void refresh_index(const Context& context, const Json& source, bool force) {
     }
 }
 }
-int bucket_command(const Context& context, const std::vector<std::wstring>& args) {
+int bucket_command(const Context& context, const std::vector<std::wstring>& args, bool quiet_report) {
     if (args.empty()) throw std::runtime_error("bucket requires list/add/remove/update");
     const auto registry_path = context.root/L".coop"/L"buckets.json";
     if (args[0] == L"list") {
@@ -78,10 +78,12 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         std::cout << result.dump(2) << '\n';
         return 0;
     }
-    if (args[0] != L"add" && args[0] != L"remove" && args[0] != L"update")
+    // `rm` is Scoop's documented spelling; `remove` stays as the original Coop form.
+    const bool remove = args[0] == L"remove" || args[0] == L"rm";
+    if (args[0] != L"add" && !remove && args[0] != L"update")
         throw std::runtime_error("Unknown bucket operation");
     if (args[0] == L"add" && args.size() < 3) throw std::runtime_error("bucket add requires name and source");
-    if (args[0] == L"remove" && args.size() != 2) throw std::runtime_error("bucket remove requires one name");
+    if (remove && args.size() != 2) throw std::runtime_error("bucket rm requires one name");
     if (args[0] == L"update" && args.size() > 2) throw std::runtime_error("bucket update accepts at most one name");
     std::string name = args.size() > 1 ? utf8(args[1]) : std::string{};
     if (!name.empty()) validate_component(name);
@@ -144,7 +146,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         report_source(record);
         return 0;
     }
-    if (args[0] == L"remove") {
+    if (remove) {
         if (found == registry.end() || found->value("kind",std::string{}) == "removed") throw std::runtime_error("Bucket is not registered");
         (*found)["kind"] = "removed";
         write_json(registry_path,registry);
@@ -162,7 +164,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             const auto kind = source.value("kind",std::string{});
             if (kind == "local" || (kind == "unmanaged" && !fs::exists(fs::path(wide(source.at("path").get<std::string>()))/L".git"))) {
                 refresh_index(context,source,false);
-                report_source(source);
+                if (!quiet_report) report_source(source);
                 continue;
             }
             const auto bucket_name = source.at("name").get<std::string>();
@@ -178,7 +180,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             source = std::move(updated);
             write_json(registry_path,registry);
             refresh_index(context,source,source.value("changed",true));
-            report_source(source);
+            if (!quiet_report) report_source(source);
         } catch (const std::exception& error) {
             failed = true;
             std::cerr << "coop: bucket " << source.at("name").get<std::string>() << ": " << error.what() << '\n';

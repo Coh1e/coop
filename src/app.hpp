@@ -34,5 +34,8 @@ fs::path normalized_root(const std::wstring& value);
 // are returned unchanged so output stays in the familiar form.
 fs::path operating_path(const fs::path& path);
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args);
-int bucket_command(const Context& context, const std::vector<std::wstring>& args);
+// Names of the packages installed in the current-user root, sorted. `update *` uses it to expand
+// the wildcard into the same list Scoop would iterate.
+std::vector<std::string> installed_package_names(const Context& context);
+int bucket_command(const Context& context, const std::vector<std::wstring>& args, bool quiet_report = false);
 }

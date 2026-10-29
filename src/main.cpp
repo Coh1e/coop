@@ -116,6 +116,32 @@ int wmain(int argc, wchar_t** argv) {
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);
             if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"reset" || command == L"cleanup") {
+                auto arguments_for_command = arguments;
+                if (command == L"update") {
+                    // Scoop's `scoop update` with no app refreshes every bucket; Coop has no
+                    // self-update to perform, so the bucket half is the whole meaning. `*`/`-a` is a
+                    // different gesture in Scoop and updates every installed app.
+                    bool all = false;
+                    std::vector<std::wstring> names, flags;
+                    for (const auto& argument : arguments) {
+                        if (argument == L"*" || argument == L"-a" || argument == L"--all") { all = true; continue; }
+                        if (argument.starts_with(L"-")) { flags.push_back(argument); continue; }
+                        names.push_back(argument);
+                    }
+                    if (!all && names.empty()) {
+                        if (!context.json_output) std::cout << "Updating Buckets...\n";
+                        return coop::bucket_command(context,{L"update"},!context.json_output);
+                    }
+                    if (all) {
+                        arguments_for_command.clear();
+                        for (const auto& name : coop::installed_package_names(context)) arguments_for_command.push_back(coop::wide(name));
+                        if (arguments_for_command.empty()) {
+                            std::cout << "WARN  There aren't any apps installed.\n";
+                            return 0;
+                        }
+                        for (const auto& flag : flags) arguments_for_command.push_back(flag);
+                    }
+                }
                 // Progress belongs to the human-readable write commands only; --json runs stay silent
                 // and keep their existing result object.
                 coop::TextProgress progress;
@@ -124,7 +150,7 @@ int wmain(int argc, wchar_t** argv) {
                 coop::Timings timings;
                 coop::set_timings(&timings);
                 struct ResetTimings { ~ResetTimings() { coop::set_timings(nullptr); } } reset_timings;
-                const auto exit = coop::package_command(context,command,arguments,architecture);
+                const auto exit = coop::package_command(context,command,arguments_for_command,architecture);
                 // The summary is human output: a --json run already carries the same numbers as a
                 // field, and prose after the JSON would break every consumer. A run that executed no
                 // step (a preview, or a failure before the first write) writes no record, so it

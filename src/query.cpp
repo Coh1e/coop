@@ -85,6 +85,13 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
         result.push_back(std::move(item));
     }
 }
+std::vector<std::string> installed_package_names(const Context& context) {
+    std::vector<std::string> names;
+    for (const auto& fact : ir::read_installations(context.root))
+        if (fact.present) names.push_back(fact.name);
+    std::sort(names.begin(),names.end());
+    return names;
+}
 Json installed_packages(const Context& context) {
     // One journal scan serves both the pending-recovery entries and the old-version inventory's
     // recovery protection flag; re-reading the whole transaction history per package made a listing
@@ -387,7 +394,6 @@ static std::string exception_labels(const Json& item, const std::set<std::string
     if (const auto architecture = field_text(item,"architecture"); !architecture.empty() && architecture != "64bit")
         labels.push_back(architecture);
     if (item.contains("version") && item.at("version").is_null()) labels.push_back("Install failed");
-    if (field_text(item,"last_operation") == "pending-recovery") labels.push_back("Pending recovery");
     if (deprecated.contains(lowercase(field_text(item,"name")))) labels.push_back("Deprecated package");
     std::string text;
     for (const auto& label : labels) text += (text.empty() ? "" : ", ")+label;
@@ -552,6 +558,13 @@ static void print_installed_table(const Context& context, const Json& result, co
             exception_labels(item,deprecated)});
     }
     print_table({"Name","Version","Source","Updated","Info"},rows);
+    // A pending write needs recovery, which Scoop has no concept of. It stays out of Scoop's `Info`
+    // labels and is reported as a warning after the table instead of widening the compat surface.
+    for (const auto& item : result) {
+        if (field_text(item,"last_operation") != "pending-recovery") continue;
+        const auto name = field_text(item,"name");
+        std::cout << "WARN  " << name << ": pending recovery; run 'coop recover " << name << "'\n";
+    }
 }
 static void print_search_table(const Json& result) {
     if (result.empty()) {
