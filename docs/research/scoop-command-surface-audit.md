@@ -126,3 +126,12 @@ Select-String -Path src\*.cpp -Pattern 'UsageError\("'
 scoop list; scoop info ripgrep; scoop status -l; scoop search ripgrep
 .local\build\coop.exe list; .local\build\coop.exe info main/ripgrep; .local\build\coop.exe search ripgrep
 ```
+
+## 现状（2026-10-29 更新）
+
+上表的 28 个命令现已全部有实现（`docs/query-output.md` 与 `README.md` 记录形状与边界）。仍属未完成的是**深度**而不是**有无**：
+
+- `install <URL|本地清单>`、`install <包>@<版本>` 的 URL 分支仍在 #78。
+- `search` 的匹配范围（包名+描述 vs Scoop 的包名+bin、正则）与 `info` 的 `Updated at/by`、`-v` 在 #82。
+- `virustotal` 的真实 HTTPS 请求没有执行证据（无 key、未联网查询）。
+- `create` 只产出骨架，不猜 hash、不写 bucket。
