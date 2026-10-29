@@ -1022,9 +1022,16 @@ int package_command(const Context& context, const std::wstring& command, const s
         if (arg == L"--dry-run") {
             if (dry_run) throw UsageError("--dry-run was specified more than once");
             dry_run = true;
-        } else if (arg == L"--purge") {
+        } else if (arg == L"-p" || arg == L"--purge") {
             if (purge) throw UsageError("--purge was specified more than once");
             purge = true;
+        } else if (arg == L"-u" || arg == L"--no-update-scoop") {
+            // Scoop updates itself before an install unless this flag is given. Coop never
+            // self-updates, so the flag's condition already holds; refusing it would fail a command
+            // that is asking for something Coop does anyway.
+        } else if (arg == L"-a" || arg == L"--all") {
+            if (command != L"cleanup") throw UsageError("-a/--all is only supported by cleanup");
+            // `cleanup -a` is the long form of "every app", which a bare cleanup already means.
         } else if (arg == L"-g" || arg == L"--global") {
             // A system-level write is a product boundary, not an unknown switch. Scoop users type `-g`
             // and must read the boundary instead of "unknown option".

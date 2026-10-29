@@ -88,7 +88,9 @@ std::string up_to_date(const std::string& name) { return name+": up-to-date"; }
 std::string already_installed(const std::string& name,const std::string& version) {
     return "WARN  '"+name+"' ("+version+") is already installed.";
 }
-std::string advise_update(const std::string& name) { return "Use 'scoop update "+name+"' to install a new version."; }
+// Verbatim alignment covers the stage lines. A sentence that names the client itself follows the
+// client the user is actually running, so Coop does not tell its own user to run Scoop.
+std::string advise_update(const std::string& name) { return "Use 'coop update "+name+"' to install a new version."; }
 std::string version_move(const std::string& name,const std::string& from,const std::string& to) {
     return name+": "+from+" -> "+to;
 }

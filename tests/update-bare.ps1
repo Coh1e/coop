@@ -43,4 +43,19 @@ $out = @(& $CoopExe --root $root bucket rm extra)
 if ($LASTEXITCODE -cne 0 -or ($out -join "`n") -cnotmatch 'Removed bucket registration extra') {
     throw "bucket rm failed: $($out -join ' | ')"
 }
-Write-Output 'PASS: bare update, wildcard expansion, system-level boundary and bucket rm'
+
+# `bucket known` answers from Scoop's own list, or from the snapshot when Scoop is not beside the root.
+$out = @(& $CoopExe --root $root bucket known)
+if ($LASTEXITCODE -cne 0 -or $out -cnotcontains 'main' -or $out -cnotcontains 'extras') {
+    throw "bucket known printed '$($out -join ' | ')'"
+}
+
+# The switches a Scoop user arrives with are accepted: `-p` for purge, `-a` for every app,
+# `-u` for "do not update Scoop first" and `-q` for quiet.
+$out = @(& $CoopExe --root $root uninstall -p demo --dry-run)
+if ($LASTEXITCODE -cne 0) { throw "uninstall -p failed: $($out -join ' | ')" }
+$out = @(& $CoopExe --root $root cleanup -a --dry-run)
+if ($LASTEXITCODE -cne 0) { throw "cleanup -a failed: $($out -join ' | ')" }
+$out = @(& $CoopExe --root $root update demo -u -q --dry-run)
+if ($LASTEXITCODE -cne 0) { throw "update -u -q failed: $($out -join ' | ')" }
+Write-Output 'PASS: bare update, wildcard expansion, system-level boundary, bucket rm/known and Scoop switches'

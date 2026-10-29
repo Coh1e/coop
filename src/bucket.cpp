@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -76,6 +77,27 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             result.push_back(std::move(source));
         }
         std::cout << result.dump(2) << '\n';
+        return 0;
+    }
+    if (args[0] == L"known") {
+        if (args.size() != 1) throw std::runtime_error("bucket known accepts no arguments");
+        // Scoop ships this list inside its own installation. When the shared root contains Scoop,
+        // read that copy so the answer tracks the installed revision; otherwise use the snapshot of
+        // Scoop 0.6.0's `buckets.json` below.
+        std::error_code error;
+        const auto shipped = context.root/L"apps"/L"scoop"/L"current"/L"buckets.json";
+        if (fs::is_regular_file(shipped,error)) try {
+            // Scoop prints these in declaration order, so the read keeps the file's order instead of
+            // the sorted order a plain object would give.
+            std::ifstream stream(shipped,std::ios::binary);
+            const auto known = nlohmann::ordered_json::parse(stream);
+            if (known.is_object()) {
+                for (const auto& [bucket,url] : known.items()) std::cout << bucket << '\n';
+                return 0;
+            }
+        } catch (const std::exception&) { /* Fall through to the snapshot. */ }
+        for (const auto* bucket : {"main","extras","versions","nirsoft","sysinternals","php","nerd-fonts","nonportable","java","games"})
+            std::cout << bucket << '\n';
         return 0;
     }
     // `rm` is Scoop's documented spelling; `remove` stays as the original Coop form.

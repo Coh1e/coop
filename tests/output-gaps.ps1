@@ -99,7 +99,7 @@ if (@($mixedLines | Where-Object { $_ -like "Updating 'beta'*" }).Count -ne 0) {
 $installed = Invoke-Coop @('--root',$root,'install','alpha','beta')
 if ($installed.exit -ne 0) { throw "the reinstall batch failed: $($installed.error)$($installed.output)" }
 $installedLines = @($installed.output -split "`r?`n" | Where-Object { $_ -ne '' })
-$warnLines = @($installedLines | Where-Object { $_ -like 'WARN  *already installed.*' -or $_ -like "Use 'scoop update*" })
+$warnLines = @($installedLines | Where-Object { $_ -like 'WARN  *already installed.*' -or $_ -like "Use 'coop update*" })
 if ($warnLines.Count -lt 2) { throw "the batch did not warn about the installed packages:`n$($installed.output)" }
 if (@($installedLines | Where-Object { $_ -like "Installing 'alpha'*" }).Count -ne 0) {
     throw "an installed package still printed an install block:`n$($installed.output)"

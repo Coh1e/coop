@@ -60,7 +60,7 @@ $before = Get-Fingerprint
 # 1. Text mode: Scoop's two lines, exit 0, nothing written.
 $again = Invoke-Coop @('--root',$root,'install','test/tidy')
 if ($again.exit -ne 0) { throw "reinstalling the current version failed with exit $($again.exit): $($again.error)$($again.output)" }
-$expectedLines = @("WARN  'tidy' (5.8.0) is already installed.","Use 'scoop update tidy' to install a new version.")
+$expectedLines = @("WARN  'tidy' (5.8.0) is already installed.","Use 'coop update tidy' to install a new version.")
 $actualLines = @($again.output -split "`r?`n" | Where-Object { $_ -ne '' })
 if (($actualLines -join "`n") -ne ($expectedLines -join "`n")) {
     throw "the already-installed output does not match Scoop's:`n--- expected ---`n$($expectedLines -join "`n")`n--- actual ---`n$($actualLines -join "`n")"
@@ -104,7 +104,7 @@ $before = Get-Fingerprint
 $reinstall = Invoke-Coop @('--root',$root,'install','test/tidy')
 if ($reinstall.exit -ne 0) { throw "the reinstall resolved the dependency and failed: $($reinstall.error)$($reinstall.output)" }
 $reinstallLines = @($reinstall.output -split "`r?`n" | Where-Object { $_ -ne '' })
-$expectedDependencyLines = @("WARN  'tidy' (5.8.1) is already installed.","Use 'scoop update tidy' to install a new version.")
+$expectedDependencyLines = @("WARN  'tidy' (5.8.1) is already installed.","Use 'coop update tidy' to install a new version.")
 if (($reinstallLines -join "`n") -ne ($expectedDependencyLines -join "`n")) {
     throw "the reinstall printed more than Scoop's two lines:`n$($reinstallLines -join "`n")"
 }

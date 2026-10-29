@@ -122,6 +122,15 @@ int wmain(int argc, wchar_t** argv) {
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);
             if (command == L"install" || command == L"update" || command == L"uninstall" || command == L"reset" || command == L"cleanup") {
+                // `-q/--quiet` hides the progress lines. It is a presentation switch, so it is taken
+                // out here rather than reaching the package argument parser.
+                bool quiet = false;
+                std::vector<std::wstring> kept;
+                for (const auto& argument : arguments) {
+                    if (argument == L"-q" || argument == L"--quiet") { quiet = true; continue; }
+                    kept.push_back(argument);
+                }
+                arguments = std::move(kept);
                 auto arguments_for_command = arguments;
                 if (command == L"update") {
                     // Scoop's `scoop update` with no app refreshes every bucket; Coop has no
@@ -148,10 +157,10 @@ int wmain(int argc, wchar_t** argv) {
                         for (const auto& flag : flags) arguments_for_command.push_back(flag);
                     }
                 }
-                // Progress belongs to the human-readable write commands only; --json runs stay silent
-                // and keep their existing result object.
+                // Progress belongs to the human-readable write commands only; --json and --quiet runs
+                // stay silent and keep their result object.
                 coop::TextProgress progress;
-                if (!context.json_output) coop::set_progress(&progress);
+                if (!context.json_output && !quiet) coop::set_progress(&progress);
                 struct Reset { ~Reset() { coop::set_progress(nullptr); } } reset;
                 coop::Timings timings;
                 coop::set_timings(&timings);

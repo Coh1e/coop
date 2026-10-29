@@ -29,7 +29,7 @@ Creating shim for 'rg'.
 - 下载在终端上显示行内进度；**非终端（管道、CI）没有进度条**——这不是 Coop 的选择，Scoop 的进度条被 `lib/download.ps1:73` 的 `isoutputredirected` 锁在 TTY 内。非终端只保留阶段行（`Installing`、`Checking hash of …`、`Extracting …` 等）与结束行；Scoop 在管道里连这些也会省略，Coop 不会——这是刻意保留的差异，便于 CI 日志定位。
 - 失败在出错的那一步立刻出现，形状见实录的「失败：hash 不符」段落：`ERROR …` 加字段块和引导语，退出码 1。
 - 批量：每包完整走一遍，**没有批级结尾汇总**；`update a b` 在第一个块之前打**一次**表头，只数真正过期的包（`Updating one outdated app:` 或 `Updating N outdated apps:`），已是最新的包在自己的位置报 `<包>: up-to-date`。
-- 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'scoop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西；批量里遇到已装的包打同一对 WARN，不报成功行。
+- 重复安装同一版本：`WARN  '<包>' (<版本>) is already installed.` 加 `Use 'coop update <包>' to install a new version.`，退出码 **0**，不下载、不读缓存、不写任何东西；批量里遇到已装的包打同一对 WARN，不报成功行。第二行是本期唯一故意偏离逐字的地方：Scoop 写 `Use 'scoop update …'`，而 Coop 不该让正在用它的用户去敲另一个客户端；凡是句子里出现客户端名字、命令提示或 issue 链接，都按当前客户端与真来源生成，阶段行仍逐字。
 - 装**另一个版本**（已装 1.0，再 `install` 2.0）：按 Scoop 的语义走正常安装——新版本目录建在旧版本旁边，`current` 重新指向新版本，旧版本保留到 `cleanup` 才删除；输出与普通安装相同，`--json` 的 `retained_versions` 列出旧版本。
 - 安装与更新的开始行**不带**结尾句点，卸载与重置**带**。
 - 安装完成后，Manifest 的 `suggest`（每个候选都未安装的 feature 一行）与 `notes`（`Notes` / `-----` 块，原文保留换行）依次打印。
@@ -73,6 +73,7 @@ total    1.690 s
 | 更新 | `<包>: <旧> -> <新>` / `Updating one outdated app:` / `Updating '<包>' (<旧> -> <新>)` / `Downloading new version` / `Uninstalling '<包>' (<旧>)` / `Installing '<包>' (<新>) [<架构>] from '<bucket>' bucket` |
 | 建议 | `'<包>' suggests installing '<bucket>/<包>'.`（来自 Manifest 的 `suggest`，DarkYellow；同一 feature 有多个候选用 `' or '` 连接，只在候选全部未安装时打印） |
 | 尾注 | 成功行之后按 Manifest 的 `notes` 回显 `Notes` / `-----` 块 |
+| 重复安装 | `WARN  '<包>' (<版本>) is already installed.` 换行 `Use 'coop update <包>' to install a new version.`（Scoop 这里写 `scoop`，见上文的有意偏离） |
 
 更新的一处**刻意偏离**：coop 在解链旧版本之前完成校验与解压，所以 `Checking hash` / `Extracting` 两行出现在 `Uninstalling` 之前。按 Scoop 的顺序（下载 → 卸载 → 从缓存安装），解压失败会把旧版本一起弄没；coop 的顺序保证失败时 `current` 仍指向可用版本。这一条由 `tests/update-lines.ps1` 的失败用例守着。
 
