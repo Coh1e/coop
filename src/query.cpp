@@ -2,6 +2,7 @@
 #include "data.hpp"
 #include "ir.hpp"
 #include "persist.hpp"
+#include "progress.hpp"
 #include "recovery.hpp"
 #include "versions.hpp"
 #include <algorithm>
@@ -319,35 +320,9 @@ static Json validation_json(const Context& context, const Json& item) {
 // Default (non-`--json`) output follows Scoop's shapes: one header line, a blank line, then a table
 // whose columns are as wide as their widest cell. `--json` is unaffected and stays the machine
 // contract; every provenance field the old table printed (management, scope, synced, status, last
-// operation) still lives there.
+// operation) still lives there. The table renderer itself lives in progress.cpp so `cache show`
+// prints the same shape.
 // ---------------------------------------------------------------------------
-static std::size_t display_width(const std::string& value) {
-    // Column widths count characters, not bytes, so a non-ASCII name still lines up.
-    std::size_t width = 0;
-    for (const auto character : value) if ((static_cast<unsigned char>(character) & 0xC0) != 0x80) ++width;
-    return width;
-}
-static void print_row(const std::vector<std::string>& cells, const std::vector<std::size_t>& widths) {
-    for (std::size_t index = 0; index < cells.size(); ++index) {
-        if (index) std::cout << ' ';
-        std::cout << cells[index];
-        const auto width = display_width(cells[index]);
-        if (width < widths[index]) std::cout << std::string(widths[index]-width,' ');
-    }
-    std::cout << '\n';
-}
-static void print_table(const std::vector<std::string>& header,
-                        const std::vector<std::vector<std::string>>& rows) {
-    std::vector<std::size_t> widths(header.size(),0);
-    for (std::size_t index = 0; index < header.size(); ++index) widths[index] = display_width(header[index]);
-    for (const auto& row : rows) for (std::size_t index = 0; index < row.size(); ++index)
-        widths[index] = (std::max)(widths[index],display_width(row[index]));
-    print_row(header,widths);
-    std::vector<std::string> rule;
-    for (const auto& cell : header) rule.push_back(std::string(display_width(cell),'-'));
-    print_row(rule,widths);
-    for (const auto& row : rows) print_row(row,widths);
-}
 static std::string field_text(const Json& item, const char* key) {
     if (!item.contains(key) || !item.at(key).is_string()) return {};
     return item.at(key).get<std::string>();
@@ -815,14 +790,14 @@ struct HelpEntry { const char* name; const char* usage; const char* summary; boo
 static const HelpEntry kHelpEntries[] = {
     {"alias","<subcommand> [options] [<args>]","Manage scoop aliases",false},
     {"bucket","add|list|known|rm [<args>]","Manage Scoop buckets",true},
-    {"cache","show|rm [app(s)]","Show or clear the download cache",false},
+    {"cache","show|rm [app(s)]","Show or clear the download cache",true},
     {"cat","<app>","Show content of specified manifest",true},
     {"checkup","","Check for potential problems",true},
     {"cleanup","<app> [options]","Cleanup apps by removing old versions",true},
     {"config","[rm] name [value]","Get or set configuration values",false},
     {"create","<url>","Create a custom app manifest",false},
     {"depends","<app>","List dependencies for an app, in the order they'll be installed",true},
-    {"download","<app> [options]","Download apps in the cache folder and verify hashes",false},
+    {"download","<app> [options]","Download apps in the cache folder and verify hashes",true},
     {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true},
     {"help","<command>","Show help for a command",true},
     {"hold","<apps>","Hold an app to disable updates",false},

@@ -28,6 +28,38 @@ std::string human_bytes(std::uint64_t bytes) {
     else std::snprintf(text,sizeof(text),"%llu B",static_cast<unsigned long long>(bytes));
     return text;
 }
+std::size_t display_width(const std::string& value) {
+    std::size_t width = 0;
+    for (const auto character : value) if ((static_cast<unsigned char>(character) & 0xC0) != 0x80) ++width;
+    return width;
+}
+void print_table(const std::vector<std::string>& header,
+                 const std::vector<std::vector<std::string>>& rows) {
+    const auto width_of = [](const std::string& value) {
+        // Character width, not byte width, so a non-ASCII name still lines up.
+        std::size_t width = 0;
+        for (const auto character : value) if ((static_cast<unsigned char>(character) & 0xC0) != 0x80) ++width;
+        return width;
+    };
+    std::vector<std::size_t> widths(header.size(),0);
+    for (std::size_t index = 0; index < header.size(); ++index) widths[index] = width_of(header[index]);
+    for (const auto& row : rows) for (std::size_t index = 0; index < row.size() && index < widths.size(); ++index)
+        widths[index] = (std::max)(widths[index],width_of(row[index]));
+    const auto print_row = [&widths,&width_of](const std::vector<std::string>& cells) {
+        for (std::size_t index = 0; index < cells.size(); ++index) {
+            if (index) std::cout << ' ';
+            std::cout << cells[index];
+            const auto width = width_of(cells[index]);
+            if (index < widths.size() && width < widths[index]) std::cout << std::string(widths[index]-width,' ');
+        }
+        std::cout << '\n';
+    };
+    print_row(header);
+    std::vector<std::string> rule;
+    for (const auto& cell : header) rule.push_back(std::string(width_of(cell),'-'));
+    print_row(rule);
+    for (const auto& row : rows) print_row(row);
+}
 std::string ansi_cyan(const std::string& text) { return "\x1b[36m"+text+"\x1b[0m"; }
 std::string ansi_dark_yellow(const std::string& text) { return "\x1b[33m"+text+"\x1b[0m"; }
 

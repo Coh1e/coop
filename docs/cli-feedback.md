@@ -90,6 +90,12 @@ Scoop 在文件名两侧硬编码 ANSI 青色（`lib/download.ps1:735` 直接写
 - `cleanup -k/--cache` 删除没有对应"已装当前版本"的缓存条目：文件名里的 `<包>#<版本>#` 与安装事实不符就删除，没有这两个分隔符的旧文件不动；`--dry-run` 只列不删。
 - 缓存命中的可见场景是 **update** 与**装另一个版本**：同一版本重装是 no-op（`WARN` 两行 + 退出码 0）；换成另一个版本走正常安装，命中缓存时先打 `Downloading new version` 再打 `Loading … from cache`（见下条）。
 
+### 缓存命令
+
+`cache show [包...]` 打印 `Name / Version / Length`，结尾 `Total: N file(s), <大小>`；`Length` 是字节数，`Total` 用 `human_bytes`。`cache rm <包...>` 按 `包#` 前缀删除并逐条打 `Removing <文件名>...`，结尾 `Deleted: N file(s), <大小>`；不带包名或 `*` 时是用法错误（退出 1），不会静默清空整个缓存。`cache rm *` 或 `-a/--all` 清空全部（含无法归属到包的旧文件）。
+
+`download <包...>` 只写 `<根>/cache`，不写安装状态、不建入口：先打 `Downloading '<包>' (<版本>) [<架构>] from <bucket> bucket`，每个产物再走 `Downloading <url> (<大小>)...` 与 `Checking hash of <文件>... ` / `OK.`；命中时打 `Loading <文件> from cache`。`-f/--force` 忽略缓存重新下载，`-s/--skip-hash-check` 跳过校验，`-u/--no-update-scoop` 恒成立。摘要不符时删除该缓存文件并退出 1，不留半成品。
+
 ## 每个写命令的示例输出
 
 以下为文本模式的完整形状；`--json` 对每一条都只输出结果对象，不含任何进度行与控制字符。

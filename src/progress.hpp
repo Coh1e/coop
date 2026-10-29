@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace coop {
 // Human-readable progress for write commands. It never changes the plan, the execution order or the
@@ -59,6 +60,13 @@ std::string cleanup_version(const std::string& version);
 std::string cleanup_done();
 }
 bool stdout_is_terminal();
+// A left-aligned table: every column is as wide as its widest cell (header included), columns are
+// separated by one space and the last column is padded too, which is how Scoop's Format-Table prints
+// one. Shared by the read commands and `cache show` so both keep the same shape.
+// Character width of a UTF-8 string: a multi-byte sequence counts once, so tables line up.
+std::size_t display_width(const std::string& value);
+void print_table(const std::vector<std::string>& header,
+                 const std::vector<std::vector<std::string>>& rows);
 // Human-readable byte size, the way Scoop prints one: one decimal place above a kilobyte.
 std::string human_bytes(std::uint64_t bytes);
 

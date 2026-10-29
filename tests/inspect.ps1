@@ -90,9 +90,9 @@ if (($lines -join "`n") -cnotmatch "Shim 'broken' points to a missing target") {
 # help: the command list, a per-command usage, and an honest marker for what Coop does not have.
 $lines = @(& $CoopExe help)
 if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'Command\s+Summary') { throw 'help printed no command list' }
-if (($lines -join "`n") -cnotmatch 'cache\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
+if (($lines -join "`n") -cnotmatch 'hold\s+.* \(not implemented yet\)') { throw 'help did not mark an unimplemented command' }
 $lines = @(& $CoopExe --root $root list --help)
 if ($LASTEXITCODE -cne 0 -or $lines[0] -cne 'Usage: coop list [query]') { throw "list --help printed '$($lines -join ' | ')'" }
-$lines = & $CoopExe help cache 2>&1
-if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help cache said '$($lines -join ' | ')'" }
+$lines = & $CoopExe help hold 2>&1
+if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'not implemented in Coop yet') { throw "help hold said '$($lines -join ' | ')'" }
 Write-Output 'PASS: status, prefix, cat, which, home, depends, export, checkup and help'

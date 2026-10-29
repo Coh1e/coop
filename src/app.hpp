@@ -43,4 +43,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
 // the wildcard into the same list Scoop would iterate.
 std::vector<std::string> installed_package_names(const Context& context);
 int bucket_command(const Context& context, const std::vector<std::wstring>& args, bool quiet_report = false);
+// `cache show|rm` and `download`: both work on <root>/cache, which Scoop shares.
+int cache_command(const Context& context, const std::vector<std::wstring>& args);
+int download_command(const Context& context, const std::vector<std::wstring>& args, const std::string& architecture);
 }
