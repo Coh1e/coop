@@ -128,17 +128,26 @@ $jarAvailable = $false
 $javac = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin/javac.exe' } else { $null }
 $jarTool = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin/jar.exe' } else { $null }
 if ($javac -and $jarTool -and (Test-Path -LiteralPath $javac) -and (Test-Path -LiteralPath $jarTool)) {
-    $source = Join-Path $TestRoot ('coop-t12-src-'+[guid]::NewGuid().ToString('N'))
+    # javac on Windows takes its arguments through the ANSI code page, so a path under a non-ASCII
+    # test root arrives as "??" on a machine whose code page is not CJK. The fixture is built in a
+    # short ASCII directory and the finished jar is copied into the Unicode root, which is the root
+    # the coop side of this test still exercises.
+    $buildRoot = Join-Path $env:TEMP ('coop-jar-'+[guid]::NewGuid().ToString('N'))
+    $source = Join-Path $buildRoot 'src'
     New-Item -ItemType Directory -Path $source -Force | Out-Null
     $code = @('public class App {','  public static void main(String[] args) throws Exception {',
         '    System.out.println("jar-args=" + String.join("|", args));',
         '    System.out.println("jar-cwd=" + new java.io.File(".").getCanonicalPath());',
-        '    System.exit(4);','  }','}') -join "`r`n"
+        '    System.exit(4);','  }','}')
+    $code = $code -join "`r`n"
     [IO.File]::WriteAllText((Join-Path $source 'App.java'),$code,[Text.UTF8Encoding]::new($false))
     & $javac -d (Join-Path $source 'classes') (Join-Path $source 'App.java') | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'javac failed to build the JAR fixture' }
-    & $jarTool --create --file $jarPath --main-class App -C (Join-Path $source 'classes') . | Out-Null
+    $builtJar = Join-Path $buildRoot 'fixture.jar'
+    & $jarTool --create --file $builtJar --main-class App -C (Join-Path $source 'classes') . | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'jar failed to build the JAR fixture' }
+    Copy-Item -LiteralPath $builtJar -Destination $jarPath -Force
+    Remove-Item -LiteralPath $buildRoot -Recurse -Force -ErrorAction SilentlyContinue
     $jarAvailable = $true
 } else {
     [IO.File]::WriteAllBytes($jarPath,[byte[]](0x50,0x4b,0x03,0x04))

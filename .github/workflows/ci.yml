@@ -24,6 +24,21 @@ jobs:
         shell: pwsh
         run: ./scripts/check-source-hygiene.ps1
 
+      # Facts that the tests depend on. Printed before the suite so a failure can be read against the
+      # machine it happened on instead of guessed at.
+      - name: Environment facts
+        shell: pwsh
+        run: |
+          Write-Output "corpus jq sha256: $((Get-FileHash tests/corpus/main/jq.json -Algorithm SHA256).Hash.ToLower())"
+          $bytes = [IO.File]::ReadAllBytes('tests/corpus/main/jq.json')
+          $text = [Text.Encoding]::UTF8.GetString($bytes)
+          Write-Output "corpus jq crlf=$(([regex]::Matches($text,"`r`n")).Count) lf=$(([regex]::Matches($text,"(?<!`r)`n")).Count) size=$($bytes.Length)"
+          Write-Output "autocrlf: $(git config --get core.autocrlf)"
+          Write-Output "gitattributes: $(git check-attr text -- tests/corpus/main/jq.json)"
+          Write-Output "JAVA_HOME=$env:JAVA_HOME"
+          Write-Output "python: $((Get-Command python.exe -ErrorAction SilentlyContinue).Source)"
+          Write-Output "tar: $((Get-Command tar.exe -ErrorAction SilentlyContinue).Source)"
+
       - name: Configure, build and test
         shell: pwsh
         run: ./scripts/build.ps1 -Action all
