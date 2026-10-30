@@ -65,7 +65,13 @@ int virustotal_command(const Context& context,const std::vector<std::wstring>& a
         names.push_back(argument);
     }
     if (!all && names.empty()) throw UsageError("virustotal requires one or more packages or -a/--all");
-    const auto key = config_value("virustotal_api_key");
+    // The key can come from the environment for a one-off run, so it never has to be written to the
+    // shared configuration file; the configured value is the persistent form.
+    std::string key;
+    wchar_t key_buffer[256]{};
+    if (const auto key_length = GetEnvironmentVariableW(L"COOP_VIRUSTOTAL_KEY",key_buffer,256); key_length && key_length < 256)
+        key = utf8(std::wstring(key_buffer,key_length));
+    if (key.empty()) key = config_value("virustotal_api_key");
     if (key.empty()) {
         std::cerr << "coop: the VirusTotal API key is not configured; run 'coop config virustotal_api_key <key>'\n";
         return 1;

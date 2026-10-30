@@ -66,6 +66,14 @@ try {
 '@ | Set-Content "$root/buckets/main/bucket/plain.json" -Encoding utf8 -NoNewline
     $refusal = & $CoopExe --root $root virustotal plain 2>&1
     if ($LASTEXITCODE -cne 1 -or ($refusal -join '|') -cnotmatch 'no SHA256 digest') { throw "a hashless package said '$($refusal -join ' | ')'" }
+
+    # The key may come from the environment for a one-off run, without writing it to the shared config.
+    $env:XDG_CONFIG_HOME = Join-Path $root 'xdg-env'
+    $env:COOP_VIRUSTOTAL_KEY = 'environment-key'
+    $lines = @(& $CoopExe --root $root virustotal demo)
+    if ($LASTEXITCODE -cne 0 -or ($lines -join '|') -cnotmatch 'out of 65 engines') {
+        throw "an environment key said '$($lines -join ' | ')'"
+    }
 } finally {
     if ($null -eq $previousConfigHome) { Remove-Item Env:\XDG_CONFIG_HOME -ErrorAction SilentlyContinue }
     else { $env:XDG_CONFIG_HOME = $previousConfigHome }
