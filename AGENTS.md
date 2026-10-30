@@ -23,6 +23,7 @@ README 面向使用者和开发者，介绍项目、环境准备、构建与运�
 - **改文件的方式**：源码与文档用编辑工具改（`edit`/`write`）；shell 只用于查询、构建与运行命令。
 - **审查标准**：`CODING_STANDARDS.md` 由审查环节阅读，实现侧依靠测试与构建；新的判断标准只写在那里，本文件不重复。
 - **任务跟踪**：GitHub Issues，所有操作明确指定 `--repo Coh1e/coop`；多行正文用项目内文件和 `--body-file`，覆盖模板中的 heredoc 示例；PR 不作为需求入口。Matt 技能及下列三份模板保持原有流程，执行角色、路径与授权遵循本文件。
+- **发布流程**：发版由人类决定，代理执行可重复的检查。顺序固定为：①`scripts/release-check.ps1 -Version <x.y.z>`（校验 `CMakeLists.txt` 版本、工作树干净、源码卫生、**全部目标**构建、完整 `ctest`、`--version` 与版本一致）；②提交版本号；③打 tag 并推送；④等 Release workflow 绿；⑤核对发布产物并更新 [Coh1e/scoop-bucket](https://github.com/Coh1e/scoop-bucket) 的版本与 hash；⑥用发布产物做一次冒烟。只构建 `coop` 单个目标不算验证——`v0.2.2` 就是这样把一次 CI 构建失败发出去的。
 
 ## Agent skills
 
