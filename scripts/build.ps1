@@ -19,5 +19,9 @@ if ($Action -in 'test','all') { $steps += ('"{0}" --test-dir "{1}" --output-on-f
 if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --output-on-failure' -f $ctestExe,$buildRoot) }
 # vcvars and TEMP/TMP are scoped to this child cmd process, never persisted.
 $command = 'call "{0}" >nul && set "TEMP={1}" && set "TMP={1}" && {2}' -f $vcvars,$tempRoot,($steps -join ' && ')
-& $env:ComSpec /d /s /c $command
-if ($LASTEXITCODE -ne 0) { throw "Build action '$Action' failed with exit code $LASTEXITCODE" }
+# Merging the child's stderr keeps Windows PowerShell from raising a compiler warning as a
+# terminating error; the exit code is the only failure signal.
+$output = & $env:ComSpec /d /s /c $command 2>&1
+$code = $LASTEXITCODE
+$output | ForEach-Object { Write-Host $_ }
+if ($code -ne 0) { throw "Build action '$Action' failed with exit code $code" }
