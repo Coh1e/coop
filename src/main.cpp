@@ -118,6 +118,19 @@ int wmain(int argc, wchar_t** argv) {
             // prints.
             if (arguments.size() == 1 && (arguments[0] == L"--help" || arguments[0] == L"-h"))
                 return coop::query(context,L"help",{command});
+            // A write command records what it is doing while it runs, so a process that is killed
+            // leaves an explanation behind instead of nothing. A preview writes nothing at all,
+            // including this record.
+            const bool preview = std::any_of(arguments.begin(),arguments.end(),
+                [](const std::wstring& argument) { return argument == L"--dry-run"; });
+            std::optional<coop::RunRecord> run_record;
+            if (!preview && (command == L"install" || command == L"update" || command == L"uninstall" ||
+                command == L"reset" || command == L"cleanup" || command == L"import")) {
+                std::vector<std::string> packages;
+                for (const auto& argument : arguments)
+                    if (!argument.starts_with(L"-")) packages.push_back(coop::utf8(argument));
+                run_record.emplace(context,coop::utf8(command),std::move(packages));
+            }
             if (command == L"init") return coop::init_command(context,arguments);
             if (command == L"bucket") return coop::bucket_command(context,arguments);
             if (command == L"recover") return coop::recovery_command(context,arguments);

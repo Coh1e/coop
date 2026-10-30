@@ -20,12 +20,14 @@ long long now_ms() {
     return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 }
 std::mutex g_output_mutex;
+std::function<void(const std::string&)> g_phase_sink;
 void note_output() { g_last_output_ms.store(now_ms()); }
 }
 void set_progress(Progress* progress) { g_progress = progress; note_output(); }
+void set_phase_sink(std::function<void(const std::string&)> sink) { g_phase_sink = std::move(sink); }
 Progress* active_progress() { return g_progress; }
-void progress_package(const std::string& text) { note_output(); if (g_progress) g_progress->package(text); }
-void progress_stage(const std::string& text) { note_output(); if (g_progress) g_progress->stage(text); }
+void progress_package(const std::string& text) { note_output(); if (g_phase_sink) g_phase_sink(text); if (g_progress) g_progress->package(text); }
+void progress_stage(const std::string& text) { note_output(); if (g_phase_sink) g_phase_sink(text); if (g_progress) g_progress->stage(text); }
 void progress_bytes(std::uint64_t done, std::uint64_t total) { note_output(); if (g_progress) g_progress->bytes(done,total); }
 void progress_finish_stage() { if (g_progress) g_progress->finish_stage(); }
 StallWatchdog::StallWatchdog(int threshold_seconds) : threshold_seconds_(threshold_seconds) {

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <functional>
 #include <thread>
 #include <vector>
 
@@ -40,6 +41,8 @@ private:
 };
 // Installed by the CLI for the duration of one write command; null in tests and --json runs.
 void set_progress(Progress* progress);
+// A command that keeps a record of its own can follow the stage text through this sink.
+void set_phase_sink(std::function<void(const std::string&)> sink);
 Progress* active_progress();
 
 void progress_package(const std::string& text);

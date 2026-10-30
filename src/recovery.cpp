@@ -101,6 +101,9 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
     }
     std::unique_ptr<RootLock> lock;
     if (!dry_run) lock = std::make_unique<RootLock>(context.root);
+    // Records left by interrupted runs are consumed by the report: they name what was running, not
+    // what to restore, so a dry run prints them and leaves them in place.
+    report_abandoned_runs(context,!dry_run);
     const auto report = pending_recovery_report(context,!dry_run,requested);
     bool failed = false;
     bool remaining = false;
