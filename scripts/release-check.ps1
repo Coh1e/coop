@@ -29,7 +29,8 @@ try {
     & (Join-Path $PSScriptRoot 'check-source-hygiene.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'source hygiene failed' }
 
-    & (Join-Path $PSScriptRoot 'build.ps1') -Action ($SkipTests ? 'build' : 'all')
+    $action = if ($SkipTests) { 'build' } else { 'all' }
+    & (Join-Path $PSScriptRoot 'build.ps1') -Action $action
     if ($LASTEXITCODE -ne 0) { throw 'build or test run failed' }
 
     $reported = (& (Join-Path $projectRoot '.local/build/coop.exe') --version | Out-String).Trim()
