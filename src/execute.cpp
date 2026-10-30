@@ -218,15 +218,20 @@ void prune_empty_shortcut_directories(const Context& context, const std::vector<
 }
 void publish_new(const fs::path& source, const fs::path& destination) {
     DWORD error = ERROR_SUCCESS;
-    // Antivirus scanners and just-exited programs can hold a published file briefly. Retry
-    // within a bounded window instead of killing a user process or claiming a false success.
-    for (int attempt = 0; attempt < 15; ++attempt) {
+    // Antivirus scanners and just-exited programs can hold a published file, and a large tree keeps
+    // them busy far longer than a small one: replacing the 407 MB PortableGit tree failed after three
+    // seconds of retries. The window is still bounded, but generous, and says what it is waiting for.
+    constexpr int attempts = 60;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
         if (MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH)) return;
         error = GetLastError();
         if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
-        Sleep(200);
+        if (attempt % 10 == 9)
+            progress_stage("Waiting for a lock on "+path_text(destination)+" ("+std::to_string((attempt+1)/10*5)+"s)");
+        Sleep(500);
     }
-    throw std::runtime_error("Destination cannot be published (Windows error "+std::to_string(error)+"); close the program and retry");
+    throw std::runtime_error("Destination cannot be published (Windows error "+std::to_string(error)+") after "+
+        std::to_string(attempts/2)+"s: "+path_text(destination)+"; close the program that holds it and retry");
 }
 // A shared Scoop installation has no Coop record. Its direct-file artifacts are still verifiable
 // from the saved Manifest: each declared file must exist in the version directory and match the
