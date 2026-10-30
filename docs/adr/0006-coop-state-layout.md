@@ -1,6 +1,6 @@
-# ADR 0006：Coop 私有状态的分层与位置
+# ADR 0006：Coop 私有状态放在 `%USERPROFILE%\.coop`
 
-状态：提议（设计已定，实现未落地，见 issue #89）
+状态：提议（设计已定稿，实现待完成，见 issue #89）
 日期：2026-10-30
 
 ## 背景
@@ -15,9 +15,27 @@ Coop 需要保存 Scoop 格式里没有的东西：写入期间的事务日志�
 
 Scoop 自己不需要这样的目录，因为它的全部事实都能从根的布局推导（`apps/<包>/<版本>`、`buckets/<名>/.git`），而且它在失败时不恢复。Coop 存在的理由之一正是"失败时能恢复"，那就必须有一个持久、可核对的地方放事务证据。
 
-## 决策
+## 决策（2026-10-30 人类定稿）
 
-按**生命周期**分三层，而不是按"是不是 Coop 的东西"：
+**Coop 相关的数据全部放在 `%USERPROFILE%\.coop` 一个目录里**，不使用 LOCALAPPDATA、不使用 `%TEMP%`、不在 Scoop 根里留任何东西、也不引入 XDG 变量。理由：一个位置，用户想清就清、想备份就备份，不需要先理解平台惯例。
+
+```
+%USERPROFILE%\.coop\
+└── roots\<根目录名>-<根路径 SHA256 前 8 位>\
+    ├── buckets.json  packages\  retained\  runs\  logs\  timings\
+    ├── cache\index\        ← 纯缓存，可随时删
+    └── transactions\       ← 写入期间的事务日志与暂存树
+```
+
+每个根一份子目录（根名 + 路径哈希），所以用户级根与测试根互不干扰。`COOP_STATE_DIR` 可把整个目录钉到别处（测试、便携用法）。
+
+### 一个必须处理的后果：跨卷发布
+
+状态目录在 `%USERPROFILE%`（通常在 C:），Scoop 根可能在别的盘。发布是把暂存树 **rename** 进 `apps\<包>\<版本>`，跨卷 rename 会得到 `ERROR_NOT_SAME_DEVICE`。
+
+因此 `publish_new` 在遇到该错误时回退为 **copy + delete**：普通目录递归复制后删源；junction 在目标处重建为链接而不是跟随复制。同卷时仍走 rename（原子、不复制），跨卷时多一次复制。
+
+早年版本（2026-10-30 之前）的三层方案保留在下面的表格里，作为被取代的设计记录：
 
 | 层 | 位置 | 内容 | 生命周期 |
 | --- | --- | --- | --- |
@@ -38,10 +56,10 @@ Scoop 自己不需要这样的目录，因为它的全部事实都能从根的�
 - 状态层与缓存层跟随 XDG，与 Scoop 的 `~/.config/scoop/config.json` 同一套习惯；`COOP_STATE_DIR` / `COOP_CACHE_DIR` 作为精确覆盖（测试与便携用法）。
 - 首次运行把旧的 `<根>\.coop` 中的持久部分搬到状态层、索引搬到缓存层；迁移失败只报警，不删旧目录。
 
-## 实现要点（两次尝试的结论）
+## 实现要点（三次尝试的结论）
 
-1. `RootLock` 的析构里删除 `write.lock`、空的 `transactions/`、空的 `.coop`；有 pending 事务或测试故障文件时保留。
-2. `ordinary_parents` 的 base 必须与路径同层：包记录、保留版本用 `state_root(context)`，事务、锁、暂存用根。
+1. `RootLock` 直接用状态目录（`state_directory(root)`），锁文件与事务都落在 `%USERPROFILE%\.coop\roots\<slug>`，根里不再出现 `.coop`。
+2. `ordinary_parents` 的 base 必须与路径同层：包记录、保留版本、事务全部用 `state_root(context)`；根内只保留 `apps`、`shims`、`modules`、快捷方式目录。
 3. `recovery_path_allowed` 的允许前缀要同时包含根内的 apps/shims 与状态层的 packages/retained，事务仍在根内。
 4. 提交路径要把 `transaction` 目录中的 journal 与日志搬到 `state/transactions/<id>` 后再删暂存。
 5. 测试用 `COOP_STATE_DIR`/`COOP_CACHE_DIR` 钉在各自沙箱；多根测试（`exposure`、`acceptance`、`path-batch`）要在每个根的命令块前重设环境变量。
