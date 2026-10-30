@@ -40,6 +40,20 @@ void publish_artifact(const Context& context, const ArtifactPublication& publica
             path_text(publication.extract_directory),transaction,index);
         record("inno_extractions",with_origin(std::move(entry),index,publication.filename));
         merge_directory.clear();
+    } else if (publication.format == ir::ArchiveFormat::seven_zip &&
+               inspect_seven_zip_sfx(publication.downloaded).detected) {
+        // A 7z SFX carries a PE stub in front of the stream and often uses options the native reader
+        // rejects, so it goes to the helper Scoop also uses. Without a helper the native reader is
+        // still tried, and its own error says what happened.
+        const auto helper = nsis_helper(context);
+        if (helper.path.empty()) {
+            extract_archive(publication.downloaded,destination,publication.extract_directory);
+            extracted_directly = true;
+        } else {
+            auto entry = extract_seven_zip_sfx(context,helper.path,publication.downloaded,working,
+                path_text(publication.extract_directory),transaction,index);
+            record("seven_zip_sfx_extractions",with_origin(std::move(entry),index,publication.filename));
+        }
     } else if ((publication.format == ir::ArchiveFormat::zip ||
                 publication.format == ir::ArchiveFormat::seven_zip) &&
                inspect_nsis_payload(publication.downloaded).detected) {

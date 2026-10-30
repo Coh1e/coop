@@ -27,6 +27,21 @@ struct NsisPayload {
 };
 NsisPayload inspect_nsis_payload(const fs::path& path);
 
+// A 7z self-extracting archive is a PE stub followed by a 7z stream. libarchive reads the reference
+// 7z format but rejects some of the stream options SFX builders use (`Lzma library error: Invalid
+// options`), so this content class is handed to the same 7-Zip helper Scoop uses for it. Detection
+// is by content: an `MZ` header followed by the 7z signature.
+struct SevenZipSfx {
+    bool detected = false;
+    std::uint64_t signature_offset = 0;
+};
+SevenZipSfx inspect_seven_zip_sfx(const fs::path& path);
+
+// Unpack the SFX with Scoop's Expand-7zipArchive arguments and return the journal record.
+Json extract_seven_zip_sfx(const Context& context, const fs::path& helper, const fs::path& archive,
+                           const fs::path& destination, const std::string& extract_directory,
+                           const fs::path& transaction, std::size_t index);
+
 // The argument list Scoop 0.6.0's Expand-7zipArchive builds for one artifact. The extract_dir
 // selection is reported separately so preview and journal state what was selected instead of only
 // naming the rule.
