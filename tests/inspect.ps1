@@ -102,7 +102,7 @@ if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'is now held and can
 $lines = @(& $CoopExe --root $root list)
 if ($lines -join "`n" -cnotmatch 'Held package') { throw 'list did not report the held package' }
 $plan = (& $CoopExe --root $root update demo --dry-run 2>&1) -join "`n"
-if ($plan -cnotmatch 'held-package' -or $plan -cnotmatch '"execution_available": false') {
+if ($plan -cnotmatch 'held-package' -or $plan -cnotmatch 'blocked') {
     throw 'a held package was allowed to update'
 }
 $lines = @(& $CoopExe --root $root hold demo)

@@ -815,6 +815,39 @@ void print_warnings(const Context& context, const ir::Package& package) {
 void print_json(const Json& value) {
     std::cout << value.dump(2,' ',false,Json::error_handler_t::replace) << '\n';
 }
+namespace {
+// A preview is a plan, not a report: text mode shows one line per package with the verdict and any
+// diagnostic, and `--json` carries the full structure. Printing the JSON unconditionally (the old
+// behaviour) made `update <package> --dry-run` dump 23 KB into a terminal and made a batch print
+// nothing at all.
+std::size_t problem_diagnostics(const Json& plan) {
+    std::size_t count = 0;
+    for (const auto& diagnostic : plan.value("diagnostics",Json::array()))
+        if (diagnostic.is_object() && diagnostic.value("code",std::string{}) != "lifecycle-verification") ++count;
+    return count;
+}
+std::string preview_line(const Json& plan) {
+    const Json package = plan.contains("package") && plan.at("package").is_object() ? plan.at("package") : Json::object();
+    std::string line = package.value("name",std::string{"package"});
+    line += ": " + plan.value("action",std::string{"plan"});
+    if (const auto version = package.value("version",std::string{}); !version.empty()) line += " " + version;
+    if (plan.contains("previous_package") && plan.at("previous_package").is_object())
+        line += " (installed "+plan.at("previous_package").value("version",std::string{})+")";
+    line += plan.value("execution_available",false) ? "  executable" : "  blocked";
+    // `lifecycle-verification` restates which mechanisms were exercised; it is a status note, not a
+    // problem, and repeating its paragraph per package would bury the real ones.
+    if (const auto count = problem_diagnostics(plan); count) line += ", "+std::to_string(count)+" diagnostic(s)";
+    return line;
+}
+void print_preview(const Json& plan) {
+    if (!plan.is_object()) return;
+    std::cout << preview_line(plan) << '\n';
+    for (const auto& diagnostic : plan.value("diagnostics",Json::array()))
+            if (diagnostic.is_object() && diagnostic.value("code",std::string{}) != "lifecycle-verification")
+                std::cout << "  "<<diagnostic.value("code",std::string{"diagnostic"})<<": "
+                          <<diagnostic.value("message",std::string{})<<'\n';
+}
+}
 PackageOutcome install_preview(const Context& context, const std::string& request, const std::string& architecture) {
     PackageOutcome outcome;
     try {
@@ -981,7 +1014,12 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
 int install_single(const Context& context, const std::string& request, const std::string& architecture, bool dry_run) {
     if (dry_run) {
         const auto outcome = install_preview(context,request,architecture);
-        print_json(outcome.value);
+        if (context.json_output) print_json(outcome.value);
+        else {
+            print_preview(outcome.value);
+            // A blocked preview must still name its reason on stderr, as the executor does.
+            if (outcome.failed && !outcome.reason.empty()) std::cerr << "coop: " << outcome.reason << '\n';
+        }
         return outcome.failed ? 1 : 0;
     }
     auto plan = make_plan(context,ir::Action::install,request,architecture);
@@ -1004,6 +1042,7 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
         if (!outcome.reason.empty()) item["reason"] = outcome.reason;
         item[dry_run ? "plan" : "result"] = outcome.value;
         if (!dry_run) item["transaction_scope"] = "per-package; completed operations are not rolled back when a later package fails";
+        if (!context.json_output && dry_run && outcome.value.is_object()) print_preview(outcome.value);
         results.push_back(std::move(item));
         failed = failed || outcome.failed;
     }
@@ -1019,7 +1058,12 @@ int install_batch(const Context& context, const std::vector<std::wstring>& names
 int simple_single(const Context& context, ir::Action action, const std::string& request, const std::string& architecture, bool dry_run, bool purge = false) {
     if (dry_run) {
         const auto outcome = simple_preview(context,action,request,architecture,purge);
-        print_json(outcome.value);
+        if (context.json_output) print_json(outcome.value);
+        else {
+            print_preview(outcome.value);
+            // A blocked preview must still name its reason on stderr, as the executor does.
+            if (outcome.failed && !outcome.reason.empty()) std::cerr << "coop: " << outcome.reason << '\n';
+        }
         return outcome.failed ? 1 : 0;
     }
     auto plan = prepared_simple_plan(context,action,request,architecture,purge);
@@ -1048,6 +1092,7 @@ int simple_batch(const Context& context, ir::Action action, const std::vector<st
         if (!outcome.reason.empty()) item["reason"] = outcome.reason;
         item[dry_run ? "plan" : "result"] = outcome.value;
         if (!dry_run) item["transaction_scope"] = "per-package; completed operations are not rolled back when a later package fails";
+        if (!context.json_output && dry_run && outcome.value.is_object()) print_preview(outcome.value);
         results.push_back(std::move(item));
         failed = failed || outcome.failed;
         // Each command prints its own Scoop-shaped closing line as it finishes, so the batch only
