@@ -803,12 +803,10 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // batch already performed.
     const auto syncs_before = durable_syncs();
     // A no-op has no block: nothing is announced and nothing is written.
-    if (plan_is_no_op(plan)) {
-        // `-f` asks to act even when nothing changed. Replacing an installed version directory is
-        // not implemented yet, so the request is refused rather than silently answered "up-to-date".
-        if (context.force && plan.action == ir::Action::update)
-            throw std::runtime_error("Forcing a reinstall of the installed version is not supported yet; "
-                                     "uninstall '"+plan.package.name+"' first");
+    // A no-op has no block: nothing is announced and nothing is written. `-f` asks to act anyway, so a
+    // forced update continues into the replacement path below.
+    const bool forced_reinstall = context.force && plan.action == ir::Action::update;
+    if (plan_is_no_op(plan) && !forced_reinstall) {
         return Json{{"package",plan.package.name},{"version",plan.package.version},
             {"status",plan.action == ir::Action::install ? "already-installed" : "up-to-date"}};
     }
@@ -1058,11 +1056,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
-        // `-f/--force` is Scoop's "update even when there is no newer version".
+        // `-f/--force` asks to act even when nothing changed; the installed version directory is then
+        // replaced in place (see `ensure_version`).
         if (!context.force && package.version == installed.version && package.manifest_digest == installed.manifest_digest) {
             return Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}};
         }
-        if (fs::exists(version)) throw std::runtime_error("Target version already exists; it will not be overwritten");
+        // Replacing the directory of the version that is already installed is only allowed when the
+        // user asked for a forced reinstall; every other collision still refuses.
+        const bool replacing_installed_version = context.force && package.version == installed.version;
+        if (fs::exists(version) && !replacing_installed_version)
+            throw std::runtime_error("Target version already exists; it will not be overwritten");
         for (const auto& command : package.entries) {
             if (std::any_of(installed.entries.begin(),installed.entries.end(),[&](const ir::Entry& old) { return equal_name(old.alias,command.alias); })) continue;
             if (fs::exists(shims/(wide(command.alias)+L".exe")) || fs::exists(shims/(wide(command.alias)+L".coop-shim.json")) ||
@@ -1335,6 +1338,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             if (version_published) return;
             ensure_stage();
             fs::create_directories(app);
+            // A forced reinstall of the installed version replaces that directory. The old tree is
+            // moved into the transaction first, so a failure or an interrupt restores it instead of
+            // leaving the package half-published.
+            if (context.force && updating && package.version == installed.version && fs::is_directory(version))
+                move(version,transaction/L"replaced-version");
             create(version,[&]() { publish_new(stage,version); });
             version_published = true;
             test_fault_point(context,"after-version-publish");

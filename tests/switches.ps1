@@ -1,6 +1,6 @@
 # Red when: `-s` stops downgrading a digest mismatch to a warning, `-k` stops bypassing the download
-# cache, `-i` stops leaving declared dependencies out of the plan, or `-f` silently answers "up-to-date"
-# instead of refusing a reinstall it cannot perform yet.
+# cache, `-i` stops leaving declared dependencies out of the plan, or `-f` stops replacing the installed
+# version in place.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -67,6 +67,14 @@ if (($withoutDep -join "`n") -cnotmatch 'dep\s+1\.0') { throw 'install -i did no
 & $CoopExe --root $root install probe/vers | Out-Null
 $plainUpdate = & $CoopExe --root $root update probe/vers 2>&1
 if ($LASTEXITCODE -cne 0 -or ($plainUpdate -join "`n") -cnotmatch 'up-to-date') { throw "an unchanged update said '$($plainUpdate -join ' | ')'" }
+# Forcing replaces the installed version in place: the old directory is moved into the transaction,
+# then the same version is published again.
 $forced = & $CoopExe --root $root update probe/vers -f 2>&1
-if ($LASTEXITCODE -cne 1 -or ($forced -join "`n") -cnotmatch 'not supported yet') { throw "update -f said '$($forced -join ' | ')'" }
+if ($LASTEXITCODE -cne 0) { throw "update -f failed: $($forced -join ' | ')" }
+if (($forced -join "`n") -cnotmatch "Uninstalling 'vers' \(1\.0\)") { throw "update -f did not replace the version: $($forced -join ' | ')" }
+if (($forced -join "`n") -cnotmatch "was installed successfully") { throw "update -f did not republish the package: $($forced -join ' | ')" }
+$afterForce = @(& $CoopExe --root $root list)
+if (($afterForce -join "`n") -cnotmatch 'vers\s+1\.0') { throw 'the package disappeared after a forced reinstall' }
+$recovery = @(& $CoopExe --root $root recover)
+if (($recovery -join "`n") -cnotmatch 'No pending transactions') { throw "a forced reinstall left a pending transaction: $($recovery -join ' | ')" }
 Write-Output 'PASS: -s, -k, -i and -f behave end to end'
