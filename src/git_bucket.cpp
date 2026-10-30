@@ -247,16 +247,46 @@ void require_clean_worktree(git_repository* repository) {
     check(git_status_list_new(&raw,repository,&options),"Check local bucket modifications");
     const auto status = own(raw,git_status_list_free);
     if (!git_status_list_entrycount(status.get())) return;
-    const auto* entry = git_status_byindex(status.get(),0);
-    std::string path;
-    if (entry && entry->index_to_workdir)
-        path = entry->index_to_workdir->new_file.path ? entry->index_to_workdir->new_file.path :
-               entry->index_to_workdir->old_file.path ? entry->index_to_workdir->old_file.path : "";
-    if (path.empty() && entry && entry->head_to_index)
-        path = entry->head_to_index->new_file.path ? entry->head_to_index->new_file.path :
-               entry->head_to_index->old_file.path ? entry->head_to_index->old_file.path : "";
-    throw std::runtime_error("Local bucket modifications must be preserved; refresh stopped"+
-        (path.empty() ? std::string{} : ": "+path));
+    // A bucket checked out under `core.autocrlf=true` has CRLF bytes in the working tree and LF bytes
+    // in the index; Git reports that pair as current, but a byte comparison sees a modification and
+    // refuses every refresh. The two are compared with the line endings normalised, and anything
+    // else still stops the refresh.
+    const auto normalised = [](std::string text) {
+        text.erase(std::remove(text.begin(),text.end(),'\r'),text.end());
+        return text;
+    };
+    const auto worktree_matches_index = [&](const std::string& path) {
+        git_index* raw_index = nullptr;
+        if (git_repository_index(&raw_index,repository) != 0) return false;
+        const auto index = own(raw_index,git_index_free);
+        const git_index_entry* indexed = git_index_get_bypath(raw_index,path.c_str(),0);
+        if (!indexed) return false;
+        git_blob* raw_blob = nullptr;
+        if (git_blob_lookup(&raw_blob,repository,&indexed->id) != 0) return false;
+        const auto blob = own(raw_blob,git_blob_free);
+        const auto committed = std::string(static_cast<const char*>(git_blob_rawcontent(raw_blob)),
+            static_cast<std::size_t>(git_blob_rawsize(raw_blob)));
+        std::ifstream input(std::filesystem::path(wide(git_repository_workdir(repository)))/wide(path),std::ios::binary);
+        if (!input) return false;
+        const auto working = std::string(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
+        return normalised(committed) == normalised(working);
+    };
+    for (std::size_t index = 0; index < git_status_list_entrycount(status.get()); ++index) {
+        const auto* entry = git_status_byindex(status.get(),index);
+        std::string path;
+        if (entry && entry->index_to_workdir)
+            path = entry->index_to_workdir->new_file.path ? entry->index_to_workdir->new_file.path :
+                   entry->index_to_workdir->old_file.path ? entry->index_to_workdir->old_file.path : "";
+        if (path.empty() && entry && entry->head_to_index)
+            path = entry->head_to_index->new_file.path ? entry->head_to_index->new_file.path :
+                   entry->head_to_index->old_file.path ? entry->head_to_index->old_file.path : "";
+        // Only a content difference that survives normalisation is a local modification.
+        if (!path.empty() && entry && entry->index_to_workdir &&
+            (entry->index_to_workdir->status & GIT_DELTA_MODIFIED) && worktree_matches_index(path))
+            continue;
+        throw std::runtime_error("Local bucket modifications must be preserved; refresh stopped"+
+            (path.empty() ? std::string{} : ": "+path));
+    }
 }
 void require_valid_branch(const std::string& branch) {
     const auto refname = "refs/heads/"+branch;
