@@ -29,8 +29,9 @@ RunRecord::RunRecord(const Context& context,std::string command,std::vector<std:
     const auto id = std::to_string(GetCurrentProcessId())+"-"+std::to_string(++g_run_counter)+"-"+
         std::to_string(GetTickCount64());
     path_ = directory/(wide(id)+L".json");
-    record_ = {{"command",std::move(command)},{"packages",std::move(packages)},{"pid",GetCurrentProcessId()},
-        {"started",timestamp()},{"stage","starting"}};
+    command_ = std::move(command);
+    packages_ = std::move(packages);
+    started_ = timestamp();
     save();
     // Every progress line also names the stage, so the record follows the command without the
     // executor knowing that a record exists.
@@ -48,15 +49,18 @@ RunRecord::~RunRecord() {
 }
 void RunRecord::stage(const std::string& text) {
     if (text.empty()) return;
-    record_["stage"] = text.substr(0,200);
-    record_["updated"] = timestamp();
+    stage_ = text.substr(0,200);
     try {
         save();
     } catch (const std::exception&) {
         // The record is observational: losing it must never fail the command it describes.
     }
 }
-void RunRecord::save() { write_json(path_,record_,false); }
+void RunRecord::save() {
+    const Json record = {{"command",command_},{"packages",packages_},{"pid",GetCurrentProcessId()},
+        {"started",started_},{"stage",stage_},{"updated",timestamp()}};
+    write_json(path_,record,false);
+}
 
 std::size_t report_abandoned_runs(const Context& context,bool consume) {
     const auto directory = context.root/L".coop"/L"runs";

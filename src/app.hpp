@@ -4,7 +4,6 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include <nlohmann/json.hpp>
 
 namespace coop {
 namespace fs = std::filesystem;
@@ -70,7 +69,10 @@ private:
     fs::path path_;
     fs::path root_;
     bool root_existed_ = true;
-    nlohmann::json record_;
+    std::string command_;
+    std::vector<std::string> packages_;
+    std::string started_;
+    std::string stage_ = "starting";
 };
 // Prints the records left by interrupted runs to stderr and, unless this is a dry run, removes them.
 std::size_t report_abandoned_runs(const Context& context, bool consume);
