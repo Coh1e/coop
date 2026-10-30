@@ -16,6 +16,9 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <chrono>
+#include "native.hpp"
+#include <future>
 #include <ctime>
 #include <git2.h>
 #include <set>
@@ -217,10 +220,24 @@ static Json catalog_item(const Json& source, const Json& entry, const fs::path& 
     if (entry.contains("homepage")) item["homepage"] = entry.at("homepage");
     return item;
 }
+// Scoop's Get-LocalBucket puts the well-known buckets first, in the order of its buckets.json
+// (main, extras, …), and appends every other bucket alphabetically. A plain alphabetical sort put
+// `coh1e/coop` above `main/…`, which is not the order Scoop prints.
+static int bucket_rank(const std::string& bucket) {
+    static const std::vector<std::string> known = {"main","extras","versions","nirsoft","sysinternals",
+        "php","nerd-fonts","nonportable","java","games"};
+    for (std::size_t index = 0; index < known.size(); ++index)
+        if (equal_name(known[index],bucket)) return static_cast<int>(index);
+    return static_cast<int>(known.size());
+}
 static void sort_catalog(Json& result) {
     std::sort(result.begin(), result.end(), [](const Json& a, const Json& b) {
-        return a.at("bucket").get<std::string>()+"/"+a.at("name").get<std::string>() <
-               b.at("bucket").get<std::string>()+"/"+b.at("name").get<std::string>();
+        const auto left_bucket = a.at("bucket").get<std::string>();
+        const auto right_bucket = b.at("bucket").get<std::string>();
+        const auto left_rank = bucket_rank(left_bucket), right_rank = bucket_rank(right_bucket);
+        if (left_rank != right_rank) return left_rank < right_rank;
+        if (!equal_name(left_bucket,right_bucket)) return left_bucket < right_bucket;
+        return a.at("name").get<std::string>() < b.at("name").get<std::string>();
     });
 }
 static std::string lowercase(std::string value) {
@@ -578,8 +595,87 @@ static void print_installed_table(const Context& context, const Json& result, co
         std::cout << "WARN  " << name << ": pending recovery; run 'coop recover " << name << "'\n";
     }
 }
-static void print_search_table(const Json& result) {
+// Scoop's search falls back to the buckets it knows about but that are not installed locally, asking
+// the GitHub tree API for manifest names. Coop follows the same rule: only when the local buckets have
+// no match, one request per missing known bucket, with an overall time budget so a slow or blocked
+// network cannot hold the command for minutes.
+namespace {
+struct KnownBucket { const char* name; const char* repository; };
+constexpr KnownBucket kKnownBuckets[] = {
+    {"main","ScoopInstaller/Main"}, {"extras","ScoopInstaller/Extras"},
+    {"versions","ScoopInstaller/Versions"}, {"nirsoft","ScoopInstaller/Nirsoft"},
+    {"sysinternals","ScoopInstaller/Sysinternals"}, {"php","ScoopInstaller/PHP"},
+    {"nerd-fonts","matthewjberger/scoop-nerd-fonts"}, {"nonportable","ScoopInstaller/Nonportable"},
+    {"java","ScoopInstaller/Java"}, {"games","ScoopInstaller/Games"}};
+std::string environment_text(const wchar_t* name) {
+    wchar_t buffer[1024]{};
+    const auto length = GetEnvironmentVariableW(name,buffer,1024);
+    return length && length < 1024 ? utf8(std::wstring(buffer,length)) : std::string{};
+}
+}  // namespace
+static Json remote_search(const Context& context, const std::string& needle) {
+    Json rows = Json::array();
+    std::regex pattern;
+    try { pattern = std::regex(needle,std::regex::icase); }
+    catch (const std::regex_error&) { return rows; }
+    std::vector<std::string> installed;
+    for (const auto& source : bucket_sources(context))
+        installed.push_back(lowercase(source.value("name",std::string{})));
+    std::string api = environment_text(L"COOP_GITHUB_API");
+    if (api.empty()) api = "https://api.github.com";
+    const bool local_api = api.starts_with("file://");
+    // One request per missing known bucket, all at once. Sequentially this took ~10 s for the ten
+    // reference buckets, which is a noticeable pause for a search command.
+    std::vector<std::future<std::vector<std::string>>> requests;
+    std::vector<std::string> buckets;
+    for (const auto& bucket : kKnownBuckets) {
+        if (std::find(installed.begin(),installed.end(),lowercase(bucket.name)) != installed.end()) continue;
+        const auto url = local_api ? api+"/"+bucket.name+".json"
+            : api+"/repos/"+bucket.repository+"/git/trees/HEAD?recursive=1";
+        buckets.emplace_back(bucket.name);
+        requests.push_back(std::async(std::launch::async,[url] {
+            std::vector<std::string> names;
+            int status = 0;
+            std::string body;
+            try { body = http_get_text(url,{{"User-Agent","Coop"},{"Accept","application/vnd.github+json"}},status); }
+            catch (const std::exception&) { return names; }
+            if (status != 200) return names;
+            Json tree = Json::object();
+            try { tree = Json::parse(body); } catch (const std::exception&) { return names; }
+            if (!tree.contains("tree") || !tree.at("tree").is_array()) return names;
+            for (const auto& node : tree.at("tree")) {
+                if (!node.is_object() || !node.contains("path") || !node.at("path").is_string()) continue;
+                const auto path = node.at("path").get<std::string>();
+                if (!path.starts_with("bucket/") || !path.ends_with(".json")) continue;
+                names.push_back(path.substr(7,path.size()-7-5));
+            }
+            return names;
+        }));
+    }
+    const auto deadline = std::chrono::steady_clock::now()+std::chrono::seconds(15);
+    for (std::size_t index = 0; index < requests.size(); ++index) {
+        std::vector<std::string> names;
+        if (requests[index].wait_until(deadline) == std::future_status::ready)
+            names = requests[index].get();
+        std::sort(names.begin(),names.end());
+        for (const auto& name : names)
+            if (std::regex_search(name,pattern)) rows.push_back({{"name",name},{"bucket",buckets[index]}});
+    }
+    return rows;
+}
+static void print_search_table(const Context& context, const Json& result, const std::string& needle) {
     if (result.empty()) {
+        // Scoop searches the known-but-uninstalled buckets through the GitHub API before giving up.
+        const auto remote = remote_search(context,needle);
+        if (!remote.empty()) {
+            std::cout << "Results from other known buckets...\n";
+            std::cout << "(add them using 'scoop bucket add <bucket name>')\n\n";
+            std::vector<std::vector<std::string>> rows;
+            for (const auto& item : remote)
+                rows.push_back({field_text(item,"name"),field_text(item,"bucket")});
+            print_table({"Name","Source"},rows);
+            return;
+        }
         std::cout << "WARN  No matches found.\n";
         return;
     }
@@ -1168,7 +1264,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
     }
     if (context.json_output) std::cout << result.dump(2, ' ', false, Json::error_handler_t::replace) << '\n';
     else if (command == L"list") print_installed_table(context,result,query_text,any_installed);
-    else if (command == L"search") print_search_table(result);
+    else if (command == L"search") print_search_table(context,result,query_text);
     else {
         const auto deprecated = deprecated_names(context);
         for (const auto& item : result) print_info_block(context,item,deprecated,verbose);
