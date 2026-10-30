@@ -21,7 +21,10 @@ if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --outp
 $command = 'call "{0}" >nul && set "TEMP={1}" && set "TMP={1}" && {2}' -f $vcvars,$tempRoot,($steps -join ' && ')
 # Merging the child's stderr keeps Windows PowerShell from raising a compiler warning as a
 # terminating error; the exit code is the only failure signal.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 $output = & $env:ComSpec /d /s /c $command 2>&1
 $code = $LASTEXITCODE
+$ErrorActionPreference = $previousPreference
 $output | ForEach-Object { Write-Host $_ }
 if ($code -ne 0) { throw "Build action '$Action' failed with exit code $code" }
