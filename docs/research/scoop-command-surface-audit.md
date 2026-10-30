@@ -135,3 +135,10 @@ scoop list; scoop info ripgrep; scoop status -l; scoop search ripgrep
 - `search` 的匹配范围（包名+描述 vs Scoop 的包名+bin、正则）与 `info` 的 `Updated at/by`、`-v` 在 #82。
 - `virustotal` 的真实 HTTPS 请求没有执行证据（无 key、未联网查询）。
 - `create` 只产出骨架，不猜 hash、不写 bucket。
+### `create` 与 `virustotal`（2026-10-30）
+
+- `create <URL>` 输出清单骨架（`version` 从文件名猜、`url` 原样、`hash` 空），不下载、不落盘、不启编辑器；与 Scoop 的交互式向导不同，这是有意的非交互取舍。
+- `virustotal` 用清单声明的 SHA256 查询 `GET /files/<hash>`，**已在真实服务上验证**（`v0.2.1` 的发布产物，2026-10-30）：
+  - `coop virustotal main/ripgrep` → `ripgrep: 0 malicious, 0 suspicious out of 68 engines`
+  - 未知摘要 → `ghost: no information in VirusTotal`（HTTP 404 分支）
+  - key 来自 `COOP_VIRUSTOTAL_KEY` 环境变量（优先）或 `coop config virustotal_api_key`；`-s`（上传分析）明确未实现。
