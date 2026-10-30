@@ -26,12 +26,20 @@ try {
         throw "tag v$Version already exists; pass -Force to re-verify a tagged release"
     }
 
-    & (Join-Path $PSScriptRoot 'check-source-hygiene.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'source hygiene failed' }
+    # The child scripts write progress to stderr; merging it keeps Windows PowerShell from turning a
+    # compiler warning into a terminating error. Only a non-zero exit code fails the gate.
+    $hygiene = & (Join-Path $PSScriptRoot 'check-source-hygiene.ps1') 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $hygiene | Select-Object -Last 10 | Write-Output
+        throw 'source hygiene failed'
+    }
 
     $action = if ($SkipTests) { 'build' } else { 'all' }
-    & (Join-Path $PSScriptRoot 'build.ps1') -Action $action
-    if ($LASTEXITCODE -ne 0) { throw 'build or test run failed' }
+    $build = & (Join-Path $PSScriptRoot 'build.ps1') -Action $action 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $build | Select-Object -Last 30 | Write-Output
+        throw 'build or test run failed'
+    }
 
     $reported = (& (Join-Path $projectRoot '.local/build/coop.exe') --version | Out-String).Trim()
     if ($reported -ne "coop $Version") { throw "the binary reports '$reported', not 'coop $Version'" }
