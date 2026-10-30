@@ -111,7 +111,7 @@ Git 已确定使用可由 C++ 调用的库，首选候选 libgit2，见 [ADR-000
 
 普通归档已选用固定版本 libarchive 加 zlib/liblzma/zstd/bzip2，静态链接进 `coop.exe`；ZIP、7z、tar 系列及嵌套布局的实际覆盖与边界见[归档生命周期覆盖](archive-support.md)。MSI 产物管理的管理镜像提取使用只读数据库访问（`msi.dll`）与 Windows cabinet 解压 API（`cabinet.dll`），不另引第三方 MSI 读取库；它不等同于执行厂商安装器。Inno Setup 的 `innosetup` 载荷由 root 内单独安装的 innounp helper 解包，Coop 不内嵌也不下载该工具，并在预览和执行前把它作为外部工具需求声明；NSIS 安装器载荷在摘要校验后按内容签名识别，再由 root 内单独安装的 7-Zip helper 按 Scoop `Expand-7zipArchive` 参数解包，同样不内嵌、不下载，普通 7z/ZIP/tar 仍走原生路径；这些也不同于原生理解厂商安装器格式。安装器格式仍按覆盖表区分原生支持、需明确外部工具、已知不支持与未测试；不能因普通归档库支持 7z 就推断可完整替代 7-Zip 对 NSIS/Inno/MSI 等安装器的处理。路径穿越、reparse point、Unicode 和中断处理必须成为测试输入。
 
-HTTP、哈希与进程使用 WinHTTP、Windows CNG、CreateProcessW；JSON、测试框架、普通归档压缩库与构建依赖已固定版本并静态构建。最终优先单个 coop.exe；静态链接体积、许可随附及脚本运行时需求继续核对。
+HTTP、哈希与进程使用 WinHTTP、Windows CNG、CreateProcessW；JSON、测试框架、普通归档压缩库与构建依赖已固定版本并静态构建。最终优先单个 coop.exe；静态链接体积已核对（只做构建级优化，实测与取舍见 [ADR-0005](adr/0005-binary-size-build-only.md)），许可随附与脚本运行时需求继续核对。
 
 ## 8. 验收从完整路径开始
 

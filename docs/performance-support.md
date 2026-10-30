@@ -141,6 +141,30 @@
   - 最终构建（`0cbc39e` 的证据，`coop.exe` SHA256 `d0510faa…`）在真实根上的刷新是**无变化**（`received_bytes=0`、索引 SHA256 不变、`git status --porcelain` 为空、`adopted` 保持 true）；它的**有变化**刷新跑在项目内的真实 `main` 全量副本 `.local/pi/tasks/23/real-bucket-copy2` 上（`changed_files=8`、`received_bytes=5,186`）。#23 的 verifier-2 P3 指出的正是这条归因错误，本文已按实际构建修正。
 - 本票（#44）在 `d1f8029`/`f9c0fff9…` 构建上重新采集了真实根与真实规模刷新（见上节），不再依赖 #23 的中间构建数字作为当前结果。
 
+## 包体与落盘体积（2026-10-30）
+
+这一节是另一条轴：完整**产物**的字节数，不是查询耗时。主指标定为**安装后占用**（`coop.exe` + `scoop-lib` + `licenses` + `LICENSE` + `THIRD_PARTY.md` 的落盘总和），下载包（release zip）只作记录。口径与取舍见 [ADR-0005](adr/0005-binary-size-build-only.md)。
+
+- 方法：同一棵树、同一台机器、MSVC 工具集 14.51.36231，用 `scripts/build.ps1` 相同的 Release 配置各建一遍（`-DBUILD_TESTING=OFF` 只跳过测试夹具，不改变 `coop` 目标），每个变体取 `coop.exe` 长度、把 5 类落盘文件按发布布局拼成一份 `Compress-Archive` zip、并求和得安装占用。脚本、日志、linker map 与 CSV 在项目内 `.local/size-probe/`（`run-variants.ps1`、`run-o1.ps1`、`run-split.ps1`、`run-map.ps1`、`results.json`、`results-o1.json`、`attribution.csv`、`build-map/coop.map`）。
+- 已发布基线（CI 构建的 `v0.2.3` 产物）：`coop.exe` 4,660,224 B、安装占用 4,954,656 B、zip 2,374,047 B，其中 `coop.exe` 占压缩后载荷 96%。本机构建的同一源码基线为 4,732,928 B（+72,704 B），差异来自工具链，不改变下面各变体的相对结论。
+
+| 变体 | `coop.exe` B | 压缩后 exe B | 安装占用 B | 相对基线 |
+| --- | ---: | ---: | ---: | ---: |
+| 基线（`/O2 /Ob2`） | 4,732,928 | 2,245,066 | 5,027,360 | — |
+| 全量 IPO（`/GL`+`/LTCG`，依赖一起开） | 4,638,720 | — | 4,933,152 | −2.0% |
+| 全量 IPO + `/Gy` | 4,638,720 | — | 4,933,152 | −2.0%（与上一行相同，`/Gy` 无额外效果） |
+| 全量 `/O1`（无 IPO） | 4,203,008 | 2,026,325 | 4,497,440 | −11.2% |
+| 全量 IPO + `/O1` + `/Ob1` | 4,197,888 | — | 4,492,320 | −11.3% |
+| **仅 C++ 编译单元 `/O1`，C 依赖 `/O2`**（选定） | **4,281,856** | **2,057,184** | **4,576,288** | **−9.5%** |
+
+`coop.exe` 的 `.text` 归因（linker map，`/MAP`，47,868 个公共与静态符号按相邻地址差求和）：coop 自身 1,703 KB（47%）、libgit2 1,329 KB（36%）、libarchive 276 KB（8%）、静态 CRT 215 KB（6%）、zstd 62 KB、xz/liblzma 44 KB、bzip2 15 KB（合计约 3.6 MB，与 `.text` 3,598 KB 相符）。这也解释了 LTO 为什么只有 2%：静态库里没有“没人引用的整对象”可删，`/OPT:REF` 已经做过这件事。
+
+运行时代价（4 轮 × 每轮 10 次 `search --json git`、10 次 `list --json`、30 次 `--version`，真实根 `C:\Users\Neo\scoop`，1,704 个 Manifest）：基线 29.6 / 31.3 / 12.7 ms，仅 C++ `/O1` 为 30.5 / 31.3 / 12.9 ms，全量 `/O1` 为 29.7 / 31.2 / 13.0 ms。差异落在本页第 20 条记录的同机波动内，不宣称有可测的延迟代价。
+
+- 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节（守卫阈值只能取 CI 实测值）；完整 `ctest`——本机没有 `pwsh`，`CMakeLists.txt` 的 `find_program(PWsh REQUIRED)` 使带测试的 configure 直接失败，带测试的构建与全量测试只能在 CI 收口。
+- 静态检查（本轮）：`gh` 读到的 `v0.2.3` 产物构成、PE 各节大小（`.text` 3,598 KB、`.rdata` 785 KB、`.pdata` 126 KB、`.data` 36 KB、`.rsrc` 0.5 KB）与上述 map 归因一致。
+- 归档能力证据（本轮，只读抽样）：`git clone --depth 1` 取 Main `5630299…`（1,702 份 Manifest）、Extras `fa8327d…`（2,449）、Versions `726377c…`（630），按 Manifest 的 `url`/`architecture.*.url` 扩展名分类：`.zst` 7、`.bz2` 0、`.xz` 12、`.lzma` 8、`.rar` 7、`.cab` 9、`.iso` 0、`.lha` 0；计数与样例在 `.local/size-probe/survey-counts.json`。
+
 ## 验证状态
 
 - 本轮运行（#44，被测构建 `d1f8029` = `f9c0fff9…`）：`tests/perf.ps1` 两次通过（含索引命中/失效回退/损坏回退/重建、无变化刷新不重建、变化刷新原地更新共用工作树、查询不修改 bucket 源或注册表），报告 `.local/pi/tasks/44/evidence/perf-report-measured-d1f8029.json` 与 `perf-report-measured2-d1f8029.json`。

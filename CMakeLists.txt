@@ -194,7 +194,9 @@ if(BUILD_TESTING)
   foreach(option IN ITEMS version help)
     add_test(NAME cli_no_children_${option} COMMAND process_guard "$<TARGET_FILE:coop>" "--${option}")
   endforeach()
-  find_program(POWERSHELL_EXECUTABLE NAMES pwsh REQUIRED)
+  # Either PowerShell runs the suite: pwsh is preferred, and Windows PowerShell 5.1 (which ships with
+  # Windows) is a valid fallback so a fresh machine needs no extra runtime to configure and test.
+  find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
   add_test(NAME source_hygiene COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/scripts/check-source-hygiene.ps1"
     -Root "${PROJECT_SOURCE_DIR}")
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
