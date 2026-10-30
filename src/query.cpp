@@ -250,14 +250,27 @@ static Json matching_catalog(const Context& context, const std::wstring& command
             const auto name = entry.at("name").get<std::string>();
             const auto qualified = bucket+"/"+name;
             bool match = false;
+            // Scoop prints an empty Binaries column when the app name matched and only the binaries
+            // that matched the query otherwise, so the row records which of the two happened. Listing
+            // every declared binary made one row 450 characters wide.
+            bool name_matched = false;
+            Json matched_binaries = Json::array();
             if (command == L"info") match = lowercase(name) == needle || lowercase(qualified) == needle;
             else if (pattern) {
-                match = std::regex_search(name,*pattern);
-                if (!match && entry.contains("bin") && entry.at("bin").is_array())
+                name_matched = std::regex_search(name,*pattern);
+                if (entry.contains("bin") && entry.at("bin").is_array())
                     for (const auto& binary : entry.at("bin"))
-                        if (binary.is_string() && std::regex_search(binary.get<std::string>(),*pattern)) { match = true; break; }
+                        if (binary.is_string() && std::regex_search(binary.get<std::string>(),*pattern))
+                            matched_binaries.push_back(binary);
+                match = name_matched || !matched_binaries.empty();
             }
-            if (match) result.push_back(catalog_item(source,entry,directory));
+            if (!match) continue;
+            auto item = catalog_item(source,entry,directory);
+            if (command == L"search") {
+                item["matched_name"] = name_matched;
+                item["matched_binaries"] = std::move(matched_binaries);
+            }
+            result.push_back(std::move(item));
         }
     }
     sort_catalog(result);
@@ -573,12 +586,12 @@ static void print_search_table(const Json& result) {
     std::cout << "Results from local buckets...\n\n";
     std::vector<std::vector<std::string>> rows;
     for (const auto& item : result) {
+        // Scoop's own rule: a name match prints no binaries, a binary match prints only the binaries
+        // that matched, joined with " | ".
         std::string binaries;
-        try {
-            const auto manifest = read_json(fs::path(wide(item.at("path").get<std::string>())));
-            const auto architecture = field_text(item,"architecture");
-            binaries = binaries_text(manifest,architecture.empty() ? std::string("64bit") : architecture);
-        } catch (const std::exception&) { /* A manifest the adapter rejects still appears in search. */ }
+        if (!item.value("matched_name",false) && item.contains("matched_binaries") && item.at("matched_binaries").is_array())
+            for (const auto& binary : item.at("matched_binaries"))
+                if (binary.is_string()) binaries += (binaries.empty() ? "" : " | ")+binary.get<std::string>();
         rows.push_back({field_text(item,"name"),field_text(item,"version"),
             field_text(item,"bucket"),binaries});
     }

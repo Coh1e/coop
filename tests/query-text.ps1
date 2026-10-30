@@ -60,6 +60,8 @@ if (($lines -join "`n") -cne ($expected -join "`n")) {
 }
 
 # search: header, blank line, then Name/Version/Source/Binaries; no match means the warning alone.
+# A name match prints an empty Binaries column, exactly like Scoop (`search_bucket` records '' when
+# the app name matched); only a binary match fills it. `scoop search jq` shows the same empty cell.
 $lines = @(& $CoopExe --root $root search jq)
 if ($LASTEXITCODE -cne 0) { throw 'search failed' }
 if ($lines.Count -cne 5) { throw "search printed $($lines.Count) lines: $($lines -join ' | ')" }
@@ -67,7 +69,12 @@ if ($lines[0] -cne 'Results from local buckets...') { throw "search header is '$
 if ($lines[1] -cne '') { throw 'search header is not followed by a blank line' }
 if ($lines[2] -notmatch '^Name\s+Version\s+Source\s+Binaries\s*$') { throw "search columns are '$($lines[2])'" }
 if ($lines[3] -notmatch '^----\s+-------\s+------\s+--------\s*$') { throw "search rule is '$($lines[3])'" }
-if ($lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s+jq\.exe\s*$') { throw "search row is '$($lines[4])'" }
+if ($lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s*$') { throw "search row is '$($lines[4])'" }
+# A query that matches only a binary lists that binary in the Binaries column.
+$lines = @(& $CoopExe --root $root search 'jq\.exe')
+if ($lines.Count -cne 5 -or $lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s+jq\.exe\s*$') {
+    throw "binary match row is '$($lines -join ' | ')'"
+}
 $lines = @(& $CoopExe --root $root search zzznomatch)
 if ($LASTEXITCODE -cne 0 -or ($lines -join '|') -cne 'WARN  No matches found.') {
     throw "empty search is '$($lines -join ' | ')'"
