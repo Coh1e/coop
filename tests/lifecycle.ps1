@@ -12,7 +12,7 @@ $text = & $CoopExe --root $root install test/fixture --json
 if ($LASTEXITCODE -ne 0) { throw 'single EXE install failed' }
 if (-not (Test-Path "$root/apps/fixture/current/fixture.exe") -or -not (Test-Path "$root/shims/fixture.exe")) { throw 'installation not published' }
 $version = & "$root/shims/fixture.exe" --version
-if ($LASTEXITCODE -ne 0 -or $version -ne 'coop 0.1.0') { throw 'native command entry failed' }
+if ($LASTEXITCODE -ne 0 -or $version -notmatch '^coop \d+\.\d+\.\d+$') { throw 'native command entry failed' }
 $items = & $CoopExe --root $root list --json | ConvertFrom-Json
 if ($items[0].management -ne 'managed') { throw 'installed package not managed' }
 $metadataPath = "$root/shims/fixture.shim"

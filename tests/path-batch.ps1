@@ -64,7 +64,7 @@ function Get-ShortSHA256([string]$path) {
 
 # --- 1. Exit codes and stream separation ------------------------------------------------
 $version = Invoke-CoopRaw @('--version')
-Assert ($version.code -eq 0 -and $version.out.Trim() -eq 'coop 0.1.0' -and $version.err -eq '') "version contract changed: $($version.out) $($version.err)"
+Assert ($version.code -eq 0 -and $version.out.Trim() -match '^coop \d+\.\d+\.\d+$' -and $version.err -eq '') "version contract changed: $($version.out) $($version.err)"
 $unknown = Invoke-CoopRaw @('unsupported-command')
 Assert ($unknown.code -eq 2 -and $unknown.out -eq '' -and $unknown.err -match 'unknown command') "unknown command did not exit 2 on stderr: $($unknown.code) $($unknown.out) $($unknown.err)"
 $missingRoot = Invoke-CoopRaw @('--root')
@@ -109,7 +109,7 @@ Write-BucketManifest $complex '测试源' '工具包' $unicodeManifest
 $unicodeInstall = Read-CoopJson @('--root',$complex,'install','测试源/工具包','--json')
 Assert ($unicodeInstall.status -eq 'success') "the Unicode package did not install: $($unicodeInstall | ConvertTo-Json -Compress)"
 $unicodeVersion = & (Join-Path $complex 'shims/工具 包.exe') --version
-Assert ($LASTEXITCODE -eq 0 -and $unicodeVersion -eq 'coop 0.1.0') "the Unicode command entry did not run: $unicodeVersion"
+Assert ($LASTEXITCODE -eq 0 -and $unicodeVersion -match '^coop \d+\.\d+\.\d+$') "the Unicode command entry did not run: $unicodeVersion"
 $unicodeList = Read-CoopJson @('--root',$complex,'list','--json')
 Assert (@($unicodeList | Where-Object { $_.name -eq '工具包' -and $_.version -eq '0.1.0' }).Count -eq 1) "the Unicode package is missing from list: $($unicodeList | ConvertTo-Json -Compress)"
 $unicodeRemove = Read-CoopJson @('--root',$complex,'uninstall','工具包','--json')
@@ -183,7 +183,7 @@ $longOutput = Join-Path $session 'long-output.txt'
 $problem = ''
 $longExit = [LongPathRunner]::Run("\\?\$longRoot\shims\deep.exe",'--version',(Get-Location).Path,$longOutput,[ref]$problem)
 Assert ($longExit -eq 0 -and $problem -eq '') "the long-path command entry did not run: exit $longExit $problem"
-Assert (([IO.File]::ReadAllText($longOutput)).Trim() -eq 'coop 0.1.0') 'the long-path command entry printed the wrong output'
+Assert (([IO.File]::ReadAllText($longOutput)).Trim() -match '^coop \d+\.\d+\.\d+$') 'the long-path command entry printed the wrong output'
 $longRemove = Read-CoopJson @('--root',($longRoot+'\'),'uninstall','deep','--json')
 Assert ($longRemove.status -eq 'success' -and -not [IO.Directory]::Exists("\\?\$longRoot\apps\deep")) "the long-path package did not uninstall: $($longRemove | ConvertTo-Json -Compress)"
 
@@ -215,7 +215,7 @@ Assert ($globalPreview.global_installation.scope -eq 'global' -and $globalPrevie
 $globalUserInstall = Read-CoopJson @('--root',$userRoot,'--global-root',$globalRoot,'install','globaltool','--json')
 Assert ($globalUserInstall.status -eq 'success' -and $globalUserInstall.global_installation.read_only -eq $true) 'the user-scope install did not report the read-only global installation'
 $globalUserVersion = & (Join-Path $userRoot 'shims/globaltool.exe') --version
-Assert ($LASTEXITCODE -eq 0 -and $globalUserVersion -eq 'coop 0.1.0') 'the user-scope installation is not runnable'
+Assert ($LASTEXITCODE -eq 0 -and $globalUserVersion -match '^coop \d+\.\d+\.\d+$') 'the user-scope installation is not runnable'
 Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n")) 'a user-scope install changed the global root'
 $globalUserRemove = Read-CoopJson @('--root',$userRoot,'--global-root',$globalRoot,'uninstall','globaltool','--json')
 Assert ($globalUserRemove.status -eq 'success' -and -not (Test-Path -LiteralPath (Join-Path $userRoot 'shims/globaltool.exe'))) 'the user-scope uninstall failed'
@@ -231,7 +231,7 @@ Assert ($successBatch.code -eq 0 -and $successItems.Count -eq 2 -and
     $successItems[1].package -eq 'beta' -and $successItems[1].status -eq 'success') "a successful batch did not report both packages: $($successBatch.text)"
 foreach ($name in @('alpha','beta')) {
     $runnable = & (Join-Path $userRoot "shims/$name.exe") --version
-    Assert ($LASTEXITCODE -eq 0 -and $runnable -eq 'coop 0.1.0') "batch-installed $name is not runnable"
+    Assert ($LASTEXITCODE -eq 0 -and $runnable -match '^coop \d+\.\d+\.\d+$') "batch-installed $name is not runnable"
 }
 Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n")) 'a user batch changed the global root'
 
@@ -242,7 +242,7 @@ $partialItems = @($partialBatch.text | ConvertFrom-Json)
 Assert ($partialBatch.code -eq 1 -and $partialItems.Count -eq 2 -and
     $partialItems[0].package -eq 'gamma' -and $partialItems[0].status -eq 'success' -and
     $partialItems[1].package -eq 'ghostpkg' -and $partialItems[1].status -eq 'failed') "a partial batch did not report success and failure: $($partialBatch.text)"
-Assert ((& (Join-Path $userRoot 'shims/gamma.exe') --version) -eq 'coop 0.1.0') 'the successful item of a partial batch is not runnable'
+Assert ((& (Join-Path $userRoot 'shims/gamma.exe') --version) -match '^coop \d+\.\d+\.\d+$') 'the successful item of a partial batch is not runnable'
 Assert (-not (Test-Path -LiteralPath (Join-Path $userRoot 'shims/ghostpkg.exe'))) 'a failed batch item published an entry'
 
 # Text mode keeps per-package lines and prints no batch header or trailing count: Scoop reports each

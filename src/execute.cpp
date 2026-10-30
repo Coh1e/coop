@@ -803,9 +803,15 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // batch already performed.
     const auto syncs_before = durable_syncs();
     // A no-op has no block: nothing is announced and nothing is written.
-    if (plan_is_no_op(plan))
+    if (plan_is_no_op(plan)) {
+        // `-f` asks to act even when nothing changed. Replacing an installed version directory is
+        // not implemented yet, so the request is refused rather than silently answered "up-to-date".
+        if (context.force && plan.action == ir::Action::update)
+            throw std::runtime_error("Forcing a reinstall of the installed version is not supported yet; "
+                                     "uninstall '"+plan.package.name+"' first");
         return Json{{"package",plan.package.name},{"version",plan.package.version},
             {"status",plan.action == ir::Action::install ? "already-installed" : "up-to-date"}};
+    }
     const auto& package = plan.package;
     if (auto* progress = active_progress()) {
         const char* verb = plan.action == ir::Action::install ? "Installing" :
