@@ -44,6 +44,12 @@ try {
     $reported = (& (Join-Path $projectRoot '.local/build/coop.exe') --version | Out-String).Trim()
     if ($reported -ne "coop $Version") { throw "the binary reports '$reported', not 'coop $Version'" }
 
+    # Size is a release property: the installed footprint is what a user pays for on disk. CI runs the
+    # same script, so a local pass cannot silently accept a bigger binary than the tagged release.
+    $size = & (Join-Path $PSScriptRoot 'check-size.ps1') 2>&1
+    $size | Write-Output
+    if ($LASTEXITCODE -ne 0) { throw 'the installed footprint is over the limit' }
+
     Write-Output "release check passed: coop $Version builds with every target and passes every test"
 } finally {
     Pop-Location

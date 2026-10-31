@@ -48,3 +48,10 @@ jobs:
       - name: Configure, build and test
         shell: pwsh
         run: ./scripts/build.ps1 -Action all
+
+      # The installed footprint is the size metric (docs/adr/0005). Run it after the suite so a
+      # regression is reported next to a green test run, and fail the job when it grows past the
+      # limit recorded in the script.
+      - name: Check installed footprint
+        shell: pwsh
+        run: ./scripts/check-size.ps1
