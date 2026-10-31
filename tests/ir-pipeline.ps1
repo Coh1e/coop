@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -17,7 +18,7 @@ function Get-Snapshot([string]$Path) {
     })
 }
 function Invoke-Coop([string[]]$Arguments) {
-    $output = & $CoopExe @Arguments 2>&1
+    $output = Invoke-CoopNative $CoopExe  @Arguments
     [pscustomobject]@{ code = $LASTEXITCODE; text = ($output -join "`n") }
 }
 function Read-CoopJson([string[]]$Arguments) {

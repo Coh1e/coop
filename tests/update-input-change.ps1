@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -22,7 +23,7 @@ foreach ($case in @('manifest','entry')) {
         $connection = $listener.AcceptTcpClientAsync()
         $start = [Diagnostics.ProcessStartInfo]::new($CoopExe)
         $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
-        foreach ($argument in @('--root',$root,'update','fixture','--json')) { $start.ArgumentList.Add($argument) }
+        foreach ($argument in @('--root',$root,'update','fixture','--json')) { Add-ProcessArgument $start ($argument) }
         $process = [Diagnostics.Process]::Start($start)
         $output = $process.StandardOutput.ReadToEndAsync(); $errorOutput = $process.StandardError.ReadToEndAsync()
         if (-not $connection.Wait(15000)) { throw 'update did not reach controlled download' }
@@ -46,8 +47,8 @@ foreach ($case in @('manifest','entry')) {
         }
         $changedHash = (Get-FileHash $changedPath).Hash
         $bytes = [IO.File]::ReadAllBytes($fixture2)
-        $stream.Write([Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"))
-        $stream.Write($bytes); $stream.Flush()
+        $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n"); $stream.Write($header, 0, $header.Length)
+        $stream.Write($bytes, 0, $bytes.Length); $stream.Flush()
         $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
         if (-not $process.WaitForExit(15000)) { throw 'update did not finish' }
         $result = @{exit=$process.ExitCode;output=$output.GetAwaiter().GetResult();error=$errorOutput.GetAwaiter().GetResult()}

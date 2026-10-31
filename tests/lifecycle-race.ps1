@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -23,7 +24,7 @@ foreach ($case in @('version','exe','metadata','record','manifest')) {
         $start.UseShellExecute = $false
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
-        foreach ($argument in @('--root',$root,'install','test/fixture','--json')) { $start.ArgumentList.Add($argument) }
+        foreach ($argument in @('--root',$root,'install','test/fixture','--json')) { Add-ProcessArgument $start ($argument) }
         $process = [Diagnostics.Process]::Start($start)
         $output = $process.StandardOutput.ReadToEndAsync()
         $errorOutput = $process.StandardError.ReadToEndAsync()
@@ -47,8 +48,8 @@ foreach ($case in @('version','exe','metadata','record','manifest')) {
         New-Item -ItemType Directory -Path (Split-Path $foreign) -Force | Out-Null
         [IO.File]::WriteAllText($foreign,'foreign data must survive')
         $header = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 200 OK`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
-        $stream.Write($header)
-        $stream.Write($bytes)
+        $stream.Write($header, 0, $header.Length)
+        $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
         $client.Client.Shutdown([Net.Sockets.SocketShutdown]::Send)
         if (-not $process.WaitForExit(15000)) { throw 'conflict install did not finish' }

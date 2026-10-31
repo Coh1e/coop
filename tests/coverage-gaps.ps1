@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $repo = Split-Path $PSScriptRoot -Parent
 $baselinePath = Join-Path $PSScriptRoot 'coverage/baseline.json'
 $ledgerPath = Join-Path $PSScriptRoot 'coverage/gaps.json'
@@ -23,8 +24,8 @@ if (-not (Test-Path -LiteralPath $ledgerPath)) {
     Write-Error "Missing gap closure ledger: $ledgerPath"
     exit 1
 }
-$baseline = Get-Content $baselinePath -Raw | ConvertFrom-Json -AsHashtable
-$ledger = Get-Content $ledgerPath -Raw | ConvertFrom-Json -AsHashtable
+$baseline = ConvertTo-Hashtable (Get-Content $baselinePath -Raw | ConvertFrom-Json)
+$ledger = ConvertTo-Hashtable (Get-Content $ledgerPath -Raw | ConvertFrom-Json)
 
 # 1. Baseline accounting: 55 rows over 53 unique packages, six mechanisms.
 $baselineRows = 0

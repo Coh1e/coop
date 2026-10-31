@@ -3,6 +3,7 @@
 # version in place.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -35,9 +36,9 @@ Write-Manifest 'leaf' $hash 'rgleaf' ''
 Write-Manifest 'vers' $hash 'rgvers' ''
 
 # -s: a digest mismatch fails, and the switch turns the failure into a warning.
-$refusal = & $CoopExe --root $root install probe/badtool 2>&1
+$refusal = Invoke-CoopNative $CoopExe  --root $root install probe/badtool
 if ($LASTEXITCODE -cne 1 -or ($refusal -join "`n") -cnotmatch 'sha256 mismatch') { throw "a bad digest said '$($refusal -join ' | ')'" }
-$out = & $CoopExe --root $root install probe/badtool -s 2>&1
+$out = Invoke-CoopNative $CoopExe  --root $root install probe/badtool -s
 if ($LASTEXITCODE -cne 0) { throw "install -s failed: $($out -join ' | ')" }
 if (($out -join "`n") -cnotmatch 'WARN  Hash check skipped') { throw "install -s said '$($out -join ' | ')'" }
 & $CoopExe --root $root uninstall badtool | Out-Null
@@ -45,10 +46,10 @@ if (($out -join "`n") -cnotmatch 'WARN  Hash check skipped') { throw "install -s
 # -k: the second install hits the cache; the switch goes back to the network.
 & $CoopExe --root $root install probe/plain | Out-Null
 & $CoopExe --root $root uninstall plain | Out-Null
-$cached = & $CoopExe --root $root install probe/plain 2>&1
+$cached = Invoke-CoopNative $CoopExe  --root $root install probe/plain
 if (($cached -join "`n") -cnotmatch 'Loading .* from cache') { throw "a cached install said '$($cached -join ' | ')'" }
 & $CoopExe --root $root uninstall plain | Out-Null
-$fresh = & $CoopExe --root $root install probe/plain -k 2>&1
+$fresh = Invoke-CoopNative $CoopExe  --root $root install probe/plain -k
 if (($fresh -join "`n") -cnotmatch 'Downloading file://') { throw "install -k said '$($fresh -join ' | ')'" }
 if (($fresh -join "`n") -cmatch 'from cache') { throw 'install -k still used the cache' }
 
@@ -65,11 +66,11 @@ if (($withoutDep -join "`n") -cnotmatch 'dep\s+1\.0') { throw 'install -i did no
 
 # -f: an unchanged update is a no-op; forcing it is refused instead of silently reported as current.
 & $CoopExe --root $root install probe/vers | Out-Null
-$plainUpdate = & $CoopExe --root $root update probe/vers 2>&1
+$plainUpdate = Invoke-CoopNative $CoopExe  --root $root update probe/vers
 if ($LASTEXITCODE -cne 0 -or ($plainUpdate -join "`n") -cnotmatch 'up-to-date') { throw "an unchanged update said '$($plainUpdate -join ' | ')'" }
 # Forcing replaces the installed version in place: the old directory is moved into the transaction,
 # then the same version is published again.
-$forced = & $CoopExe --root $root update probe/vers -f 2>&1
+$forced = Invoke-CoopNative $CoopExe  --root $root update probe/vers -f
 if ($LASTEXITCODE -cne 0) { throw "update -f failed: $($forced -join ' | ')" }
 if (($forced -join "`n") -cnotmatch "Uninstalling 'vers' \(1\.0\)") { throw "update -f did not replace the version: $($forced -join ' | ')" }
 if (($forced -join "`n") -cnotmatch "was installed successfully") { throw "update -f did not republish the package: $($forced -join ' | ')" }

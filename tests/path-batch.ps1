@@ -1,5 +1,6 @@
-param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+﻿param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 # Coop keeps stdout/stderr UTF-8; state that explicitly instead of relying on the ANSI code page
 # that Windows PowerShell/PowerShell may inherit when the output is redirected.
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -8,21 +9,28 @@ $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
 $CoopExe = [IO.Path]::GetFullPath($CoopExe)
 $session = Join-Path $TestRoot 'boundaries'
-if (Test-Path -LiteralPath $session) { Remove-Item -LiteralPath $session -Recurse -Force }
+if (Test-Path -LiteralPath $session) {
+    # The deep-path section below builds paths past MAX_PATH, and .NET Framework (PowerShell 5.1) can
+    # only walk those through the \\?\ extended form — the tree may hold such paths even though $session
+    # itself is short.
+    # rmdir /s removes junctions as links without walking into their targets; Directory.Delete
+    # follows them and fails on "current" with access denied.
+    if ($PSVersionTable.PSVersion.Major -lt 6) { & cmd.exe /d /s /c ('rmdir /s /q "' + $session + '"') | Out-Null }
+    else { Remove-Item -LiteralPath $session -Recurse -Force }
+}
 New-Item -ItemType Directory -Path $session -Force | Out-Null
 
 function Assert([bool]$condition,[string]$message) { if (-not $condition) { throw $message } }
 function Invoke-Coop([string[]]$arguments) {
-    $output = & $CoopExe @arguments 2>&1
-    return [pscustomobject]@{ code = $LASTEXITCODE; text = ($output -join "`n") }
+    # 5.1's `& exe` quotes a trailing backslash as `"....\"`, which escapes the quote; the raw
+    # capture builds the command line itself, so roots that end in a separator survive.
+    $result = Invoke-CoopNativeRaw $CoopExe @arguments
+    return [pscustomobject]@{ code = $result.code; text = (($result.out + $result.err) -join "`n") }
 }
 # Separate streams so a usage error can be checked for an empty stdout and a diagnostic stderr.
 function Invoke-CoopRaw([string[]]$arguments) {
-    $errorFile = Join-Path $session ('stderr-'+[guid]::NewGuid().ToString('N')+'.txt')
-    try {
-        $output = & $CoopExe @arguments 2>$errorFile
-        return [pscustomobject]@{ code = $LASTEXITCODE; out = ($output -join "`n"); err = [IO.File]::ReadAllText($errorFile) }
-    } finally { Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue }
+    $result = Invoke-CoopNativeRaw $CoopExe $arguments
+    return [pscustomobject]@{ code = $result.code; out = $result.out; err = $result.err }
 }
 function Read-CoopJson([string[]]$arguments) {
     $result = Invoke-Coop $arguments
@@ -225,7 +233,7 @@ Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n"
 Write-BucketManifest $userRoot 'test' 'alpha' (New-FileManifest 'alpha')
 Write-BucketManifest $userRoot 'test' 'beta' (New-FileManifest 'beta')
 $successBatch = Invoke-Coop @('--root',$userRoot,'install','alpha','beta','--json')
-$successItems = @($successBatch.text | ConvertFrom-Json)
+$successItems = ConvertFrom-JsonText $successBatch.text
 Assert ($successBatch.code -eq 0 -and $successItems.Count -eq 2 -and
     $successItems[0].package -eq 'alpha' -and $successItems[0].status -eq 'success' -and
     $successItems[1].package -eq 'beta' -and $successItems[1].status -eq 'success') "a successful batch did not report both packages: $($successBatch.text)"
@@ -238,7 +246,7 @@ Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n"
 # A partially failing batch keeps the successful package, reports both items and exits non-zero.
 Write-BucketManifest $userRoot 'test' 'gamma' (New-FileManifest 'gamma')
 $partialBatch = Invoke-Coop @('--root',$userRoot,'install','gamma','ghostpkg','--json')
-$partialItems = @($partialBatch.text | ConvertFrom-Json)
+$partialItems = ConvertFrom-JsonText $partialBatch.text
 Assert ($partialBatch.code -eq 1 -and $partialItems.Count -eq 2 -and
     $partialItems[0].package -eq 'gamma' -and $partialItems[0].status -eq 'success' -and
     $partialItems[1].package -eq 'ghostpkg' -and $partialItems[1].status -eq 'failed') "a partial batch did not report success and failure: $($partialBatch.text)"
@@ -257,14 +265,14 @@ Assert ($textPartial.code -eq 1 -and $textPartial.out -match "'gamma' \(0\.1\.0\
 # Dry-run batches report a blocked item without writing the requested package.
 Write-BucketManifest $userRoot 'test' 'delta' (New-FileManifest 'delta')
 $dryBatch = Invoke-Coop @('--root',$userRoot,'install','delta','ghostpkg','--dry-run','--json')
-$dryItems = @($dryBatch.text | ConvertFrom-Json)
+$dryItems = ConvertFrom-JsonText $dryBatch.text
 Assert ($dryBatch.code -eq 1 -and $dryItems.Count -eq 2 -and $dryItems[0].status -eq 'planned' -and $dryItems[1].status -eq 'blocked') "a dry-run batch did not report planned and blocked items: $($dryBatch.text)"
 Assert (-not (Test-Path -LiteralPath (Join-Path $userRoot 'apps/delta'))) 'a dry-run batch installed a package'
 
 # A batch targeting a read-only global-only package and a user package reports both outcomes and
 # still removes only the user package.
 $mixedRemove = Invoke-Coop @('--root',$userRoot,'--global-root',$globalRoot,'uninstall','alpha','globaltool','--json')
-$mixedItems = @($mixedRemove.text | ConvertFrom-Json)
+$mixedItems = ConvertFrom-JsonText $mixedRemove.text
 Assert ($mixedRemove.code -eq 1 -and $mixedItems.Count -eq 2 -and
     $mixedItems[0].package -eq 'alpha' -and $mixedItems[0].status -eq 'success' -and
     $mixedItems[1].package -eq 'globaltool' -and $mixedItems[1].status -eq 'failed' -and
@@ -274,7 +282,7 @@ Assert (@(Get-TreeSnapshot $globalRoot) -join "`n" -eq ($globalBefore -join "`n"
 
 # A wholly successful multi-package uninstall exits zero.
 $successRemove = Invoke-Coop @('--root',$userRoot,'uninstall','beta','gamma','--json')
-$successRemoveItems = @($successRemove.text | ConvertFrom-Json)
+$successRemoveItems = ConvertFrom-JsonText $successRemove.text
 Assert ($successRemove.code -eq 0 -and $successRemoveItems.Count -eq 2 -and
     $successRemoveItems[0].status -eq 'success' -and $successRemoveItems[1].status -eq 'success') "a successful batch uninstall failed: $($successRemove.text)"
 foreach ($name in @('beta','gamma')) {

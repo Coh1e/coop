@@ -4,6 +4,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # already fix. The record now counts the write-through flushes, which makes the claim measurable: an
 # archive with hundreds of files must not produce hundreds of syncs.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not (($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase))) { throw 'Test root outside project' }
@@ -28,13 +29,13 @@ function Invoke-Coop([string[]]$arguments) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+    if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
     $result = [pscustomobject]@{ exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
     $process.Dispose()

@@ -9,6 +9,7 @@ param(
 # Snapshots live under tests/baseline/publish and are committed; -Update regenerates them after a
 # deliberate behaviour change, which makes such a change visible in review instead of silent.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -55,14 +56,14 @@ function Invoke-Coop([string]$label,[string[]]$arguments) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
-    $start.Environment['COOP_PROGRAMS_DIR'] = "$root/programs"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
+    $start.EnvironmentVariables['COOP_PROGRAMS_DIR'] = "$root/programs"
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) { $process.Kill($true); throw "$label timed out" }
+    if (-not $process.WaitForExit(600000)) { $process.Kill(); throw "$label timed out" }
     $result = [pscustomobject]@{
         exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult()

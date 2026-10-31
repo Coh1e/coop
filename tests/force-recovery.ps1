@@ -2,6 +2,7 @@
 # or the fault file starts working without the engineering token.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -28,13 +29,13 @@ if ($LASTEXITCODE -cne 0) { throw 'the fixture package did not install' }
 
 # A fault file only has an effect when the engineering token is present in the environment.
 '{ "fail": ["after-version-publish"] }' | Set-Content "$root/.coop/test-faults.json" -Encoding utf8
-$ungated = & $CoopExe --root $root update probe/vers -f 2>&1
+$ungated = Invoke-CoopNative $CoopExe  --root $root update probe/vers -f
 if ($LASTEXITCODE -cne 0) { throw "a fault file worked without the token: $($ungated -join ' | ')" }
 
 $previousToken = $env:COOP_ALLOW_TEST_FAULTS
 try {
     $env:COOP_ALLOW_TEST_FAULTS = '1'
-    $failed = & $CoopExe --root $root update probe/vers -f 2>&1
+    $failed = Invoke-CoopNative $CoopExe  --root $root update probe/vers -f
     if ($LASTEXITCODE -ceq 0) { throw 'the injected failure did not fail the command' }
     if (($failed -join "`n") -cnotmatch 'Injected test fault') { throw "the failure was not the injected one: $($failed -join ' | ')" }
 
@@ -51,7 +52,7 @@ try {
 
     # With the fault file gone the same forced reinstall completes.
     Remove-Item -LiteralPath "$root/.coop/test-faults.json" -Force
-    $healed = & $CoopExe --root $root update probe/vers -f 2>&1
+    $healed = Invoke-CoopNative $CoopExe  --root $root update probe/vers -f
     if ($LASTEXITCODE -cne 0) { throw "the forced reinstall did not recover: $($healed -join ' | ')" }
 } finally {
     if ($null -eq $previousToken) { Remove-Item Env:\COOP_ALLOW_TEST_FAULTS -ErrorAction SilentlyContinue }

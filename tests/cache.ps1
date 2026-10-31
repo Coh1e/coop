@@ -4,6 +4,7 @@
 # and reporting what it deleted.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -54,12 +55,12 @@ if (($out -join "`n") -cnotmatch 'probe\s+1\.0\s+\d+') { throw "cache show rows 
 if (($out -join "`n") -cnotmatch 'Total: 1 file, ') { throw "cache show total is '$($out -join ' | ')'" }
 $out = @(& $CoopExe --root $root cache show nosuchapp)
 if (($out -join "`n") -cnotmatch 'Total: 0 files, 0 B') { throw "cache show for an absent app said '$($out -join ' | ')'" }
-& $CoopExe --root $root cache rm 2>&1 | Out-Null
+Invoke-CoopNative $CoopExe  --root $root cache rm | Out-Null
 if ($LASTEXITCODE -cne 1) { throw "cache rm without a target exited $LASTEXITCODE" }
 
 # A wrong digest fails and leaves nothing behind in the cache.
 Write-Manifest ('0' * 64)
-$out = & $CoopExe --root $root download probe/probe -f 2>&1
+$out = Invoke-CoopNative $CoopExe  --root $root download probe/probe -f
 if ($LASTEXITCODE -cne 1 -or ($out -join "`n") -cnotmatch 'digest mismatch') { throw "a wrong digest said '$($out -join ' | ')'" }
 if (@(Get-ChildItem "$root/cache" -File).Count -cne 0) { throw 'a failed verify left an extra cache file' }
 Write-Manifest $hash

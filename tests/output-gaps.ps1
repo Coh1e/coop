@@ -2,6 +2,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # #72: two gaps the acceptance matrix recorded were still open. The download line now names the size,
 # as Scoop does, and a batch update prints the same per-package block a single update prints.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not (($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase))) { throw 'Test root outside project' }
@@ -29,13 +30,13 @@ function Invoke-Coop([string[]]$arguments) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+    if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
     $result = [pscustomobject]@{ exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
     $process.Dispose()
@@ -137,7 +138,9 @@ try {
 } finally { `$listener.Stop() }
 "@
 [IO.File]::WriteAllText($serverScript,$serverBody,[Text.UTF8Encoding]::new($false))
-$serverProcess = Start-Process -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
+# ExecutionPolicy is passed explicitly: the helper script lives under .local, and Windows PowerShell
+# 5.1 refuses to run an unsigned script from that path under RemoteSigned.
+$serverProcess = Start-Process -FilePath ((Get-Process -Id $PID).Path) -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
 try {
     $deadline = (Get-Date).AddSeconds(15)
     while ((Get-Date) -lt $deadline) {

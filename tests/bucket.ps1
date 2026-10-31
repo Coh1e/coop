@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $projectTests = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($projectTests,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -26,13 +27,13 @@ function Invoke-FixtureGit([string[]]$Arguments) {
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $start.Environment['GIT_CONFIG_GLOBAL'] = $empty
-    $start.Environment['GIT_CONFIG_SYSTEM'] = $empty
-    $start.Environment['GIT_CONFIG_NOSYSTEM'] = '1'
-    $start.Environment['XDG_CONFIG_HOME'] = $templates
-    $start.ArgumentList.Add('-c')
-    $start.ArgumentList.Add('core.hooksPath='+$templates)
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    $start.EnvironmentVariables['GIT_CONFIG_GLOBAL'] = $empty
+    $start.EnvironmentVariables['GIT_CONFIG_SYSTEM'] = $empty
+    $start.EnvironmentVariables['GIT_CONFIG_NOSYSTEM'] = '1'
+    $start.EnvironmentVariables['XDG_CONFIG_HOME'] = $templates
+    Add-ProcessArgument $start ('-c')
+    Add-ProcessArgument $start ('core.hooksPath='+$templates)
+    foreach ($argument in $Arguments) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
     $outputTask = $process.StandardOutput.ReadToEndAsync()
     $errorTask = $process.StandardError.ReadToEndAsync()
@@ -90,7 +91,7 @@ Invoke-FixtureGit @('-C',$repository,'rm','bucket/jq.json') | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','delete jq') | Out-Null
 $deleted = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'delete refresh failed' }
-$items = @((& $CoopExe --root $root search git/jq --json) | ConvertFrom-Json)
+$items = @(Get-JsonItems (& $CoopExe --root $root search git/jq --json))
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 0) { throw 'removed manifest remained visible' }
 if (Test-Path -LiteralPath "$sharedGit/bucket/jq.json") { throw 'removed manifest remained in the shared working tree' }
 
@@ -107,7 +108,7 @@ if ($LASTEXITCODE -ne 0 -or $pinnedAgain.revision -ne $initialRevision -or $pinn
 $linkOid = Invoke-FixtureGit @('-C',$repository,'hash-object','-w','link-payload')
 Invoke-FixtureGit @('-C',$repository,'update-index','--add','--cacheinfo',('120000,'+$linkOid+',unsafe-link')) | Out-Null
 Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','unsupported tree link') | Out-Null
-& $CoopExe --root $root bucket update git --json 2> "$root/unsupported-tree-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$root/unsupported-tree-error.txt" --root $root bucket update git --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'unsafe tree was silently accepted' }
 $afterFailed = (& $CoopExe --root $root bucket list --json) | ConvertFrom-Json
 if (($afterFailed | Where-Object name -eq git).path -ne $deleted.path -or ($afterFailed | Where-Object name -eq git).revision -ne $deleted.revision) { throw 'failed refresh changed the published pointer' }
@@ -138,7 +139,7 @@ for ($attempt = 1; $attempt -le 4 -and -not $interrupted; $attempt++) {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in @('--root',$root,'bucket','update','git','--json')) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in @('--root',$root,'bucket','update','git','--json')) { Add-ProcessArgument $start ($argument) }
     $updater = [Diagnostics.Process]::Start($start)
     $updaterOutput = $updater.StandardOutput.ReadToEndAsync()
     $updaterError = $updater.StandardError.ReadToEndAsync()
@@ -149,14 +150,14 @@ for ($attempt = 1; $attempt -le 4 -and -not $interrupted; $attempt++) {
         if ($newJournal.Count) {
             $sawJournal = $true
             if ((Get-FileHash -LiteralPath $registryPath).Hash -eq $beforeCrash) {
-                $updater.Kill($true)
+                $updater.Kill()
                 $interrupted = $true
                 break
             }
         }
         Start-Sleep -Milliseconds 2
     }
-    if (-not $updater.HasExited) { $updater.Kill($true) }
+    if (-not $updater.HasExited) { $updater.Kill() }
     $updater.WaitForExit()
     $updaterOutput.GetAwaiter().GetResult() | Out-Null
     $updaterError.GetAwaiter().GetResult() | Out-Null
@@ -165,7 +166,7 @@ for ($attempt = 1; $attempt -le 4 -and -not $interrupted; $attempt++) {
 if (-not $interrupted) { throw 'Failed to observe an actual in-progress refresh interruption' }
 if ((Get-FileHash -LiteralPath $registryPath).Hash -ne $beforeCrash) { throw 'Interruption changed published registry' }
 if (-not (Test-Path -LiteralPath (Join-Path $journals 'git.json'))) { throw 'Interrupted refresh did not leave its journal' }
-$pending = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq git
+$pending = @(Get-JsonItems (& $CoopExe --root $root bucket list --json)) | Where-Object name -eq git
 if ($LASTEXITCODE -ne 0 -or $pending.refresh_pending -ne $true -or -not (Test-Path -LiteralPath $pending.refresh_journal)) { throw 'Interruption journal was not surfaced by bucket list' }
 $items = (& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 1) { throw 'Interruption broke previous query' }
@@ -173,13 +174,13 @@ $deleted = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or -not $deleted.changed) { throw 'Retry after interruption did not recover' }
 if (-not (Test-Path -LiteralPath "$sharedGit/.git") -or (Invoke-FixtureGit @('-C',$sharedGit,'rev-parse','HEAD')) -ne $deleted.revision) { throw 'Retry after interruption did not leave a usable shared bucket' }
 if (Test-Path -LiteralPath (Join-Path $journals 'git.json')) { throw 'Completed refresh left an in-progress journal' }
-$settled = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq git
+$settled = @(Get-JsonItems (& $CoopExe --root $root bucket list --json)) | Where-Object name -eq git
 if ($LASTEXITCODE -ne 0 -or $settled.refresh_pending) { throw 'Completed refresh still reports a pending journal' }
 Write-Output ('PASS actual updater process interruption, exit='+$updater.ExitCode+'; journal observed and diagnosed; old record and query retained; retry completed')
 
 $heldLock = [IO.File]::Open((Join-Path $root '.coop/write.lock'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 try {
-    & $CoopExe --root $root bucket update git --json 2> "$root/busy-error.txt" | Out-Null
+    Invoke-CoopNativeToFile $CoopExe "$root/busy-error.txt" --root $root bucket update git --json | Out-Null
     if ($LASTEXITCODE -eq 0) { throw 'Concurrent write lock was ignored' }
     $items = (& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $items.Count -ne 1) { throw 'Read query was blocked by write lock' }
@@ -191,7 +192,7 @@ Invoke-FixtureGit @('-C',$repository,'-c','user.name=CoopTest','-c','user.email=
 $beforeCommitFailure = (Get-FileHash -LiteralPath $registryPath).Hash
 $heldRegistry = [IO.File]::Open($registryPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
-    & $CoopExe --root $root bucket update git --json 2> "$root/commit-error.txt" | Out-Null
+    Invoke-CoopNativeToFile $CoopExe "$root/commit-error.txt" --root $root bucket update git --json | Out-Null
     if ($LASTEXITCODE -eq 0) { throw 'Commit sharing violation was ignored' }
     if ((Get-FileHash -LiteralPath $registryPath).Hash -ne $beforeCommitFailure) { throw 'Failed registry commit changed state' }
 } finally { $heldRegistry.Dispose() }
@@ -201,12 +202,12 @@ Write-Output 'PASS concurrent writer exclusion, readable stable state, failed at
 
 $modifiedManifest = Join-Path $deleted.path 'bucket/ripgrep.json'
 [IO.File]::AppendAllText($modifiedManifest,' ')
-& $CoopExe --root $root bucket update git --json 2> "$root/local-change-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$root/local-change-error.txt" --root $root bucket update git --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'current local modification was discarded' }
 if (-not (Get-Content -LiteralPath $modifiedManifest -Raw).EndsWith(' ')) { throw 'local modification was not preserved' }
 if ((Invoke-FixtureGit @('-C',$sharedGit,'rev-parse','HEAD')) -ne $deleted.revision) { throw 'local-change refusal moved the shared working tree revision' }
 if (-not (Test-Path -LiteralPath "$sharedGit/bucket/ripgrep.json")) { throw 'local-change refusal removed usable shared bucket files' }
-if (((& $CoopExe --root $root search ripgrep --json) | ConvertFrom-Json).Count -ne 1) { throw 'local-change refusal broke local query' }
+if (@(Get-JsonItems (& $CoopExe --root $root search ripgrep --json)).Count -ne 1) { throw 'local-change refusal broke local query' }
 Write-Output 'PASS Git library clone into shared bucket, non-default branch, in-place incremental refresh, local-change protection'
 
 # A clean local commit is not a worktree modification, but it is still local history. The refresh
@@ -219,11 +220,11 @@ $localCommitPath = $localCommitRecord.path
 Invoke-FixtureGit @('-C',$localCommitPath,'add','bucket/custom.json') | Out-Null
 Invoke-FixtureGit @('-C',$localCommitPath,'-c','user.name=CoopTest','-c','user.email=coop@example.invalid','commit','-m','local custom commit') | Out-Null
 $localCommitHead = Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')
-& $CoopExe --root $root bucket update localcommit --json 2> "$root/local-commit-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$root/local-commit-error.txt" --root $root bucket update localcommit --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'a clean local commit was silently discarded' }
 if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead) { throw 'refused refresh moved the local commit' }
 if (-not (Test-Path -LiteralPath (Join-Path $localCommitPath 'bucket/custom.json'))) { throw 'refused refresh deleted the local custom manifest' }
-$localCommitAfter = @((& $CoopExe --root $root bucket list --json) | ConvertFrom-Json) | Where-Object name -eq localcommit
+$localCommitAfter = @(Get-JsonItems (& $CoopExe --root $root bucket list --json)) | Where-Object name -eq localcommit
 if ($localCommitAfter.revision -ne $localCommitRecord.revision) { throw 'refused refresh changed the published local-commit record' }
 & $CoopExe --root $root bucket remove localcommit | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'remove of the local-commit bucket failed' }
@@ -232,7 +233,7 @@ if ($LASTEXITCODE -ne 0) { throw 're-registration of the local-commit bucket fai
 $localReadd = ($localReaddText -join "`n") | ConvertFrom-Json
 if ($localReadd.registered -ne $true -or $localReadd.adopted -ne $true -or $localReadd.revision -ne $localCommitHead) { throw 're-registration did not adopt the current local commit' }
 if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead -or -not (Test-Path -LiteralPath (Join-Path $localCommitPath 'bucket/custom.json'))) { throw 're-registration moved or deleted the local commit' }
-& $CoopExe --root $root bucket update localcommit --json 2> "$root/local-commit-readd-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$root/local-commit-readd-error.txt" --root $root bucket update localcommit --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 're-registered local commit was silently discarded by update' }
 if ((Invoke-FixtureGit @('-C',$localCommitPath,'rev-parse','HEAD')) -ne $localCommitHead) { throw 'update after re-registration moved the local commit' }
 Write-Output 'PASS clean local commit is preserved; non-fast-forward refresh is refused before and after re-registration'
@@ -244,7 +245,7 @@ if ($LASTEXITCODE -ne 0) { throw 're-registration fixture add failed' }
 $readd = ($readdText -join "`n") | ConvertFrom-Json
 & $CoopExe --root $root bucket remove readd | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'remove before re-registration failed' }
-& $CoopExe --root $root bucket update readd --json 2> "$root/removed-update-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$root/removed-update-error.txt" --root $root bucket update readd --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'updating a removed bucket silently succeeded' }
 if ((Get-Content -LiteralPath "$root/removed-update-error.txt" -Raw) -notmatch 'removed') { throw 'removed-bucket update did not explain the state' }
 $readdAgainText = & $CoopExe --root $root bucket add readd $url --branch trunk --json

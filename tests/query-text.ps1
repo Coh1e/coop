@@ -1,4 +1,4 @@
-# Red when: the default (non---json) output of `list`, `search` or `info` changes shape — the header
+﻿# Red when: the default (non---json) output of `list`, `search` or `info` changes shape — the header
 # lines, the column widths, the aligned info block, `list`'s query filter, or the empty-state warnings.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'

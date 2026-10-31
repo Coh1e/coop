@@ -1,5 +1,6 @@
-param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
+﻿param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -11,7 +12,7 @@ if (Test-Path -LiteralPath $session) { Remove-Item -LiteralPath $session -Recurs
 New-Item -ItemType Directory -Path $session -Force | Out-Null
 $standard = @('apps', 'buckets', 'cache', 'persist', 'shims')
 function Invoke-Coop([string[]]$arguments) {
-    $output = & $CoopExe @arguments 2>&1 | Out-String
+    $output = Invoke-CoopNative $CoopExe  @arguments | Out-String
     return [pscustomobject]@{ exit = $LASTEXITCODE; output = $output }
 }
 function Assert-True([bool]$condition, [string]$message) { if (-not $condition) { throw $message } }

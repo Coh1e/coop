@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -49,9 +50,9 @@ $items = (& $CoopExe --root $edge list --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or -not ($items | Where-Object name -eq legacy).diagnostics.Count) { throw 'invalid new record incorrectly fell back' }
 $items = (& $CoopExe --root $edge search broken --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $items.Count -ne 1 -or -not $items[0].diagnostics.Count) { throw 'invalid manifest was hidden' }
-& $CoopExe --root $edge info jq --json 2> "$edge/ambiguous-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$edge/ambiguous-error.txt" --root $edge info jq --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'ambiguous name was silently resolved' }
-& $CoopExe --root $edge info missing --json 2> "$edge/missing-error.txt" | Out-Null
+Invoke-CoopNativeToFile $CoopExe "$edge/missing-error.txt" --root $edge info missing --json | Out-Null
 if ($LASTEXITCODE -eq 0) { throw 'missing info succeeded' }
 
 $corpusRoot = Join-Path (Split-Path $TestRoot) 'corpus'

@@ -5,6 +5,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # anywhere in this test. Real 7-Zip 26.05 and 26.03 MSI artifacts provide the install, update,
 # persist and uninstall evidence, and a truncated artifact provides an accurate extraction failure.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -40,15 +41,15 @@ function Invoke-Process([string]$label,[string]$file,[string[]]$arguments,[hasht
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
-    $start.Environment['COOP_PROGRAMS_DIR'] = "$root/programs"
-    foreach ($key in $environment.Keys) { $start.Environment[$key] = $environment[$key] }
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
+    $start.EnvironmentVariables['COOP_PROGRAMS_DIR'] = "$root/programs"
+    foreach ($key in $environment.Keys) { $start.EnvironmentVariables[$key] = $environment[$key] }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) { $process.Kill($true); throw "$label timed out" }
+    if (-not $process.WaitForExit(600000)) { $process.Kill(); throw "$label timed out" }
     $result = @{exit=$process.ExitCode;output=$stdout.GetAwaiter().GetResult();error=$stderr.GetAwaiter().GetResult()}
     $process.Dispose()
     ++$script:runs

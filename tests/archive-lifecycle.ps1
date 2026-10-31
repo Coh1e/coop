@@ -1,5 +1,8 @@
-param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+﻿param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -33,7 +36,7 @@ function Assert-Exit([string]$message) { if ($LASTEXITCODE -ne 0) { throw $messa
 function Invoke-CoopRetry([string]$label,[string[]]$arguments) {
     $output = $null
     for ($attempt = 0; $attempt -lt 5; $attempt++) {
-        $output = & $CoopExe @arguments 2>&1
+        $output = Invoke-CoopNative $CoopExe  @arguments
         if ($LASTEXITCODE -eq 0) { return $output }
         Start-Sleep -Milliseconds 500
     }
@@ -78,7 +81,7 @@ Write-Ripgrep '15.2.0'
 $bad = Get-Content "$root/buckets/test/bucket/ripgrep.json" -Raw | ConvertFrom-Json
 $bad.architecture.'64bit'.hash = '0'*64
 $bad | ConvertTo-Json -Depth 8 | Set-Content "$root/buckets/test/bucket/ripgrep.json" -Encoding utf8
-$failed = & $CoopExe --root $root update ripgrep --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root update ripgrep --json
 if ($LASTEXITCODE -eq 0) { throw 'ZIP hash mismatch update unexpectedly succeeded' }
 $version = First-Version (& "$root/shims/rg.exe" --version)
 if ($version -notlike 'ripgrep 14.1.1*' -or (Test-Path "$root/apps/ripgrep/15.2.0")) { throw 'ZIP preparation failure damaged the current version' }
@@ -157,7 +160,7 @@ Assert-Exit 'nested ZIP uninstall failed'
 # A declared extract_dir that the archive does not contain fails explicitly and publishes nothing.
 $root = New-TestRoot
 Write-Manifest $root 'missing-extract' @{version='1.0.0';architecture=@{'64bit'=@{url=(File-Uri $rg15);hash='71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5';extract_dir='missing-dir'}};bin='rg.exe'}
-$missingExtract = & $CoopExe --root $root install test/missing-extract --json 2>&1
+$missingExtract = Invoke-CoopNative $CoopExe  --root $root install test/missing-extract --json
 if ($LASTEXITCODE -eq 0) { throw "a missing extract_dir unexpectedly installed: $($missingExtract -join "`n")" }
 if (Test-Path "$root/apps/missing-extract/current") { throw 'a missing extract_dir published a current link' }
 
@@ -182,7 +185,7 @@ if (-not (Test-Path "$root/apps/luajit/current/bin/luajit.exe") -or (Test-Path "
 $badZst = Join-Path $root 'bad.tar.zst'
 [IO.File]::WriteAllBytes($badZst,[byte[]](1..512 | ForEach-Object { $_ % 251 }))
 Write-Manifest $root 'luajit' @{version='2.1.999';architecture=@{'64bit'=@{url=(File-Uri $badZst);hash=(Get-FileHash -LiteralPath $badZst -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
-$failed = & $CoopExe --root $root update luajit --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root update luajit --json
 if ($LASTEXITCODE -eq 0) { throw 'corrupt tar.zst update unexpectedly succeeded' }
 $luajitOutput = (& "$root/shims/luajit.exe" -v) -join "`n"
 if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1' -or (Test-Path "$root/apps/luajit/2.1.999")) { throw 'corrupt tar.zst update damaged the current version' }

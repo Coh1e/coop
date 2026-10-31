@@ -3,6 +3,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # known pace, so the download share is measurable and the local share is what is left. The identity
 # total = download + local is what makes the two numbers comparable with another client later.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not (($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase))) { throw 'Test root outside project' }
@@ -45,8 +46,10 @@ try {
 } finally { `$listener.Stop() }
 "@
 [IO.File]::WriteAllText($serverScript,$serverBody,[Text.UTF8Encoding]::new($false))
-$pwshPath = [Environment]::ProcessPath
-$serverProcess = Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
+$pwshPath = (Get-Process -Id $PID).Path
+# ExecutionPolicy is passed explicitly: the helper script lives under .local, and Windows PowerShell
+# 5.1 refuses to run an unsigned script from that path under RemoteSigned.
+$serverProcess = Start-Process -FilePath $pwshPath -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$serverScript+'"')) -PassThru -WindowStyle Hidden
 $deadline = (Get-Date).AddSeconds(15)
 while ((Get-Date) -lt $deadline) {
     try { $probe = [Net.Sockets.TcpClient]::new('127.0.0.1',$port); $probe.Close(); break } catch { Start-Sleep -Milliseconds 100 }
@@ -59,13 +62,13 @@ function Invoke-Coop([string[]]$arguments) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+    if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
     $result = [pscustomobject]@{ exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
     $process.Dispose()
@@ -85,7 +88,7 @@ try {
     $clock.Stop()
     if ($install.exit -ne 0) { throw "the install failed: $($install.error)$($install.output)" }
 } finally {
-    if ($serverProcess -and -not $serverProcess.HasExited) { $serverProcess.Kill($true) }
+    if ($serverProcess -and -not $serverProcess.HasExited) { $serverProcess.Kill() }
 }
 
 # A --json run must stay parseable with --timings: the summary is human output only.

@@ -3,6 +3,7 @@
 # from the service response.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -40,13 +41,13 @@ try {
     if ($manifest.version -cne '1.2.3') { throw "create guessed version '$($manifest.version)'" }
     if ($manifest.url -cne 'https://example.com/tool-1.2.3-win64.zip') { throw 'create lost the URL' }
     if ($manifest.hash -cne '') { throw 'create invented a hash' }
-    & $CoopExe create 2>&1 | Out-Null
+    Invoke-CoopNative $CoopExe  create | Out-Null
     if ($LASTEXITCODE -cne 2) { throw "create without a URL exited $LASTEXITCODE" }
-    & $CoopExe create 'not-a-url' 2>&1 | Out-Null
+    Invoke-CoopNative $CoopExe  create 'not-a-url' | Out-Null
     if ($LASTEXITCODE -cne 1) { throw "create with a bad URL exited $LASTEXITCODE" }
 
     # virustotal: refuses to run without a key, then reports the counts from the service.
-    $refusal = & $CoopExe --root $root virustotal demo 2>&1
+    $refusal = Invoke-CoopNative $CoopExe  --root $root virustotal demo
     if ($LASTEXITCODE -cne 1 -or ($refusal -join '|') -cnotmatch 'API key is not configured') {
         throw "an unconfigured lookup said '$($refusal -join ' | ')'"
     }
@@ -64,7 +65,7 @@ try {
     @'
 { "version": "1.0", "url": "https://example.com/plain.exe", "hash": "md5:00000000000000000000000000000000" }
 '@ | Set-Content "$root/buckets/main/bucket/plain.json" -Encoding utf8 -NoNewline
-    $refusal = & $CoopExe --root $root virustotal plain 2>&1
+    $refusal = Invoke-CoopNative $CoopExe  --root $root virustotal plain
     if ($LASTEXITCODE -cne 1 -or ($refusal -join '|') -cnotmatch 'no SHA256 digest') { throw "a hashless package said '$($refusal -join ' | ')'" }
 
     # The key may come from the environment for a one-off run, without writing it to the shared config.

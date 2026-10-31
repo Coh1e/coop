@@ -1,5 +1,8 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -76,7 +79,7 @@ function New-ZipPackage([string]$path,[System.Collections.IDictionary]$entries) 
     } finally { $zip.Dispose(); $stream.Dispose() }
 }
 function Invoke-Coop([string[]]$arguments) {
-    $output = & $CoopExe @arguments 2>&1 | Out-String
+    $output = Invoke-CoopNative $CoopExe  @arguments | Out-String
     return [pscustomobject]@{code=$LASTEXITCODE;text=$output}
 }
 function CoopJson([string[]]$arguments) {

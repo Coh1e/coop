@@ -1,5 +1,15 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+# System.Formats.Tar (used below to build symlink/hardlink fixtures) ships with .NET 7+; Windows
+# PowerShell 5.1 runs on .NET Framework 4.8 and does not have it. Hand-building the tar would test our
+# tar writer rather than coop, so the suite is skipped there and says so.
+if ($null -eq ('System.Formats.Tar.TarWriter' -as [type])) {
+    Write-Output 'archive safety: SKIPPED (System.Formats.Tar needs .NET 7+, absent in Windows PowerShell 5.1)'
+    exit 0
+}
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -57,7 +67,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $bad = Join-Path $fixtures 'bad.zip'
 [IO.File]::WriteAllBytes($bad,[byte[]](1..256 | ForEach-Object { $_ % 251 }))
 Write-Manifest $root 'bad' @{version='1';url=(File-Uri $bad);hash=(Get-FileHash $bad -Algorithm SHA256).Hash.ToLower();bin='bad.exe'}
-$output = & $CoopExe --root $root install test/bad --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/bad --json
 Assert-Failed 'bad archive install unexpectedly succeeded' ($output -join "`n")
 if ((Test-Path "$root/apps/bad/current") -or (Test-Path "$root/.coop/packages/bad.json") -or (Test-Path "$root/shims/bad.exe")) { throw 'bad archive published state' }
 
@@ -66,7 +76,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $missing = Join-Path $fixtures 'missing.zip'
 New-Zip $missing @{'other.txt'=[Text.Encoding]::UTF8.GetBytes('not the command')}
 Write-Manifest $root 'missing' @{version='1';url=(File-Uri $missing);hash=(Get-FileHash $missing -Algorithm SHA256).Hash.ToLower();bin='missing.exe'}
-$output = & $CoopExe --root $root install test/missing --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/missing --json
 Assert-Failed 'archive without command target unexpectedly succeeded' ($output -join "`n")
 if (($output -join "`n") -notmatch 'Command entry target is missing') { throw 'missing command target was not reported clearly' }
 if ((Test-Path "$root/apps/missing/current") -or (Test-Path "$root/.coop/packages/missing.json")) { throw 'missing command target published state' }
@@ -77,7 +87,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $traversal = Join-Path $fixtures 'traversal.zip'
 New-Zip $traversal @{'../escape.exe'=[IO.File]::ReadAllBytes($fixture1)}
 Write-Manifest $root 'traversal' @{version='1';url=(File-Uri $traversal);hash=(Get-FileHash $traversal -Algorithm SHA256).Hash.ToLower();bin='escape.exe'}
-$output = & $CoopExe --root $root install test/traversal --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/traversal --json
 Assert-Failed 'path traversal archive unexpectedly succeeded' ($output -join "`n")
 if (($output -join "`n") -notmatch 'path|Unsafe|Invalid') { throw 'path traversal was not reported clearly' }
 if ((Test-Path "$root/apps/traversal/current") -or (Test-Path "$root/.coop/packages/traversal.json") -or (Test-Path "$root/escape.exe") -or (Test-Path "$TestRoot/escape.exe")) { throw 'path traversal escaped its package destination' }
@@ -87,7 +97,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $link = Join-Path $fixtures 'link.tar'
 New-LinkTar $link
 Write-Manifest $root 'link' @{version='1';url=(File-Uri $link);hash=(Get-FileHash $link -Algorithm SHA256).Hash.ToLower();bin='evil.exe'}
-$output = & $CoopExe --root $root install test/link --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/link --json
 Assert-Failed 'link archive unexpectedly succeeded' ($output -join "`n")
 if (($output -join "`n") -notmatch 'link') { throw 'link entry was not reported clearly' }
 if ((Test-Path "$root/apps/link/current") -or (Test-Path "$root/.coop/packages/link.json") -or (Test-Path "$root/evil.exe") -or (Test-Path "$TestRoot/evil.exe")) { throw 'link entry escaped its package destination' }
@@ -97,7 +107,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $hard = Join-Path $fixtures 'hardlink.tar'
 New-HardLinkTar $hard
 Write-Manifest $root 'hardlink' @{version='1';url=(File-Uri $hard);hash=(Get-FileHash $hard -Algorithm SHA256).Hash.ToLower();bin='hard.exe'}
-$output = & $CoopExe --root $root install test/hardlink --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/hardlink --json
 Assert-Failed 'hardlink archive unexpectedly succeeded' ($output -join "`n")
 if (($output -join "`n") -notmatch 'link') { throw 'hardlink entry was not reported clearly' }
 if ((Test-Path "$root/apps/hardlink/current") -or (Test-Path "$root/.coop/packages/hardlink.json")) { throw 'hardlink entry published state' }
@@ -114,7 +124,7 @@ $fixtures = Join-Path $root 'fixtures'; New-Item -ItemType Directory -Path $fixt
 $link = Join-Path $fixtures 'link.tar'
 New-LinkTar $link
 Write-Ripgrep '15.2.0' (File-Uri $link) (Get-FileHash $link -Algorithm SHA256).Hash.ToLower()
-$output = & $CoopExe --root $root update ripgrep --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root update ripgrep --json
 Assert-Failed 'link archive update unexpectedly succeeded' ($output -join "`n")
 $version = First-Version (& "$root/shims/rg.exe" --version)
 if ($version -notlike 'ripgrep 14.1.1*') { throw 'rejected archive update changed the current entry' }
@@ -128,7 +138,7 @@ $brokenMsi = Join-Path $root 'fixtures/broken.msi'
 New-Item -ItemType Directory -Path (Split-Path $brokenMsi) -Force | Out-Null
 [IO.File]::WriteAllText($brokenMsi,'this is not an installer database',[Text.UTF8Encoding]::new($false))
 Write-Manifest $root 'msi' @{version='1';url=(File-Uri $brokenMsi);hash=(Get-FileHash -LiteralPath $brokenMsi -Algorithm SHA256).Hash.ToLower();bin='setup.exe'}
-$output = & $CoopExe --root $root install test/msi --json 2>&1
+$output = Invoke-CoopNative $CoopExe  --root $root install test/msi --json
 Assert-Failed 'corrupt MSI archive unexpectedly succeeded' ($output -join "`n")
 if (($output -join "`n") -notmatch 'MSI database') { throw 'corrupt MSI failure was not reported clearly' }
 if ((Test-Path "$root/apps/msi/current") -or (Test-Path "$root/.coop/packages/msi.json")) { throw 'corrupt MSI published state' }
@@ -152,7 +162,7 @@ try {
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in @('--root',$root,'update','ripgrep','--json')) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in @('--root',$root,'update','ripgrep','--json')) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
     if (-not $connection.Wait(15000)) { throw 'archive downloader did not connect to local listener' }
     $client = $connection.GetAwaiter().GetResult()
@@ -178,7 +188,7 @@ try {
     if ($journalState -ne 'pending') { throw "interrupted archive update journal is $journalState, not pending" }
     $query = & $CoopExe --root $root list --json
     if ($LASTEXITCODE -ne 0) { throw 'pending archive writer blocked read-only query' }
-    $retry = & $CoopExe --root $root update ripgrep --json 2>&1
+    $retry = Invoke-CoopNative $CoopExe  --root $root update ripgrep --json
     if ($LASTEXITCODE -eq 0 -or ($retry -join "`n") -notmatch 'Pending transaction requires recovery') { throw 'pending archive transaction was silently ignored' }
 } finally {
     if ($client) { $client.Dispose() }

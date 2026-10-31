@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -20,12 +21,12 @@ $metadata = [IO.File]::ReadAllText($metadataPath)
 $foreign = [IO.Path]::GetFullPath("$root/shims/foreign.exe")
 $changed = [regex]::Replace($metadata,'path = "[^"]*"',('path = "'+$foreign+'"'))
 [IO.File]::WriteAllText($metadataPath,$changed)
-$failed = & $CoopExe --root $root uninstall fixture --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root uninstall fixture --json
 if ($LASTEXITCODE -eq 0 -or -not (Test-Path "$root/apps/fixture/current/fixture.exe")) { throw 'changed command ownership ignored' }
 [IO.File]::WriteAllText($metadataPath,$metadata)
 $lock = [IO.File]::Open("$root/shims/fixture.exe",[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
-    $failed = & $CoopExe --root $root uninstall fixture --json 2>&1
+    $failed = Invoke-CoopNative $CoopExe  --root $root uninstall fixture --json
     if ($LASTEXITCODE -eq 0) { throw 'locked command entry unexpectedly removed' }
     if (-not (Test-Path "$root/apps/fixture/current/fixture.exe") -or -not (Test-Path "$root/.coop/packages/fixture.json")) { throw 'uninstall rollback lost current or management' }
 } finally { $lock.Dispose() }
@@ -35,11 +36,11 @@ if ((Test-Path "$root/apps/fixture/current") -or (Test-Path "$root/shims/fixture
 $bad = $manifest | ConvertFrom-Json
 $bad.hash = '0'*64
 $bad | ConvertTo-Json -Depth 5 | Set-Content "$root/buckets/test/bucket/fixture.json" -Encoding utf8
-$failed = & $CoopExe --root $root install test/fixture --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root install test/fixture --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/fixture/current") -or (Test-Path "$root/.coop/packages/fixture.json")) { throw 'bad hash published a successful install' }
 [IO.File]::WriteAllText("$root/buckets/test/bucket/fixture.json",$manifest)
 'another package' | Set-Content "$root/shims/fixture.exe" -Encoding utf8
-$failed = & $CoopExe --root $root install test/fixture --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root install test/fixture --json
 if ($LASTEXITCODE -eq 0 -or (Get-Content "$root/shims/fixture.exe") -ne 'another package') { throw 'command conflict overwritten' }
 $journals = @(Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
 if ('pending' -in $journals.state -or 'rolled-back' -notin $journals.state -or 'committed' -notin $journals.state) { throw 'journal state inaccurate' }

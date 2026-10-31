@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -8,7 +9,7 @@ $fixture2 = Join-Path (Split-Path $CoopExe) 'fixture-2.exe'
 $persist1 = Join-Path (Split-Path $CoopExe) 'persist-fixture-1.exe'
 $persist2 = Join-Path (Split-Path $CoopExe) 'persist-fixture-2.exe'
 function Run-Json([string[]]$Arguments) {
-    $text = & $CoopExe @Arguments 2>&1
+    $text = Invoke-CoopNative $CoopExe  @Arguments
     $code = $LASTEXITCODE
     $value = $null
     $joined = $text -join "`n"

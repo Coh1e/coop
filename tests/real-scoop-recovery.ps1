@@ -9,6 +9,7 @@ param(
 # block. Existing installations, buckets, configuration, records and stores are not modified or
 # deleted; recovery is always scoped to the test package.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
@@ -46,12 +47,12 @@ function Invoke-CoopFault([string]$name,[string[]]$arguments) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = $ScoopRoot
-    foreach ($argument in @('--root',$ScoopRoot)+$arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['COOP_ALLOW_TEST_FAULTS'] = '1'
+    foreach ($argument in @('--root',$ScoopRoot)+$arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['COOP_ALLOW_TEST_FAULTS'] = '1'
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) { $process.Kill($true); throw "$name timed out" }
+    if (-not $process.WaitForExit(600000)) { $process.Kill(); throw "$name timed out" }
     $output = $stdout.GetAwaiter().GetResult(); $errorText = $stderr.GetAwaiter().GetResult()
     $result = [pscustomobject]@{exit=$process.ExitCode;output=$output;error=$errorText}
     $process.Dispose()

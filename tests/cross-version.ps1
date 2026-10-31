@@ -6,6 +6,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # out of the default CTest suite until the feature exists: it is the acceptance for the ticket, not a
 # green test.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not (($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase))) { throw 'Test root outside project' }
@@ -34,16 +35,16 @@ function Invoke-Coop([string[]]$arguments,[hashtable]$environment = @{}) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     # Shortcuts normally land in the real Start Menu; the override keeps them inside the test root.
-    $start.Environment['COOP_PROGRAMS_DIR'] = "$root/programs"
-    foreach ($key in $environment.Keys) { $start.Environment[$key] = $environment[$key] }
+    $start.EnvironmentVariables['COOP_PROGRAMS_DIR'] = "$root/programs"
+    foreach ($key in $environment.Keys) { $start.EnvironmentVariables[$key] = $environment[$key] }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+    if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
     $result = [pscustomobject]@{ exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
     $process.Dispose()
@@ -61,7 +62,7 @@ if (-not (Test-Path -LiteralPath "$root/apps/app/1.0.0")) { throw 'the install r
 if (-not (Test-Path -LiteralPath "$root/apps/app/2.0.0")) { throw 'the install did not create the new version' }
 $target = (Get-Item -LiteralPath "$root/apps/app/current").Target
 if ($target -notmatch '2\.0\.0') { throw "current does not point at the new version: $target" }
-$run = & "$root/shims/binapp.exe" --version 2>&1
+$run = Invoke-CoopNative "$root/shims/binapp.exe"  --version
 if (($run -join ' ') -notmatch '5\.8\.0') { throw "the replaced entry does not run: $run" }
 $cleanup = Invoke-Coop @('--root',$root,'cleanup')
 if ($cleanup.exit -ne 0) { throw "cleanup failed after a cross-version install: $($cleanup.error)$($cleanup.output)" }
@@ -108,7 +109,7 @@ $afterRecovery = (Get-Item -LiteralPath "$root/apps/crashy/current").Target
 if ($afterRecovery -notmatch '1\.0\.0') { throw "recovery did not restore the old current: $afterRecovery" }
 if (-not (Test-Path -LiteralPath "$root/apps/crashy/1.0.0")) { throw 'recovery lost the old version' }
 if (Test-Path -LiteralPath "$root/apps/crashy/2.0.0") { throw 'recovery left the half-published version behind' }
-$entry = & "$root/shims/bincrashy.exe" --version 2>&1
+$entry = Invoke-CoopNative "$root/shims/bincrashy.exe"  --version
 if (($entry -join ' ') -notmatch '5\.8\.0') { throw "the restored entry does not run: $($entry -join ' ')" }
 
 # 4. A package whose Manifest declares a shortcut installs across versions: the old shortcut belongs to

@@ -4,6 +4,7 @@ param(
     [int]$Runs = 7
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) {
@@ -24,7 +25,7 @@ function Invoke-Measured([string[]]$Arguments) {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    foreach ($argument in $Arguments) { Add-ProcessArgument $startInfo ($argument) }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $process = [Diagnostics.Process]::Start($startInfo)
     $stdout = $process.StandardOutput.ReadToEndAsync()
@@ -144,9 +145,9 @@ for ($index = 0; $index -lt $Runs; $index++) {
     $startInfo = [Diagnostics.ProcessStartInfo]::new((Join-Path $env:SystemRoot 'System32/cmd.exe'))
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
-    $startInfo.ArgumentList.Add('/d')
-    $startInfo.ArgumentList.Add('/c')
-    $startInfo.ArgumentList.Add('exit 0')
+    Add-ProcessArgument $startInfo ('/d')
+    Add-ProcessArgument $startInfo ('/c')
+    Add-ProcessArgument $startInfo ('exit 0')
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $process = [Diagnostics.Process]::Start($startInfo)
     $process.WaitForExit()
@@ -173,20 +174,20 @@ foreach ($count in 25, 100) {
 # malformed manifests must survive indexing, and a query must not modify bucket source files.
 $info = Invoke-Measured @('--root', $indexRoots[1500], 'info', 'main/pkg00777', '--json')
 Assert ($info.exit -eq 0) "indexed info failed: $($info.error)"
-Assert (@($info.output | ConvertFrom-Json)[0].version -eq '1.17.0') 'indexed info returned a wrong version'
+Assert (@(Get-JsonItems $info.output)[0].version -eq '1.17.0') 'indexed info returned a wrong version'
 $search = Invoke-Measured @('--root', $indexRoots[1500], 'search', 'pkg00777', '--json')
-$searchItems = @($search.output | ConvertFrom-Json)
+$searchItems = @(Get-JsonItems $search.output)
 Assert ($search.exit -eq 0 -and $searchItems.Count -eq 1 -and $searchItems[0].name -eq 'pkg00777') 'indexed search returned wrong results'
-$scanned = @((Invoke-Measured @('--root', $scanRoots[1500], 'search', 'pkg00777', '--json')).output | ConvertFrom-Json)
+$scanned = @(Get-JsonItems (Invoke-Measured @('--root', $scanRoots[1500], 'search', 'pkg00777', '--json')).output)
 $facts = { param($item) [pscustomobject]@{ name=$item.name; version=$item.version; bucket=$item.bucket; description=$item.description } }
 Assert (((& $facts $scanned[0]) | ConvertTo-Json -Compress) -eq ((& $facts $searchItems[0]) | ConvertTo-Json -Compress)) 'scan and index results differ'
-$broken = @((Invoke-Measured @('--root', $indexRoots[200], 'search', 'broken', '--json')).output | ConvertFrom-Json)
+$broken = @(Get-JsonItems (Invoke-Measured @('--root', $indexRoots[200], 'search', 'broken', '--json')).output)
 Assert ($broken.Count -eq 1 -and @($broken[0].diagnostics).Count -eq 1) 'indexed search hid a malformed manifest diagnostic'
 $sourceSnapshot = @(Get-ChildItem -LiteralPath $sources[1500] -Recurse -File | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash })
 $queryRegistry = Join-Path $indexRoots[1500] '.coop/buckets.json'
 $queryRegistryHash = (Get-FileHash -LiteralPath $queryRegistry).Hash
 $noMatch = Invoke-Measured @('--root', $indexRoots[1500], 'search', 'absent-package-query', '--json')
-Assert (@($noMatch.output | ConvertFrom-Json).Count -eq 0) 'search no-match returned a package'
+Assert (@((ConvertFrom-Json $noMatch.output) | ForEach-Object { $_ }).Count -eq 0) 'search no-match returned a package'
 $sourceAfter = @(Get-ChildItem -LiteralPath $sources[1500] -Recurse -File | ForEach-Object { $_.FullName + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash })
 Assert (@(Compare-Object $sourceSnapshot $sourceAfter).Count -eq 0) 'query modified bucket source files'
 Assert ((Get-FileHash -LiteralPath $queryRegistry).Hash -eq $queryRegistryHash) 'query rewrote the bucket registry'
@@ -200,13 +201,13 @@ $entry = @($index.entries | Where-Object name -eq 'pkg00777')[0]
 $entry.version = '9.9.9-index-hit'
 $index | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $indexPath -Encoding utf8
 $hit = Invoke-Measured @('--root', $indexRoots[1500], 'info', 'main/pkg00777', '--json')
-Assert (@($hit.output | ConvertFrom-Json)[0].version -eq '9.9.9-index-hit') 'validated index entry was not used'
+Assert (@(Get-JsonItems $hit.output)[0].version -eq '9.9.9-index-hit') 'validated index entry was not used'
 # A changed local manifest invalidates the fingerprint; the query falls back to the files.
 $changedManifest = Join-Path $sources[1500] 'bucket/pkg00777.json'
 $manifestText = Get-Content -LiteralPath $changedManifest -Raw
 [IO.File]::WriteAllText($changedManifest, ($manifestText -replace '"version":\s*"1\.17\.0"', '"version": "2.17.0"'))
 $fallback = Invoke-Measured @('--root', $indexRoots[1500], 'info', 'main/pkg00777', '--json')
-Assert (@($fallback.output | ConvertFrom-Json)[0].version -eq '2.17.0') 'stale local index did not fall back to source files'
+Assert (@(Get-JsonItems $fallback.output)[0].version -eq '2.17.0') 'stale local index did not fall back to source files'
 $rebuilt = Invoke-Measured @('--root', $indexRoots[1500], 'bucket', 'update', 'main', '--json')
 Assert ($rebuilt.exit -eq 0) "local bucket update failed: $($rebuilt.error)"
 $rebuiltIndex = Get-Content -LiteralPath $indexPath -Raw | ConvertFrom-Json
@@ -214,13 +215,13 @@ Assert ((@($rebuiltIndex.entries | Where-Object name -eq 'pkg00777')[0]).version
 # Corruption is never fatal: the query scans the published files instead.
 [IO.File]::WriteAllText($indexPath, 'not json')
 $corrupt = Invoke-Measured @('--root', $indexRoots[1500], 'info', 'main/pkg00777', '--json')
-Assert ($corrupt.exit -eq 0 -and @($corrupt.output | ConvertFrom-Json)[0].version -eq '2.17.0') 'corrupt index did not fall back to files'
+Assert ($corrupt.exit -eq 0 -and @(Get-JsonItems $corrupt.output)[0].version -eq '2.17.0') 'corrupt index did not fall back to files'
 $repaired = Invoke-Measured @('--root', $indexRoots[1500], 'bucket', 'update', 'main', '--json')
 Assert ($repaired.exit -eq 0) 'index repair update failed'
 
 # List contract: package counts and old-version evidence remain visible after optimization.
-$listed25 = @((Invoke-Measured @('--root', (Join-Path $TestRoot 'installed-25'), 'list', '--json')).output | ConvertFrom-Json)
-$listed100 = @((Invoke-Measured @('--root', (Join-Path $TestRoot 'installed-100'), 'list', '--json')).output | ConvertFrom-Json)
+$listed25 = @(Get-JsonItems (Invoke-Measured @('--root', (Join-Path $TestRoot 'installed-25'), 'list', '--json')).output)
+$listed100 = @(Get-JsonItems (Invoke-Measured @('--root', (Join-Path $TestRoot 'installed-100'), 'list', '--json')).output)
 Assert ($listed25.Count -eq 25 -and $listed100.Count -eq 100) 'list hid installed packages'
 $withOld = @($listed100 | Where-Object { @($_.old_versions).Count -gt 0 })
 Assert ($withOld.Count -eq 25) 'list omitted old-version evidence'
@@ -238,13 +239,13 @@ function Invoke-FixtureGit([string[]]$Arguments) {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.Environment['GIT_CONFIG_GLOBAL'] = $gitConfig
-    $startInfo.Environment['GIT_CONFIG_SYSTEM'] = $gitConfig
-    $startInfo.Environment['GIT_CONFIG_NOSYSTEM'] = '1'
-    $startInfo.Environment['XDG_CONFIG_HOME'] = $gitTemplates
-    $startInfo.ArgumentList.Add('-c')
-    $startInfo.ArgumentList.Add('core.hooksPath=' + $gitTemplates)
-    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    $startInfo.EnvironmentVariables['GIT_CONFIG_GLOBAL'] = $gitConfig
+    $startInfo.EnvironmentVariables['GIT_CONFIG_SYSTEM'] = $gitConfig
+    $startInfo.EnvironmentVariables['GIT_CONFIG_NOSYSTEM'] = '1'
+    $startInfo.EnvironmentVariables['XDG_CONFIG_HOME'] = $gitTemplates
+    Add-ProcessArgument $startInfo ('-c')
+    Add-ProcessArgument $startInfo ('core.hooksPath=' + $gitTemplates)
+    foreach ($argument in $Arguments) { Add-ProcessArgument $startInfo ($argument) }
     $process = [Diagnostics.Process]::Start($startInfo)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
@@ -293,7 +294,7 @@ Assert ($changedRecord.changed -eq $true -and $changedRecord.refresh_kind -eq 'c
 Assert ((Invoke-FixtureGit @('-C', $firstRecord.path, 'rev-parse', 'HEAD')) -eq $changedRecord.revision) 'shared working tree did not advance to the new revision'
 Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash -ne $gitIndexHashBefore) 'changed refresh did not rebuild the search index'
 $newPackage = Invoke-Measured @('--root', $gitRoot, 'info', 'main/pkg09999', '--json')
-Assert ($newPackage.exit -eq 0 -and @($newPackage.output | ConvertFrom-Json)[0].version -eq '3.0.0') 'new revision is not queryable'
+Assert ($newPackage.exit -eq 0 -and @(Get-JsonItems $newPackage.output)[0].version -eq '3.0.0') 'new revision is not queryable'
 Assert ((Get-FileHash -LiteralPath (Join-Path $firstRecord.path 'bucket/pkg00042.json') -Algorithm SHA256).Hash -eq $unchangedManifestBefore.Hash) 'in-place refresh modified an unrelated manifest'
 $measurements.Add((Measure-Coop 'info-git-index-1500' 50 @('--root', $gitRoot, 'info', 'main/pkg00042', '--json')))
 $measurements.Add((Measure-Coop 'search-git-index-1500' 100 @('--root', $gitRoot, 'search', 'pkg00042', '--json')))

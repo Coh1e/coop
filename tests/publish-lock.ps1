@@ -2,6 +2,7 @@
 # fails while an antivirus-style handle is still open on the tree being replaced.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -37,7 +38,7 @@ $holder = Start-Job -ScriptBlock {
 } -ArgumentList $victim
 Start-Sleep -Milliseconds 700
 
-$install = & $CoopExe --root $root update held -f 2>&1
+$install = Invoke-CoopNative $CoopExe  --root $root update held -f
 $code = $LASTEXITCODE
 Wait-Job $holder -Timeout 30 | Out-Null
 Remove-Job $holder -Force

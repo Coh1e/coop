@@ -4,6 +4,7 @@ param(
     [string]$ScoopRoot = 'C:\Users\Neo\scoop'
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
 New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
 $CoopExe = [IO.Path]::GetFullPath($CoopExe)
@@ -18,7 +19,7 @@ $env:COOP_PROCESS_GUARD_TIMEOUT_MS = '120000'
 $temporaryPackages = @('coop-r05-zip','coop-r05-targz','coop-r05-7z','coop-r05-shared')
 function Run([string]$name,[string]$exe,[string[]]$arguments) {
     $log = Join-Path $EvidenceDir (($name -replace '[\\/:*?"<>|]','-')+'.log')
-    $output = & $exe @arguments 2>&1 | Out-String
+    $output = Invoke-CoopNative $exe  @arguments | Out-String
     $exit = $LASTEXITCODE
     Set-Content -LiteralPath $log -Value $output -Encoding utf8
     $commands.Add([pscustomobject]@{name=$name;exe=$exe;arguments=$arguments;exit=$exit;log=$log})

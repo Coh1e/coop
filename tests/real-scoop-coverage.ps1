@@ -28,6 +28,7 @@ param(
 # a supplied cohort facts file whose installed Manifest still has the same SHA256 as the
 # denominator Manifest and whose recorded program run succeeded.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $ProgressPreference = 'SilentlyContinue'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\') + '\'
 foreach ($location in @($CoopExe,$ScoopRoot,$EvidenceDir,$InventoryRoot)) {
@@ -128,7 +129,7 @@ function Get-BucketRecords([string]$Root) {
     return @((Get-Content -LiteralPath $registry -Raw | ConvertFrom-Json))
 }
 function Invoke-Coop([string[]]$Arguments,[string]$Label) {
-    $output = & $CoopExe @Arguments 2>&1
+    $output = Invoke-CoopNative $CoopExe  @Arguments
     $code = $LASTEXITCODE
     $script:CommandLines.Add(('{0} :: coop {1} :: exit={2}' -f $Label,($Arguments -join ' '),$code))
     return [pscustomobject]@{ exit = $code; text = ($output -join "`n") }

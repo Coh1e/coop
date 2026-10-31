@@ -5,6 +5,7 @@ param(
 # Read-only verification against the human-selected real Scoop installation. This script performs no
 # package operations: it only queries and previews, and proves that no shared state was written.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
 $allowed = [IO.Path]::GetFullPath((Join-Path $projectRoot '.local')).TrimEnd('\') + '\'
@@ -17,7 +18,7 @@ function Get-RootSnapshot([string]$Path) {
     })
 }
 function Invoke-Coop([string[]]$Arguments) {
-    $output = & $CoopExe @Arguments 2>&1
+    $output = Invoke-CoopNative $CoopExe  @Arguments
     [pscustomobject]@{ code = $LASTEXITCODE; text = ($output -join "`n") }
 }
 $started = [DateTime]::UtcNow.ToString('o')

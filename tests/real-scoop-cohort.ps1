@@ -40,6 +40,7 @@ param(
     [string]$ScoopRemovePackage = ''
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $ProgressPreference = 'SilentlyContinue'
 
 $CoopExe = [IO.Path]::GetFullPath($CoopExe)
@@ -81,7 +82,7 @@ function Invoke-Tool {
     )
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
     $log = Join-Path $LogDir ($Name + '.log')
-    $output = & $Exe @Arguments 2>&1 | Out-String
+    $output = Invoke-CoopNative $Exe  @Arguments | Out-String
     $code = $LASTEXITCODE
     $header = '$ ' + $Exe + ' ' + ($Arguments -join ' ')
     $body = $header + [Environment]::NewLine + $output + [Environment]::NewLine + 'exit=' + $code

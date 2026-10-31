@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -17,7 +18,7 @@ try {
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in @('--root',$root,'install','test/fixture','--json')) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in @('--root',$root,'install','test/fixture','--json')) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
     if (-not $connection.Wait(15000)) { throw 'native downloader did not connect to local listener' }
     $client = $connection.GetAwaiter().GetResult()
@@ -26,7 +27,7 @@ try {
     $process.Kill()
     $process.WaitForExit()
     if ((Test-Path "$root/apps/fixture/current") -or (Test-Path "$root/.coop/packages/fixture.json")) { throw 'interrupted install published success' }
-    $retry = & $CoopExe --root $root install test/fixture --json 2>&1
+    $retry = Invoke-CoopNative $CoopExe  --root $root install test/fixture --json
     if ($LASTEXITCODE -eq 0 -or ($retry -join "`n") -notlike '*Pending transaction requires recovery*') { throw 'pending transaction was silently ignored' }
     $query = & $CoopExe --root $root list --json
     if ($LASTEXITCODE -ne 0) { throw 'pending writer blocked read-only query' }

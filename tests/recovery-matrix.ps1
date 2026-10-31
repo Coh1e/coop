@@ -8,6 +8,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # changes files and registry values as a later user/Scoop operation would, then checks that
 # recovery diagnoses the conflict instead of deleting or overwriting it.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -61,16 +62,16 @@ function Invoke-Coop([string]$label,[string]$root,[string[]]$arguments,[hashtabl
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = $root
-    foreach ($argument in @('--root',$root)+$arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in @('--root',$root)+$arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     # Two-key engineering switch: the environment token enables reading an existing fault file.
-    $start.Environment['COOP_ALLOW_TEST_FAULTS'] = '1'
-    foreach ($key in $environment.Keys) { $start.Environment[$key] = $environment[$key] }
+    $start.EnvironmentVariables['COOP_ALLOW_TEST_FAULTS'] = '1'
+    foreach ($key in $environment.Keys) { $start.EnvironmentVariables[$key] = $environment[$key] }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) { $process.Kill($true); throw "$label timed out" }
+    if (-not $process.WaitForExit(600000)) { $process.Kill(); throw "$label timed out" }
     $result = @{exit=$process.ExitCode;output=$stdout.GetAwaiter().GetResult();error=$stderr.GetAwaiter().GetResult()}
     $process.Dispose()
     Set-Content -LiteralPath "$root/run-$label.json" -Value ($result | ConvertTo-Json -Depth 5) -Encoding utf8
@@ -106,7 +107,7 @@ function List-Entry([string]$root,[string]$name) {
 }
 function Assert-Runs([string]$label,[string]$executable,[string]$expected) {
     if (-not (Test-Path -LiteralPath $executable)) { throw "${label}: entry $executable is missing" }
-    $output = (& $executable) 2>&1 | Out-String
+    $output = (Invoke-CoopNative $executable ) | Out-String
     Check ($LASTEXITCODE -eq 0) "$label did not exit successfully: $output"
     Check ($output.Trim() -eq $expected) "${label} printed '$($output.Trim())' instead of '$expected'"
 }
@@ -360,7 +361,7 @@ exit /b 0
         Write-Manifest $rootD 'seven' @{version='26.05';url=(File-Uri $msi2605);hash=(File-Hash $msi2605);
             extract_dir='Files\7-Zip';bin='7z.exe'}
         Coop-Json 'd-install' $rootD @('install','test/seven','--json') | Out-Null
-        $v2605 = (& "$rootD/apps/seven/current/7z.exe") 2>&1 | Out-String
+        $v2605 = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
         Check ($v2605 -match '26\.05') 'D real MSI install did not produce a runnable 26.05 program'
         Write-Manifest $rootD 'seven' @{version='26.03';url=(File-Uri $msi2603);hash=(File-Hash $msi2603);
             extract_dir='Files\7-Zip';bin='7z.exe'}
@@ -370,16 +371,16 @@ exit /b 0
         Check ($msiCrash.exit -ne 0) 'D MSI extraction crash reported success'
         $pendingD = Single-Pending $rootD 'update'
         Check (@($pendingD.Value.msi_extractions).Count -eq 1) 'D journal did not record the real MSI extraction'
-        $msiDuring = (& "$rootD/apps/seven/current/7z.exe") 2>&1 | Out-String
+        $msiDuring = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
         Check ($msiDuring -match '26\.05') 'D current MSI program stopped working during the pending update'
         $msiDry = Coop-Json 'd-msi-dry' $rootD @('recover','--dry-run','--json')
         Check ($msiDry[0].status -eq 'recoverable' -and @($msiDry[0].actions).Count -eq 0) 'D MSI staging-only transaction was not discardable'
         $msiRecovered = Coop-Json 'd-msi-recover' $rootD @('recover','--json')
         Check ($msiRecovered[0].status -eq 'recovered') 'D MSI staging recovery failed'
-        $msiAfter = (& "$rootD/apps/seven/current/7z.exe") 2>&1 | Out-String
+        $msiAfter = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
         Check ($msiAfter -match '26\.05') 'D recovery changed the current MSI program'
         Coop-Json 'd-msi-retry' $rootD @('update','seven','--json') | Out-Null
-        $msiUpdated = (& "$rootD/apps/seven/current/7z.exe") 2>&1 | Out-String
+        $msiUpdated = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
         Check ($msiUpdated -match '26\.03') 'D retried MSI update did not publish 26.03'
     } else {
         throw "Missing real MSI artifacts in $archives; run scripts/fetch-deps.ps1"
@@ -405,7 +406,7 @@ exit /b 0
         Write-Manifest $rootE 'units' @{version='2.27';url=(File-Uri $units227);hash=(File-Hash $units227);
             innosetup=$true;bin='units.exe';persist='settings'}
         Coop-Json 'e-inno-install' $rootE @('install','test/units','--json') | Out-Null
-        $innoV227 = (& "$rootE/apps/units/current/units.exe" --version) 2>&1 | Out-String
+        $innoV227 = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
         Check ($innoV227 -match '2\.27') 'E real Inno install did not produce a runnable 2.27 program'
         Write-Manifest $rootE 'units' @{version='2.26';url=(File-Uri $units226);hash=(File-Hash $units226);
             innosetup=$true;bin='units.exe';persist='settings'}
@@ -415,14 +416,14 @@ exit /b 0
         Check ($innoCrash.exit -ne 0) 'E Inno extraction crash reported success'
         $pendingInno = Single-Pending $rootE 'update'
         Check (@($pendingInno.Value.inno_extractions).Count -eq 1) 'E journal did not record the real Inno extraction'
-        $innoDuring = (& "$rootE/apps/units/current/units.exe" --version) 2>&1 | Out-String
+        $innoDuring = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
         Check ($innoDuring -match '2\.27') 'E current Inno program stopped working during the pending update'
         $innoRecovered = Coop-Json 'e-inno-recover' $rootE @('recover','--json')
         Check ($innoRecovered[0].status -eq 'recovered') 'E Inno staging recovery failed'
-        $innoAfter = (& "$rootE/apps/units/current/units.exe" --version) 2>&1 | Out-String
+        $innoAfter = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
         Check ($innoAfter -match '2\.27') 'E Inno recovery changed the current program'
         Coop-Json 'e-inno-retry' $rootE @('update','units','--json') | Out-Null
-        $innoUpdated = (& "$rootE/apps/units/current/units.exe" --version) 2>&1 | Out-String
+        $innoUpdated = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
         Check ($innoUpdated -match '2\.26') 'E retried Inno update did not publish 2.26'
     } else {
         throw "Missing Inno artifacts in $archives; run scripts/fetch-deps.ps1"
@@ -443,7 +444,7 @@ exit /b 0
         Write-Manifest $rootF 'apng' @{version='3.1.1';url=((File-Uri $apng311)+'#/dl.7z');hash=(File-Hash $apng311);
             pre_install=$preInstall;bin=@('bin\apngasm.exe',@('bin\apngasm.exe','apngasm-cli'))}
         Coop-Json 'f-nsis-install' $rootF @('install','test/apng','--json') | Out-Null
-        $nsisV311 = (& "$rootF/shims/apngasm.exe" --version) 2>&1 | Out-String
+        $nsisV311 = (Invoke-CoopNative "$rootF/shims/apngasm.exe"  --version) | Out-String
         Check ($nsisV311 -match '3\.1\.1') 'F real NSIS install did not produce a runnable 3.1.1 program'
         Write-Manifest $rootF 'apng' @{version='3.1.3';url=((File-Uri $apng313)+'#/dl.7z');hash=(File-Hash $apng313);
             pre_install=$preInstall;bin=@('bin\apngasm.exe',@('bin\apngasm.exe','apngasm-cli'))}
@@ -453,14 +454,14 @@ exit /b 0
         Check ($nsisCrash.exit -ne 0) 'F NSIS extraction crash reported success'
         $pendingNsis = Single-Pending $rootF 'update'
         Check (@($pendingNsis.Value.nsis_extractions).Count -eq 1) 'F journal did not record the real NSIS extraction'
-        $nsisDuring = (& "$rootF/shims/apngasm.exe" --version) 2>&1 | Out-String
+        $nsisDuring = (Invoke-CoopNative "$rootF/shims/apngasm.exe"  --version) | Out-String
         Check ($nsisDuring -match '3\.1\.1') 'F current NSIS program stopped working during the pending update'
         $nsisRecovered = Coop-Json 'f-nsis-recover' $rootF @('recover','--json')
         Check ($nsisRecovered[0].status -in @('recovered','recovered-with-unknown-script-effects')) 'F NSIS staging recovery failed'
-        $nsisAfter = (& "$rootF/shims/apngasm.exe" --version) 2>&1 | Out-String
+        $nsisAfter = (Invoke-CoopNative "$rootF/shims/apngasm.exe"  --version) | Out-String
         Check ($nsisAfter -match '3\.1\.1') 'F NSIS recovery changed the current program'
         Coop-Json 'f-nsis-retry' $rootF @('update','apng','--json') | Out-Null
-        $nsisUpdated = (& "$rootF/shims/apngasm.exe" --version) 2>&1 | Out-String
+        $nsisUpdated = (Invoke-CoopNative "$rootF/shims/apngasm.exe"  --version) | Out-String
         Check ($nsisUpdated -match '3\.1\.3') 'F retried NSIS update did not publish 3.1.3'
     } else {
         throw "Missing NSIS artifacts in $archives; run scripts/fetch-deps.ps1"

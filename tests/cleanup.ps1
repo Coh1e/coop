@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -9,7 +10,7 @@ function Manifest([string]$Root,[string]$Name,[string]$Version,[string]$Source,[
     [IO.File]::WriteAllText((Join-Path $Root "buckets/test/bucket/$Name.json"),($value | ConvertTo-Json -Depth 6))
 }
 function Run-Json([string[]]$Arguments) {
-    $text = & $CoopExe @Arguments 2>&1
+    $text = Invoke-CoopNative $CoopExe  @Arguments
     $code = $LASTEXITCODE
     $value = $null
     if (($text -join "`n").Trim().StartsWith('[') -or ($text -join "`n").Trim().StartsWith('{')) {

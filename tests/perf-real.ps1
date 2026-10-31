@@ -12,6 +12,7 @@ param(
 # (Main-sized) project-local copy. The only write against the real root is an explicit `bucket
 # update`, which is the product operation this ticket measures; queries must leave it untouched.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowed, [StringComparison]::OrdinalIgnoreCase)) {
@@ -33,7 +34,7 @@ function Invoke-Measured([string[]]$Arguments) {
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    foreach ($argument in $Arguments) { Add-ProcessArgument $startInfo ($argument) }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $process = [Diagnostics.Process]::Start($startInfo)
     $stdout = $process.StandardOutput.ReadToEndAsync()
@@ -93,13 +94,13 @@ function Invoke-FixtureGit([string[]]$Arguments) {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    $startInfo.Environment['GIT_CONFIG_GLOBAL'] = $gitConfig
-    $startInfo.Environment['GIT_CONFIG_SYSTEM'] = $gitConfig
-    $startInfo.Environment['GIT_CONFIG_NOSYSTEM'] = '1'
-    $startInfo.Environment['XDG_CONFIG_HOME'] = $gitTemplates
-    $startInfo.ArgumentList.Add('-c')
-    $startInfo.ArgumentList.Add('core.hooksPath=' + $gitTemplates)
-    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    $startInfo.EnvironmentVariables['GIT_CONFIG_GLOBAL'] = $gitConfig
+    $startInfo.EnvironmentVariables['GIT_CONFIG_SYSTEM'] = $gitConfig
+    $startInfo.EnvironmentVariables['GIT_CONFIG_NOSYSTEM'] = '1'
+    $startInfo.EnvironmentVariables['XDG_CONFIG_HOME'] = $gitTemplates
+    Add-ProcessArgument $startInfo ('-c')
+    Add-ProcessArgument $startInfo ('core.hooksPath=' + $gitTemplates)
+    foreach ($argument in $Arguments) { Add-ProcessArgument $startInfo ($argument) }
     $process = [Diagnostics.Process]::Start($startInfo)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
@@ -259,7 +260,7 @@ for ($index = 0; $index -lt $Runs; $index++) {
     Assert ((Get-FileHash -LiteralPath $unrelatedManifest -Algorithm SHA256).Hash -eq $unrelatedSourceHash) 'real-scale changed refresh modified the upstream source manifest'
     Assert ((File-HashOrNull $scaleIndex) -ne $indexHashBefore) 'real-scale changed refresh did not rebuild the query index'
     $added = Invoke-Measured @('--root', $scaleRoot, 'info', "main/$manifestName", '--json')
-    Assert ($added.exit -eq 0 -and @($added.output | ConvertFrom-Json)[0].version -eq ('9.0.' + $index)) 'real-scale changed refresh did not publish a queryable manifest'
+    Assert ($added.exit -eq 0 -and @($added.output[0].version | ConvertFrom-Json) -eq ('9.0.' + $index)) 'real-scale changed refresh did not publish a queryable manifest'
     $changedRuns.Add([pscustomobject]@{ run = $index + 1; ms = [math]::Round($result.ms, 1); received_bytes = $record.received_bytes; changed_files = $record.changed_files; previous_revision = $baseRevision; revision = $target; unrelated_manifest = $unrelatedName; worktree_unrelated_manifest_sha256 = $worktreeHashAfter; worktree_unrelated_manifest_unchanged = $true; upstream_manifest_unchanged = $true; index_rebuilt = $true; new_manifest_queryable = $true })
     $baseRevision = $target
 }

@@ -2,6 +2,7 @@
 # of an older format stops being ignored, or `bucket update` stops rewriting it.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -32,7 +33,7 @@ Write-Manifest 'bravo' 'bravotool'
 Commit-Fixture 'first'
 $installed = Join-Path $root 'install-root'
 $url = 'file:///' + ($repo -replace '\\', '/')
-& $CoopExe --root $installed bucket add probe $url 2>&1 | Out-Null
+Invoke-CoopNative $CoopExe  --root $installed bucket add probe $url | Out-Null
 if ($LASTEXITCODE -cne 0) { throw 'the fixture bucket did not register' }
 
 # The index records the binary names, which is what makes a binary search possible.
@@ -55,7 +56,7 @@ if (($lines -join "`n") -cnotmatch 'alpha') { throw 'a stale index hid the publi
 # `bucket update` rewrites it, and the new package shows up after the source changes.
 Write-Manifest 'charlie' 'charlietool'
 Commit-Fixture 'second'
-& $CoopExe --root $installed bucket update probe 2>&1 | Out-Null
+Invoke-CoopNative $CoopExe  --root $installed bucket update probe | Out-Null
 if ($LASTEXITCODE -cne 0) { throw 'bucket update failed' }
 $stored = Get-Content $index -Raw | ConvertFrom-Json
 if ($stored.version -cne 2) { throw "bucket update left the index at format $($stored.version)" }

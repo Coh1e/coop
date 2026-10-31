@@ -1,5 +1,8 @@
-param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+﻿param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -250,7 +253,7 @@ if (-not (Path-Has (Get-UserRaw 'Path').value (Join-Path $root 'apps/envapp/curr
 
 $cmdOutput = ((& "$root/shims/cmd-tool.cmd" hello 'two words') -join "`n")
 if ($LASTEXITCODE -ne 0 -or $cmdOutput -notmatch 'cmd-args:' -or $cmdOutput -notmatch '--default' -or $cmdOutput -notmatch 'two words' -or $cmdOutput -notmatch 'cmd-1') { throw "CMD entry did not forward arguments: $cmdOutput" }
-$failOutput = ((& "$root/shims/fail-tool.cmd") 2>&1) -join "`n"
+$failOutput = ((Invoke-CoopNative "$root/shims/fail-tool.cmd" )) -join "`n"
 if ($LASTEXITCODE -ne 7 -or $failOutput -notmatch '--boom') { throw "CMD entry did not propagate the exit code: $failOutput" }
 $batOutput = ((& "$root/shims/bat-tool.cmd" hello) -join "`n")
 if ($LASTEXITCODE -ne 0 -or $batOutput -notmatch 'bat-args:' -or $batOutput -notmatch '--bat') { throw "BAT entry did not forward arguments: $batOutput" }
@@ -269,7 +272,7 @@ $expandedData = Join-Path $root 'persist/envapp/data'
 $expandedCurrent = Join-Path $root 'apps/envapp/current'
 if ($expandOutput -notmatch [regex]::Escape("args=--data=$expandedData --dir=$expandedCurrent --original=$expandedCurrent")) { throw "entry arguments were not expanded like Scoop: $expandOutput" }
 if ($showOutput -notmatch [regex]::Escape((Join-Path $root 'apps/envapp/current/bin')) -or $showOutput -notmatch [regex]::Escape("$env:SystemRoot\System32")) { throw 'PATH exposure did not prepend package entries nor keep the existing PATH' }
-$psOutput = ((& "$root/shims/ps-tool.cmd" one 'two words') 2>&1) -join "`n"
+$psOutput = ((Invoke-CoopNative "$root/shims/ps-tool.cmd"  one 'two words')) -join "`n"
 if ($LASTEXITCODE -ne 3) { throw "PS1 entry did not propagate the exit code: $psOutput" }
 $psMarker = Get-Content -LiteralPath "$root/apps/envapp/current/ps1-marker.txt" -Raw
 if ($psMarker -notmatch '--flag' -or $psMarker -notmatch 'one' -or $psMarker -notmatch 'two words') { throw "PS1 entry did not forward arguments: $psMarker" }
@@ -279,7 +282,7 @@ if (-not $gui.WaitForExit(30000)) { throw 'GUI launcher did not finish' }
 if ($gui.ExitCode -ne 5) { throw "GUI launcher did not propagate the exit code: $($gui.ExitCode)" }
 if (-not (Test-Path -LiteralPath "$root/apps/envapp/current/gui-marker.txt")) { throw 'GUI target did not run' }
 if ($jarAvailable) {
-    $jarOutput = ((& "$root/shims/jar-tool.cmd" x 'y z') 2>&1) -join "`n"
+    $jarOutput = ((Invoke-CoopNative "$root/shims/jar-tool.cmd"  x 'y z')) -join "`n"
     if ($jarOutput -match 'Unable to access jarfile') {
         # java.exe takes its arguments through the ANSI code page, so the non-ASCII test root is not
         # addressable on a host whose code page is not CJK. The entry files are still asserted below;
@@ -297,7 +300,7 @@ $savedJava = $env:JAVA_HOME
 try {
     $env:JAVA_HOME = $null
     $env:PATH = "$env:SystemRoot\System32"
-    $jarOutput = ((& "$root/shims/jar-tool.cmd") 2>&1) -join "`n"
+    $jarOutput = ((Invoke-CoopNative "$root/shims/jar-tool.cmd" )) -join "`n"
     $jarCode = $LASTEXITCODE
 } finally { $env:PATH = $savedPath; $env:JAVA_HOME = $savedJava }
 if ($jarCode -eq 0 -or $jarOutput -notmatch 'Java runtime') { throw "JAR entry without a runtime did not fail explicitly: $jarOutput" }
@@ -347,7 +350,7 @@ if (@($record.shortcuts).Count -ne 3) { throw 'updated management record kept th
 $mainLink = Join-Path $programs "$mainShortcut.lnk"
 $lock = [IO.File]::Open($mainLink,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
-    $failed = & $CoopExe --root $root uninstall envapp --json 2>&1
+    $failed = Invoke-CoopNative $CoopExe  --root $root uninstall envapp --json
     if ($LASTEXITCODE -eq 0) { throw 'locked shortcut was removed' }
     if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.cmd")) { throw 'failed shortcut removal did not roll back the installation' }
     $blockedJournals = @(Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json } | Where-Object { $_.action -eq 'uninstall' -and $_.state -eq 'rolled-back' })
@@ -356,7 +359,7 @@ try {
 $mainLink = Join-Path $programs "$mainShortcut.lnk"
 $original = [Convert]::ToBase64String([IO.File]::ReadAllBytes($mainLink))
 [IO.File]::WriteAllBytes($mainLink,[Text.Encoding]::UTF8.GetBytes('not a shortcut'))
-$failed = & $CoopExe --root $root uninstall envapp --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root uninstall envapp --json
 if ($LASTEXITCODE -eq 0) { throw 'externally modified shortcut was removed' }
 if (-not (Test-Path "$root/apps/envapp/current") -or -not (Test-Path "$root/shims/cmd-tool.cmd")) { throw 'refused uninstall damaged the installation' }
 if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($mainLink)) -ne [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('not a shortcut'))) { throw 'externally modified shortcut was overwritten' }
@@ -434,7 +437,7 @@ $conflictLink = Join-Path $conflictPrograms "$conflictName.lnk"
 New-Item -ItemType Directory -Path (Split-Path $conflictLink) -Force | Out-Null
 [IO.File]::WriteAllText($conflictLink,'foreign shortcut')
 Build-EnvironmentPackage $conflictRoot '1' $jarPath 'declared-value' (,@('tool.exe',$conflictName)) (,@('tool.exe','plain-tool'))
-$failed = & $CoopExe --root $conflictRoot install test/envapp --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $conflictRoot install test/envapp --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$conflictRoot/apps/envapp") -or (Get-Content -LiteralPath $conflictLink -Raw) -ne 'foreign shortcut') { throw 'existing shortcut was overwritten or an install published state' }
 
 # A failure while creating a shortcut rolls the whole install back with a journaled state.
@@ -445,7 +448,7 @@ New-Item -ItemType Directory -Path $rollbackPrograms -Force | Out-Null
 $blockingName = "Blocked-$tag"
 [IO.File]::WriteAllText((Join-Path $rollbackPrograms $blockingName),'not a directory')
 Build-EnvironmentPackage $rollbackRoot '1' $jarPath 'declared-value' (,@('tool.exe',"$blockingName\Inner")) (,@('tool.exe','plain-tool'))
-$rollback = & $CoopExe --root $rollbackRoot install test/envapp --json 2>&1
+$rollback = Invoke-CoopNative $CoopExe  --root $rollbackRoot install test/envapp --json
 if ($LASTEXITCODE -eq 0) { throw 'shortcut creation failure was reported as success' }
 if ((Test-Path "$rollbackRoot/apps/envapp/current") -or (Test-Path "$rollbackRoot/shims/plain-tool.exe") -or (Test-Path "$rollbackRoot/.coop/packages/envapp.json")) { throw 'shortcut failure did not roll back the install' }
 $rollbackJournals = @(Get-ChildItem "$rollbackRoot/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
@@ -490,7 +493,7 @@ $badRoot = New-TestRoot
 $env:COOP_PROGRAMS_DIR = Join-Path $badRoot 'programs'
 $badManifest = @{version='1';url=((File-Uri $fixture1)+'#/tool.sh');hash=(Get-FileHash -LiteralPath $fixture1 -Algorithm SHA256).Hash.ToLower();bin='..\tool.sh'}
 Write-Manifest $badRoot 'badcmd' $badManifest
-$bad = (& $CoopExe --root $badRoot install test/badcmd --dry-run --json 2>&1) -join "`n"
+$bad = (Invoke-CoopNative $CoopExe  --root $badRoot install test/badcmd --dry-run --json) -join "`n"
 if ($bad -notmatch 'Invalid path component' -or ($bad | ConvertFrom-Json).execution_available -ne $false) { throw 'unsafe command target path was not refused explicitly' }
 if (Test-Path "$badRoot/shims") { throw 'unsafe command preview created an entry' }
 
@@ -570,17 +573,17 @@ $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($changedLink)
 $shortcut.TargetPath = "$changedRoot/apps/Changed/current/changed.exe"
 $shortcut.Arguments = '--different'
 $shortcut.Save()
-$changedPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+$changedPreview = Read-Json (Invoke-CoopNative $CoopExe  --root $changedRoot update changed --dry-run --json)
 if ($changedPreview.execution_available -ne $false) { throw "a changed shared shortcut was not refused by the preview: $($changedPreview.execution_available)" }
 if (@($changedPreview.diagnostics | Where-Object { $_.message -match 'Shared shortcut uses different arguments|Shortcut was modified externally' }).Count -eq 0) { throw "the changed shortcut refusal has no explanation: $($changedPreview.diagnostics | ConvertTo-Json -Compress)" }
-$changedExecution = & $CoopExe --root $changedRoot update changed --json 2>&1
+$changedExecution = Invoke-CoopNative $CoopExe  --root $changedRoot update changed --json
 if ($LASTEXITCODE -eq 0) { throw 'execution accepted a changed shared shortcut the preview refused' }
 Remove-Item -LiteralPath $changedLink -Force
-$missingPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+$missingPreview = Read-Json (Invoke-CoopNative $CoopExe  --root $changedRoot update changed --dry-run --json)
 if ($missingPreview.execution_available -ne $true -or $script:LASTEXITCODE -ne 0) { throw "a missing shared shortcut blocked the update: $($missingPreview.diagnostics | ConvertTo-Json -Compress)" }
 if (@($missingPreview.exposure.missing_shortcuts) -notcontains 'Changed 应用') { throw 'the missing shared shortcut was not reported' }
 [IO.File]::AppendAllText("$changedRoot/shims/changed.shim","future = value`r`n")
-$unknownPreview = Read-Json (& $CoopExe --root $changedRoot update changed --dry-run --json 2>&1)
+$unknownPreview = Read-Json (Invoke-CoopNative $CoopExe  --root $changedRoot update changed --dry-run --json)
 if ($unknownPreview.execution_available -ne $true) { throw "an unknown .shim key made the shared entry unmanageable: $($unknownPreview.diagnostics | ConvertTo-Json -Compress)" }
 if ((Test-Path "$changedRoot/.coop") -or (Test-Path "$changedRoot/shims/changed.coop-shim.json")) { throw 'shared shortcut preview changed state' }
 

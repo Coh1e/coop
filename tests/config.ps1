@@ -3,6 +3,7 @@
 # stops removing both the entry and the script.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -42,7 +43,7 @@ try {
     # config sees the shared ALIAS entry and refuses to write a key it does not implement.
     $lines = @(& $CoopExe config)
     if (($lines -join "`n") -cnotmatch 'ALIAS') { throw "config did not show the ALIAS entry: $($lines -join ' | ')" }
-    $refusal = & $CoopExe config root_path 'D:\elsewhere' 2>&1
+    $refusal = Invoke-CoopNative $CoopExe  config root_path 'D:\elsewhere'
     if ($LASTEXITCODE -cne 1 -or ($refusal -join '|') -cnotmatch 'not managed by Coop') { throw "config refused with '$($refusal -join ' | ')'" }
 
     $lines = @(& $CoopExe --root $root alias rm greet)

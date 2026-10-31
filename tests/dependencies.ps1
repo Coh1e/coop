@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -63,7 +64,7 @@ if ($blockedPlan.execution_available -ne $false -or 'manifest-shape' -notin $blo
     @($blockedPlan.diagnostics | Where-Object { $_.code -eq 'execution-blocked' -and $_.message -match 'unsupported or invalid' }).Count -eq 0) {
     throw 'blocked root preview did not disclose the unsafe command entry'
 }
-$blockedInstall = & $CoopExe --root $root install main/blockedroot --json 2>&1
+$blockedInstall = Invoke-CoopNative $CoopExe  --root $root install main/blockedroot --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cacert") -or (Test-Path "$root/apps/blockedroot")) { throw 'unsafe root package installed its dependency before refusing the root' }
 
 Write-Manifest $root 'test' 'base' '1' $fixture1 'base.exe' $null
@@ -167,12 +168,12 @@ Assert-Runs "$root/shims/leaf.exe" 'fixture 2'
 $missing = & $CoopExe --root $root install missing --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($missing -join "`n") -notmatch 'dependency-missing' -or ($missing -join "`n") -notmatch 'ghost') { throw 'missing dependency was not reported' }
 if (Test-Path "$root/apps/missing") { throw 'missing dependency preview wrote product state' }
-$missingInstall = & $CoopExe --root $root install missing --json 2>&1
+$missingInstall = Invoke-CoopNative $CoopExe  --root $root install missing --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/missing") -or (Test-Path "$root/shims/missing.exe")) { throw 'missing dependency install was not refused' }
 $cycle = & $CoopExe --root $root install cyclea --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($cycle -join "`n") -notmatch 'dependency-cycle' -or ($cycle -join "`n") -notmatch 'Circular dependency') { throw 'circular dependency was not reported' }
 if (Test-Path "$root/apps/cyclea") { throw 'circular dependency preview wrote product state' }
-$cycleInstall = & $CoopExe --root $root install cyclea --json 2>&1
+$cycleInstall = Invoke-CoopNative $CoopExe  --root $root install cyclea --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$root/apps/cyclea")) { throw 'circular dependency install was not refused' }
 $ambiguous = & $CoopExe --root $root install amb --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($ambiguous -join "`n") -notmatch 'dependency-ambiguous' -or
@@ -214,7 +215,7 @@ $blockedPlan = Read-Json $blocked
 foreach ($dependent in @('leaf','leaf2','legacy')) { if ($dependent -notin @($blockedPlan.blocking_dependents)) { throw "uninstall did not list dependent $dependent" } }
 if ('user/mystery' -notin @($blockedPlan.unverified_dependents)) { throw 'unreadable dependency evidence was treated as no dependency' }
 if ('blocked-by-dependents' -notin @($blockedPlan.diagnostics.code) -or 'dependency-evidence-incomplete' -notin @($blockedPlan.diagnostics.code)) { throw 'uninstall protection diagnostics are incomplete' }
-$blockedInstall = & $CoopExe --root $root uninstall base --json 2>&1
+$blockedInstall = Invoke-CoopNative $CoopExe  --root $root uninstall base --json
 if ($LASTEXITCODE -eq 0) { throw 'blocked uninstall was executed' }
 Assert-Runs "$root/shims/base.exe" 'fixture 1'
 Assert-Runs "$root/shims/leaf.exe" 'fixture 2'

@@ -5,6 +5,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # The watch is proved live by requiring that the staging directory itself was observed, so the
 # assertion cannot pass by watching nothing.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -46,14 +47,14 @@ function Install-Watched([string]$case,[hashtable]$manifest) {
         $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
         $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
         $start.WorkingDirectory = $root
-        foreach ($argument in @('--root',$root,'install',"test/$case",'--json')) { $start.ArgumentList.Add($argument) }
-        $start.Environment['TEMP'] = "$root/temp"
-        $start.Environment['TMP'] = "$root/temp"
-        $start.Environment['COOP_PROGRAMS_DIR'] = "$root/programs"
+        foreach ($argument in @('--root',$root,'install',"test/$case",'--json')) { Add-ProcessArgument $start ($argument) }
+        $start.EnvironmentVariables['TEMP'] = "$root/temp"
+        $start.EnvironmentVariables['TMP'] = "$root/temp"
+        $start.EnvironmentVariables['COOP_PROGRAMS_DIR'] = "$root/programs"
         $process = [Diagnostics.Process]::Start($start)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+        if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
         $result = [pscustomobject]@{ exit = $process.ExitCode
             output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
         $process.Dispose()

@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -17,13 +18,13 @@ $goodManifest = [IO.File]::ReadAllText("$root/buckets/test/bucket/fixture.json")
 $bad = $goodManifest | ConvertFrom-Json
 $bad.hash = '0'*64
 $bad | ConvertTo-Json | Set-Content "$root/buckets/test/bucket/fixture.json" -Encoding utf8
-$failed = & $CoopExe --root $root update fixture --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root update fixture --json
 if ($LASTEXITCODE -eq 0 -or (& "$root/shims/fixture.exe") -ne 'fixture 1') { throw 'prepare failure lost old program' }
 [IO.File]::WriteAllText("$root/buckets/test/bucket/fixture.json",$goodManifest)
 foreach ($lockedPath in @("$root/shims/fixture.exe","$root/.coop/packages/fixture.json")) {
     $lock = [IO.File]::Open($lockedPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
     try {
-        $failed = & $CoopExe --root $root update fixture --json 2>&1
+        $failed = Invoke-CoopNative $CoopExe  --root $root update fixture --json
         if ($LASTEXITCODE -eq 0) { throw 'occupied publication target unexpectedly changed' }
     } finally { $lock.Dispose() }
     if ((& "$root/shims/fixture.exe") -ne 'fixture 1' -or (Test-Path "$root/apps/fixture/2")) { throw 'publication failure did not restore old version' }

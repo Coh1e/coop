@@ -4,6 +4,7 @@ param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$Test
 # extract lines appear above the Uninstalling header. That order is what keeps `current` on the old
 # version when the new payload cannot be extracted, which the same ticket requires.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not (($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase))) { throw 'Test root outside project' }
@@ -31,13 +32,13 @@ function Invoke-Coop([string[]]$arguments) {
     $start.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
     $start.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(300000)) { $process.Kill($true); throw 'coop timed out' }
+    if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'coop timed out' }
     $result = [pscustomobject]@{ exit = $process.ExitCode
         output = $stdout.GetAwaiter().GetResult(); error = $stderr.GetAwaiter().GetResult() }
     $process.Dispose()
@@ -88,7 +89,7 @@ $brokenManifest = [ordered]@{ version='5.8.2'; url=([Uri][IO.Path]::GetFullPath(
 $failed = Invoke-Coop @('--root',$root,'update','tidy','--json')
 if ($failed.exit -eq 0) { throw 'a corrupt update unexpectedly succeeded' }
 if (-not (Test-Path -LiteralPath "$root/apps/tidy/5.8.1/tidy.exe")) { throw 'the working version was disturbed by the failed update' }
-$target = (Get-Item -LiteralPath "$root/apps/tidy/current" -Force).LinkTarget
+$target = Get-LinkTarget "$root/apps/tidy/current"
 if (-not ([string]$target).EndsWith('5.8.1')) { throw "current moved away from the working version: $target" }
 
 Write-Output 'update lines: block and failure protection verified'

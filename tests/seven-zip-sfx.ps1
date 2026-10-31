@@ -2,6 +2,7 @@
 # native reader, which rejects this container.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -24,7 +25,7 @@ $msiUrl = 'file:///' + (($msi -replace '\\','/') -replace '^([A-Za-z]):','$1:')
   "bin": [ "7z.exe" ]
 }
 "@ | Set-Content "$root/buckets/probe/bucket/7zip.json" -Encoding utf8 -NoNewline
-& $CoopExe --root $root install probe/7zip 2>&1 | Out-Null
+Invoke-CoopNative $CoopExe  --root $root install probe/7zip | Out-Null
 if ($LASTEXITCODE -cne 0) { throw 'the 7-Zip helper package did not install' }
 $helper = Join-Path $root 'apps/7zip/current/7z.exe'
 if (-not (Test-Path -LiteralPath $helper)) { throw 'the helper is missing after installation' }
@@ -34,7 +35,7 @@ $payload = Join-Path $root 'sfx-payload'
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
 Set-Content (Join-Path $payload 'hello.txt') -Value 'sfx-ok' -Encoding utf8 -NoNewline
 $sfx = Join-Path $root 'tool-sfx.exe'
-& $helper a -sfx -mx=1 $sfx (Join-Path $payload 'hello.txt') 2>&1 | Out-Null
+Invoke-CoopNative $helper  a -sfx -mx=1 $sfx (Join-Path $payload 'hello.txt') | Out-Null
 if ($LASTEXITCODE -cne 0 -or -not (Test-Path -LiteralPath $sfx)) { throw 'the sfx fixture could not be built' }
 
 $sfxUrl = 'file:///' + (($sfx -replace '\\','/') -replace '^([A-Za-z]):','$1:') + '#/tool.7z'
@@ -45,7 +46,7 @@ $sfxUrl = 'file:///' + (($sfx -replace '\\','/') -replace '^([A-Za-z]):','$1:') 
   "hash": "$((Get-FileHash -LiteralPath $sfx -Algorithm SHA256).Hash.ToLower())"
 }
 "@ | Set-Content "$root/buckets/probe/bucket/tool.json" -Encoding utf8 -NoNewline
-$install = & $CoopExe --root $root install probe/tool 2>&1
+$install = Invoke-CoopNative $CoopExe  --root $root install probe/tool
 if ($LASTEXITCODE -cne 0) { throw "installing the 7z SFX failed: $($install -join ' | ')" }
 $extracted = Join-Path $root 'apps/tool/current/hello.txt'
 if (-not (Test-Path -LiteralPath $extracted)) { throw 'the SFX payload was not extracted' }

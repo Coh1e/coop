@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -137,7 +138,7 @@ $latestManifest | ConvertTo-Json -Depth 8 | Set-Content "$brokenArchive/buckets/
 $sharedManifest | ConvertTo-Json -Depth 8 | Set-Content "$brokenArchive/apps/luajit/1/manifest.json" -Encoding utf8
 Set-Content "$brokenArchive/apps/luajit/1/install.json" '{"bucket":"test","architecture":"64bit"}' -Encoding utf8
 New-Item -ItemType Junction -Path "$brokenArchive/apps/luajit/current" -Target "$brokenArchive/apps/luajit/1" | Out-Null
-$brokenOutput = & $CoopExe --root $brokenArchive update luajit --json 2>&1
+$brokenOutput = Invoke-CoopNative $CoopExe  --root $brokenArchive update luajit --json
 if ($LASTEXITCODE -eq 0 -or ($brokenOutput -join "`n") -notmatch 'command target is missing') { throw "a shared archive with a missing command target was not refused: $brokenOutput" }
 if (Test-Path "$brokenArchive/.coop/packages/luajit.json") { throw 'refused shared archive created management state' }
 
@@ -195,7 +196,7 @@ $foreignPreview = & $CoopExe --root $foreignRoot update gui --dry-run --json
 if ($LASTEXITCODE -ne 0) { throw "foreign-launcher preview failed: $foreignPreview" }
 $foreignEntry = $foreignPreview | ConvertFrom-Json
 if ($foreignEntry.execution_available -ne $false -or @($foreignEntry.diagnostics | Where-Object code -eq 'execution-blocked').Count -ne 1) { throw "foreign launcher was not blocked in preview: $foreignPreview" }
-$foreignUpdate = & $CoopExe --root $foreignRoot update gui --json 2>&1
+$foreignUpdate = Invoke-CoopNative $CoopExe  --root $foreignRoot update gui --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path "$foreignRoot/.coop/packages/gui.json")) { throw "foreign launcher was accepted: $foreignUpdate" }
 # A future Scoop shim program may not carry today's marker strings. A launcher whose bytes are
 # shared with another .shim entry in the same root is still Scoop-generated evidence.
@@ -229,7 +230,7 @@ if ((Test-Path "$staleRoot/shims/shared.exe") -or (Test-Path "$staleRoot/shims/s
 $legacyJson = @{package='shared';target=[IO.Path]::GetFullPath("$staleRoot/apps/shared/current/shared.bat");launcher='cmd'} | ConvertTo-Json -Compress
 [IO.File]::WriteAllText("$staleRoot/shims/shared.coop-shim.json",$legacyJson)
 Copy-Item -LiteralPath "$staleRoot/shims/shared.coop-shim.json" -Destination "$staleRoot/shims/shared.coop-shim"
-Remove-Item -LiteralPath "$staleRoot/apps/shared/current" -Force
+[IO.Directory]::Delete("$staleRoot/apps/shared/current", $false)
 Remove-Item -LiteralPath "$staleRoot/apps/shared/1" -Recurse -Force
 foreach ($left in @('shared.cmd','shared.shim','shared')) { Remove-Item -LiteralPath "$staleRoot/shims/$left" -Force -ErrorAction SilentlyContinue }
 $staleReinstall = & $CoopExe --root $staleRoot install shared --json

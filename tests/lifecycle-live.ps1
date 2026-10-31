@@ -1,5 +1,6 @@
-param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+﻿param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -12,12 +13,12 @@ function Run([string]$name,[string]$exe,[string[]]$arguments) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = $root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
     # Only this test child loses external tools; temporary data stays in the project.
-    $start.Environment['PATH'] = "$env:SystemRoot/System32"
-    $start.Environment['TEMP'] = "$root/temp"
-    $start.Environment['TMP'] = "$root/temp"
-    $start.Environment['COOP_PROCESS_GUARD_TIMEOUT_MS'] = '120000'
+    $start.EnvironmentVariables['PATH'] = "$env:SystemRoot/System32"
+    $start.EnvironmentVariables['TEMP'] = "$root/temp"
+    $start.EnvironmentVariables['TMP'] = "$root/temp"
+    $start.EnvironmentVariables['COOP_PROCESS_GUARD_TIMEOUT_MS'] = '120000'
     $process = [Diagnostics.Process]::Start($start)
     $output = $process.StandardOutput.ReadToEndAsync()
     $errorOutput = $process.StandardError.ReadToEndAsync()

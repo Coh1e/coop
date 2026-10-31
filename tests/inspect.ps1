@@ -5,6 +5,7 @@
 # buckets/apps, `checkup` stops reporting a broken shim, or `help` stops marking what is missing.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -53,7 +54,7 @@ if ($lines[0] -cne '{') { throw "cat first line is '$($lines[0])'" }
 # A manifest without a homepage makes `home` fail instead of opening anything.
 '{"version":"1.0","url":"https://example.invalid/x.zip","hash":"0000000000000000000000000000000000000000000000000000000000000000"}' |
     Set-Content "$root/buckets/main/bucket/nohome.json" -Encoding utf8
-$lines = & $CoopExe --root $root home nohome 2>&1
+$lines = Invoke-CoopNative $CoopExe  --root $root home nohome
 if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'No homepage is declared') { throw "home on a manifest without homepage said '$($lines -join ' | ')'" }
 
 # Once the installed version matches the manifest, status reports the clean state.
@@ -101,7 +102,7 @@ if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'is now held and can
 }
 $lines = @(& $CoopExe --root $root list)
 if ($lines -join "`n" -cnotmatch 'Held package') { throw 'list did not report the held package' }
-$plan = (& $CoopExe --root $root update demo --dry-run 2>&1) -join "`n"
+$plan = (Invoke-CoopNative $CoopExe  --root $root update demo --dry-run) -join "`n"
 if ($plan -cnotmatch 'held-package' -or $plan -cnotmatch 'blocked') {
     throw 'a held package was allowed to update'
 }
@@ -111,6 +112,6 @@ $lines = @(& $CoopExe --root $root unhold demo)
 if ($LASTEXITCODE -cne 0 -or $lines -join "`n" -cnotmatch 'is no longer held') { throw "unhold said '$($lines -join ' | ')'" }
 $lines = @(& $CoopExe --root $root list)
 if ($lines -join "`n" -cmatch 'Held package') { throw 'list still reports a held package after unhold' }
-$lines = & $CoopExe --root $root hold nosuchpackage 2>&1
+$lines = Invoke-CoopNative $CoopExe  --root $root hold nosuchpackage
 if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'is not installed') { throw "hold on a missing package said '$($lines -join ' | ')'" }
 Write-Output 'PASS: status, prefix, cat, which, home, depends, export, checkup and help'

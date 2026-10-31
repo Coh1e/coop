@@ -8,6 +8,7 @@ param(
 # usable and that a second refresh is a no-change operation. No software is installed, updated,
 # uninstalled or scripted here.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $ScoopRoot = [IO.Path]::GetFullPath($ScoopRoot)
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
@@ -41,13 +42,13 @@ function Invoke-Guarded([string]$Label) {
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    $start.Environment['COOP_PROCESS_GUARD_TIMEOUT_MS'] = '600000'
-    foreach ($argument in @($CoopExe,'--root',$ScoopRoot,'bucket','update',$Bucket,'--json')) { $start.ArgumentList.Add($argument) }
+    $start.EnvironmentVariables['COOP_PROCESS_GUARD_TIMEOUT_MS'] = '600000'
+    foreach ($argument in @($CoopExe,'--root',$ScoopRoot,'bucket','update',$Bucket,'--json')) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(600000)) { $process.Kill($true); throw "Guarded $Label refresh timed out" }
+    if (-not $process.WaitForExit(600000)) { $process.Kill(); throw "Guarded $Label refresh timed out" }
     $elapsedMs = [math]::Round($stopwatch.Elapsed.TotalMilliseconds,1)
     $text = $stdout.GetAwaiter().GetResult()
     $guardText = $stderr.GetAwaiter().GetResult()
@@ -90,7 +91,7 @@ $indexAfterFirst = Get-Hash $indexPath
 if (-not $indexAfterFirst) { throw 'Refresh did not create the search index' }
 $sampleAfterFirst = if ($sampleManifest.Count) { Get-Hash (Join-Path $shared $sampleManifest[0]) } else { $null }
 if (-not $sampleName) { throw 'The shared bucket has no manifest to query' }
-$query = & $CoopExe --root $ScoopRoot info "$Bucket/$sampleName" --json 2>&1
+$query = Invoke-CoopNative $CoopExe  --root $ScoopRoot info "$Bucket/$sampleName" --json
 $query | Set-Content -LiteralPath (Join-Path $EvidenceDir 'info-after-refresh.json') -Encoding utf8
 if ($LASTEXITCODE -ne 0) { throw ('Local query after shared bucket refresh failed: '+($query -join "`n")) }
 

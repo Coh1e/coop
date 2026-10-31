@@ -10,6 +10,7 @@ param(
 # measured separately. Only state this run creates is removed afterwards; pre-existing
 # installations, stores and the read-only 7zip/other packages are never touched.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $CoopExe = [IO.Path]::GetFullPath($CoopExe)
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
 New-Item -ItemType Directory -Path $EvidenceDir -Force | Out-Null
@@ -23,11 +24,11 @@ function Run([string]$label,[string]$file,[string[]]$arguments) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = $Root
-    foreach ($argument in $arguments) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in $arguments) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(900000)) { $process.Kill($true); throw "$label timed out" }
+    if (-not $process.WaitForExit(900000)) { $process.Kill(); throw "$label timed out" }
     $process.WaitForExit()
     $result = [pscustomobject]@{
         label=$label; file=$file; arguments=@($arguments); exit=$process.ExitCode

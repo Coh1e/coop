@@ -63,6 +63,10 @@ foreach ($relative in $files) {
     for ($i = 0; $i -lt $read; $i++) { if ($head[$i] -eq 0) { $binary = $true; break } }
     if ($binary) { continue }
     if ($read -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+        # A PowerShell script may carry one on purpose: Windows PowerShell 5.1 reads a BOM-less
+        # script as ANSI, so any non-ASCII literal in it turns into a parse error there. Everywhere
+        # else a BOM is still the invisible-rewrite accident this check exists to catch.
+        if ($relative -like '*.ps1') { continue }
         [void]$violations.Add("$relative : starts with a UTF-8 byte-order mark")
         continue
     }

@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -37,9 +38,9 @@ function Start-Coordinated([string]$Exe,[string]$Root,[string[]]$Arguments,[Net.
     $start.UseShellExecute = $false
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    foreach ($argument in $Arguments) { Add-ProcessArgument $start ($argument) }
     $process = [Diagnostics.Process]::Start($start)
-    if (-not $connection.Wait(15000)) { $process.Kill($true); throw 'Coop did not reach the controlled server' }
+    if (-not $connection.Wait(15000)) { $process.Kill(); throw 'Coop did not reach the controlled server' }
     $client = $connection.GetAwaiter().GetResult()
     $stream = $client.GetStream()
     $stream.ReadTimeout = 10000
@@ -59,7 +60,7 @@ try {
     $root = "$sessionRoot/update"
     New-Item -ItemType Directory -Path "$root/buckets/test/bucket" -Force | Out-Null
     Set-Manifest $root '1' (File-Uri $fixture1)
-    $install = & $CoopExe --root $root install test/fixture --json
+    $install = Invoke-CoopJson $CoopExe --root $root install test/fixture --json
     if ($LASTEXITCODE -ne 0 -or (& "$root/shims/fixture.exe") -ne 'fixture 1') { throw "Initial fixture install failed: $install" }
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
     $listener.Start()
@@ -72,9 +73,9 @@ try {
         if ($pending.Count -ne 1 -or $pending[0].Value.action -ne 'update') { throw 'Actual update interruption did not leave one pending update journal' }
         if ((& "$root/shims/fixture.exe") -ne 'fixture 1') { throw 'Old program stopped working while update was in progress' }
 
-        $during = & $CoopExe --root $root list --json
+        $during = Invoke-CoopJson $CoopExe --root $root list --json
         if ($LASTEXITCODE -ne 0) { throw 'Read query was blocked while an update was in progress' }
-        $duringItem = @($during | ConvertFrom-Json | Where-Object name -eq 'fixture')
+        $duringItem = @($during | Where-Object name -eq 'fixture')
         if ($duringItem.Count -ne 1 -or $duringItem[0].version -ne '1' -or
             $duringItem[0].last_operation -ne 'pending-recovery' -or
             $duringItem[0].recovery.mode -ne 'automatic' -or $duringItem[0].recovery.action -ne 'update') {
@@ -83,10 +84,10 @@ try {
 
         $secondStart = [Diagnostics.ProcessStartInfo]::new($CoopExe)
         $secondStart.UseShellExecute = $false; $secondStart.RedirectStandardOutput = $true; $secondStart.RedirectStandardError = $true
-        foreach ($argument in @('--root',$root,'uninstall','fixture','--json')) { $secondStart.ArgumentList.Add($argument) }
+        foreach ($argument in @('--root',$root,'uninstall','fixture','--json')) { Add-ProcessArgument $secondStart ($argument) }
         $second = [Diagnostics.Process]::Start($secondStart)
         $secondOutput = $second.StandardOutput.ReadToEndAsync(); $secondError = $second.StandardError.ReadToEndAsync()
-        if (-not $second.WaitForExit(15000)) { $second.Kill($true); throw 'Second writer did not finish while the root lock was held' }
+        if (-not $second.WaitForExit(15000)) { $second.Kill(); throw 'Second writer did not finish while the root lock was held' }
         $secondText = $secondOutput.GetAwaiter().GetResult()+"`n"+$secondError.GetAwaiter().GetResult()
         if ($second.ExitCode -eq 0) { throw 'A second write process changed the root while another writer held the lock' }
         if ($secondText -notmatch 'Root is busy|write lock|another Coop') { throw "Second writer failed for an unrelated reason: $secondText" }
@@ -94,12 +95,12 @@ try {
             (Get-Content "$root/.coop/packages/fixture.json" -Raw | ConvertFrom-Json).version -ne '1') {
             throw 'The refused concurrent write changed installed state'
         }
-        $recoverDuring = & $CoopExe --root $root recover --json 2>&1
+        $recoverDuring = Invoke-CoopNative $CoopExe --root $root recover --json
         if ($LASTEXITCODE -eq 0 -or ($recoverDuring -join "`n") -notmatch 'Root is busy|write lock|another Coop') {
             throw "Recovery ignored the active writer lock: $recoverDuring"
         }
 
-        $coordinated.Process.Kill($true)
+        $coordinated.Process.Kill()
         $coordinated.Process.WaitForExit()
     } finally {
         if ($coordinated) {
@@ -112,26 +113,26 @@ try {
     }
 
     $journalPath = $pending[0].Path
-    $afterCrash = & $CoopExe --root $root list --json
-    $afterItem = @($afterCrash | ConvertFrom-Json | Where-Object name -eq 'fixture')
+    $afterCrash = Invoke-CoopJson $CoopExe --root $root list --json
+    $afterItem = @($afterCrash | Where-Object name -eq 'fixture')
     if ($LASTEXITCODE -ne 0 -or $afterItem.Count -ne 1 -or $afterItem[0].last_operation -ne 'pending-recovery' -or
         $afterItem[0].recovery.mode -ne 'automatic' -or $afterItem[0].recovery.status -ne 'recoverable') {
         throw "Restarted query did not report the interrupted update: $afterCrash"
     }
     if ((& "$root/shims/fixture.exe") -ne 'fixture 1') { throw 'Interrupted update did not leave the current program runnable' }
-    $refused = & $CoopExe --root $root update fixture --json 2>&1
+    $refused = Invoke-CoopNative $CoopExe --root $root update fixture --json
     if ($LASTEXITCODE -eq 0 -or ($refused -join "`n") -notmatch 'Pending transaction requires recovery') { throw "Pending update was silently ignored: $refused" }
 
     $journalHash = (Get-FileHash -LiteralPath $journalPath).Hash
-    $dry = & $CoopExe --root $root recover --dry-run --json
-    $dryEntries = @($dry | ConvertFrom-Json)
+    $dry = Invoke-CoopJson $CoopExe --root $root recover --dry-run --json
+    $dryEntries = @($dry)
     if ($LASTEXITCODE -ne 0 -or $dryEntries.Count -ne 1 -or $dryEntries[0].mode -ne 'automatic' -or
         $dryEntries[0].status -ne 'recoverable' -or (Get-FileHash -LiteralPath $journalPath).Hash -ne $journalHash -or
         (& "$root/shims/fixture.exe") -ne 'fixture 1') {
         throw "Recovery preview changed state or misclassified the transaction: $dry"
     }
-    $recovered = & $CoopExe --root $root recover --json
-    $recoveredEntries = @($recovered | ConvertFrom-Json)
+    $recovered = Invoke-CoopJson $CoopExe --root $root recover --json
+    $recoveredEntries = @($recovered)
     if ($LASTEXITCODE -ne 0 -or $recoveredEntries.Count -ne 1 -or $recoveredEntries[0].status -ne 'recovered') { throw "Automatic recovery failed: $recovered" }
     if ((Get-Content -LiteralPath $journalPath -Raw | ConvertFrom-Json).state -ne 'rolled-back') { throw 'Recovered update journal was not marked rolled-back' }
     if (Test-Path "$root/apps/fixture/2") { throw 'Recovery left the interrupted target version published' }
@@ -140,10 +141,10 @@ try {
     }
 
     Set-Manifest $root '2' (File-Uri $fixture2)
-    $retry = & $CoopExe --root $root update fixture --json
+    $retry = Invoke-CoopJson $CoopExe --root $root update fixture --json
     if ($LASTEXITCODE -ne 0 -or (& "$root/shims/fixture.exe") -ne 'fixture 2' -or
         (& "$root/apps/fixture/1/fixture.exe") -ne 'fixture 1') { throw "Update was not retryable after recovery: $retry" }
-    $final = @(& $CoopExe --root $root list --json | ConvertFrom-Json | Where-Object name -eq 'fixture')
+    $final = @(Invoke-CoopJson $CoopExe --root $root list --json | Where-Object name -eq 'fixture')
     if ($LASTEXITCODE -ne 0 -or $final.Count -ne 1 -or $final[0].version -ne '2' -or
         $final[0].last_operation -ne 'succeeded' -or 'recovery' -in $final[0].PSObject.Properties.Name) {
         throw 'Successful retry did not clear pending recovery state'
@@ -160,7 +161,7 @@ try {
         Set-Manifest $rootB '1' "http://127.0.0.1:$portB/fixture.exe"
         $coordinatedB = Start-Coordinated $CoopExe $rootB @('--root',$rootB,'install','test/fixture','--json') $listenerB
         if (@(Pending-Journals $rootB).Count -ne 1) { throw 'Actual fresh install interruption did not leave a pending journal' }
-        $coordinatedB.Process.Kill($true)
+        $coordinatedB.Process.Kill()
         $coordinatedB.Process.WaitForExit()
     } finally {
         if ($coordinatedB) {
@@ -171,19 +172,19 @@ try {
         }
         $listenerB.Stop()
     }
-    $freshList = @(& $CoopExe --root $rootB list --json | ConvertFrom-Json | Where-Object name -eq 'fixture')
+    $freshList = @(Invoke-CoopJson $CoopExe --root $rootB list --json | Where-Object name -eq 'fixture')
     if ($LASTEXITCODE -ne 0 -or $freshList.Count -ne 1 -or $freshList[0].management -ne 'none' -or
         $freshList[0].status -ne 'pending-recovery' -or $freshList[0].last_operation -ne 'pending-recovery' -or
         $freshList[0].recovery.action -ne 'install' -or $freshList[0].recovery.mode -ne 'automatic') {
         throw "Fresh interrupted install was not queryable after restart: $freshList"
     }
-    $freshRecovered = & $CoopExe --root $rootB recover --json
-    if ($LASTEXITCODE -ne 0 -or @($freshRecovered | ConvertFrom-Json)[0].status -ne 'recovered' -or
+    $freshRecovered = Invoke-CoopJson $CoopExe --root $rootB recover --json
+    if ($LASTEXITCODE -ne 0 -or @($freshRecovered)[0].status -ne 'recovered' -or
         (Test-Path "$rootB/apps/fixture/current") -or (Test-Path "$rootB/.coop/packages/fixture.json")) {
         throw "Fresh interrupted install recovery published unexpected state: $freshRecovered"
     }
     Set-Manifest $rootB '1' (File-Uri $fixture1)
-    $freshRetry = & $CoopExe --root $rootB install test/fixture --json
+    $freshRetry = Invoke-CoopJson $CoopExe --root $rootB install test/fixture --json
     if ($LASTEXITCODE -ne 0 -or (& "$rootB/shims/fixture.exe") -ne 'fixture 1') { throw "Fresh install was not retryable after recovery: $freshRetry" }
 
     # C: deterministic publication-stage state. The journal and filesystem were produced with the
@@ -192,7 +193,7 @@ try {
     $rootC = "$sessionRoot/publication"
     New-Item -ItemType Directory -Path "$rootC/buckets/test/bucket" -Force | Out-Null
     Set-Manifest $rootC '1' (File-Uri $fixture1)
-    & $CoopExe --root $rootC install test/fixture --json | Out-Null
+    Invoke-CoopJson $CoopExe --root $rootC install test/fixture --json | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Publication recovery fixture install failed' }
     $tx = "$rootC/.coop/transactions/simulated-publication"
     New-Item -ItemType Directory -Path $tx -Force | Out-Null
@@ -212,22 +213,22 @@ try {
       moves=@(@{from=$current;to=$oldCurrent;moved=$true},@{from=$shim;to=$oldShim;moved=$true},
               @{from=$metadata;to=$oldMetadata;moved=$true},@{from=$record;to=$oldRecord;moved=$true});
       scripts=@()} | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath "$tx/journal.json" -Encoding utf8
-    $publicationList = @(& $CoopExe --root $rootC list --json | ConvertFrom-Json | Where-Object name -eq 'fixture')
+    $publicationList = @(Invoke-CoopJson $CoopExe --root $rootC list --json | Where-Object name -eq 'fixture')
     if ($LASTEXITCODE -ne 0 -or $publicationList.Count -ne 1 -or $publicationList[0].version -ne '1' -or
         $publicationList[0].management -ne 'managed' -or $publicationList[0].status -ne 'ready' -or
         $publicationList[0].last_operation -ne 'pending-recovery' -or $publicationList[0].recovery.action -ne 'update') {
         throw "Query did not read the last published record during publication-stage interruption: $publicationList"
     }
-    $publicationDry = & $CoopExe --root $rootC recover --dry-run --json
-    $publicationDryEntry = @($publicationDry | ConvertFrom-Json)[0]
+    $publicationDry = Invoke-CoopJson $CoopExe --root $rootC recover --dry-run --json
+    $publicationDryEntry = @($publicationDry)[0]
     if ($LASTEXITCODE -ne 0 -or $publicationDryEntry.mode -ne 'automatic' -or
         @($publicationDryEntry.actions | Where-Object kind -eq 'remove').Count -ne 2 -or
         @($publicationDryEntry.actions | Where-Object kind -eq 'restore').Count -ne 4) {
         throw "Publication recovery was misclassified: $publicationDry"
     }
     if (-not (Test-Path -LiteralPath $current) -or -not (Test-Path -LiteralPath "$rootC/apps/fixture/2")) { throw 'Recovery preview changed publication-stage state' }
-    $publicationRecovered = & $CoopExe --root $rootC.ToUpper() recover --json
-    if ($LASTEXITCODE -ne 0 -or @($publicationRecovered | ConvertFrom-Json)[0].status -ne 'recovered' -or
+    $publicationRecovered = Invoke-CoopJson $CoopExe --root $rootC.ToUpper() recover --json
+    if ($LASTEXITCODE -ne 0 -or @($publicationRecovered)[0].status -ne 'recovered' -or
         (Test-Path "$rootC/apps/fixture/2") -or (& "$rootC/shims/fixture.exe") -ne 'fixture 1' -or
         (Get-Content -LiteralPath $record -Raw | ConvertFrom-Json).version -ne '1') {
         throw "Publication-stage rollback did not restore the prior installation: $publicationRecovered"
@@ -242,8 +243,8 @@ try {
     @{state='pending';action='install';package='hookfixture';created=@();moves=@();
       scripts=@(@{phase='post_install';status='succeeded';exit_code=0;stdout_log='scripts/1-post_install.stdout.log'})} |
         ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$scriptTx/journal.json" -Encoding utf8
-    $scriptRecovered = & $CoopExe --root $rootD recover --json
-    $scriptEntry = @($scriptRecovered | ConvertFrom-Json)[0]
+    $scriptRecovered = Invoke-CoopJson $CoopExe --root $rootD recover --json
+    $scriptEntry = @($scriptRecovered)[0]
     if ($LASTEXITCODE -ne 0 -or $scriptEntry.status -ne 'recovered-with-unknown-script-effects' -or
         $scriptEntry.external_side_effects -notmatch 'not re-run' -or
         $scriptEntry.transaction_evidence_retained -ne $scriptTx -or
@@ -260,7 +261,7 @@ try {
     $rootE = "$sessionRoot/manual"
     New-Item -ItemType Directory -Path "$rootE/buckets/test/bucket" -Force | Out-Null
     Set-Manifest $rootE '1' (File-Uri $fixture1)
-    & $CoopExe --root $rootE install test/fixture --json | Out-Null
+    Invoke-CoopJson $CoopExe --root $rootE install test/fixture --json | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Manual recovery fixture install failed' }
     $txE = "$rootE/.coop/transactions/simulated-conflict"
     New-Item -ItemType Directory -Path $txE -Force | Out-Null
@@ -273,8 +274,8 @@ try {
     @{state='pending';action='update';package='fixture';created=@();moves=@(
         @{from=$currentE;to=$oldCurrentE;moved=$true},@{from=$recordE;to=$oldRecordE;moved=$true});scripts=@()} |
         ConvertTo-Json -Depth 8 | Set-Content -LiteralPath "$txE/journal.json" -Encoding utf8
-    $manual = & $CoopExe --root $rootE recover --json
-    $manualEntry = @($manual | ConvertFrom-Json)[0]
+    $manual = Invoke-CoopJson $CoopExe --root $rootE recover --json
+    $manualEntry = @($manual)[0]
     if ($LASTEXITCODE -ne 1 -or $manualEntry.mode -ne 'manual' -or $manualEntry.status -ne 'manual') { throw "Conflicting transaction was not marked manual: $manual" }
     if ((Get-Content -LiteralPath "$currentE/foreign.txt" -Raw) -ne 'foreign data must survive' -or
         (Get-Content -LiteralPath "$txE/journal.json" -Raw | ConvertFrom-Json).state -ne 'pending' -or
@@ -282,8 +283,8 @@ try {
         throw 'Manual recovery changed or deleted unowned state'
     }
     Remove-Item -LiteralPath $currentE -Recurse -Force
-    $manualRetry = & $CoopExe --root $rootE recover --json
-    if ($LASTEXITCODE -ne 0 -or @($manualRetry | ConvertFrom-Json)[0].status -ne 'recovered' -or
+    $manualRetry = Invoke-CoopJson $CoopExe --root $rootE recover --json
+    if ($LASTEXITCODE -ne 0 -or @($manualRetry)[0].status -ne 'recovered' -or
         (& "$rootE/shims/fixture.exe") -ne 'fixture 1' -or
         (Get-Content -LiteralPath $recordE -Raw | ConvertFrom-Json).version -ne '1') {
         throw "Manual conflict resolution did not complete recovery: $manualRetry"
@@ -297,8 +298,8 @@ try {
     New-Item -ItemType Directory -Path $adoptTx -Force | Out-Null
     @{state='pending';action='adopt';package='fixture';record=$adoptRecord} |
         ConvertTo-Json | Set-Content -LiteralPath "$adoptTx/journal.json" -Encoding utf8
-    $adoptRecovered = & $CoopExe --root $rootF recover --json
-    $adoptEntry = @($adoptRecovered | ConvertFrom-Json)[0]
+    $adoptRecovered = Invoke-CoopJson $CoopExe --root $rootF recover --json
+    $adoptEntry = @($adoptRecovered)[0]
     if ($LASTEXITCODE -eq 0 -or $adoptEntry.action -ne 'adopt' -or $adoptEntry.mode -ne 'manual' -or
         $adoptEntry.status -ne 'manual' -or $adoptEntry.reason -notmatch 'retired' -or
         (Get-Content -LiteralPath "$adoptTx/journal.json" -Raw | ConvertFrom-Json).state -ne 'pending') {
@@ -311,8 +312,8 @@ try {
     @{state='pending';action='cleanup';package='oldpkg';candidates=@(@{version='old';from="$rootG/apps/oldpkg";
         trash="$cleanupTx/0-old";moved=$true;recovery=$false})} |
         ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$cleanupTx/journal.json" -Encoding utf8
-    $cleanupRecovered = & $CoopExe --root $rootG recover --json
-    $cleanupEntry = @($cleanupRecovered | ConvertFrom-Json)[0]
+    $cleanupRecovered = Invoke-CoopJson $CoopExe --root $rootG recover --json
+    $cleanupEntry = @($cleanupRecovered)[0]
     if ($LASTEXITCODE -ne 0 -or $cleanupEntry.action -ne 'cleanup' -or $cleanupEntry.mode -ne 'automatic' -or
         $cleanupEntry.status -ne 'committed' -or (Test-Path -LiteralPath "$cleanupTx/0-old") -or
         (Get-Content -LiteralPath "$cleanupTx/journal.json" -Raw | ConvertFrom-Json).state -ne 'committed') {
@@ -324,8 +325,8 @@ try {
     $rootH = "$sessionRoot/scoped"
     $alpha = New-PendingInstall $rootH 'alpha'
     $beta = New-PendingInstall $rootH 'beta'
-    $scoped = & $CoopExe --root $rootH recover alpha --json
-    $scopedEntries = @($scoped | ConvertFrom-Json)
+    $scoped = Invoke-CoopJson $CoopExe --root $rootH recover alpha --json
+    $scopedEntries = @($scoped)
     $scopedAlpha = @($scopedEntries | Where-Object package -eq 'alpha')
     $scopedBeta = @($scopedEntries | Where-Object package -eq 'beta')
     if ($LASTEXITCODE -ne 1 -or $scopedAlpha.Count -ne 1 -or $scopedAlpha[0].status -ne 'recovered' -or
@@ -336,16 +337,16 @@ try {
         -not (Test-Path -LiteralPath $beta.Version)) {
         throw "Scoped recovery executed or hid an unrequested transaction: $scoped"
     }
-    $unknown = & $CoopExe --root $rootH recover nosuchpackage --json
-    $unknownEntries = @($unknown | ConvertFrom-Json)
+    $unknown = Invoke-CoopJson $CoopExe --root $rootH recover nosuchpackage --json
+    $unknownEntries = @($unknown)
     if ($LASTEXITCODE -ne 1 -or @($unknownEntries | Where-Object { $_.package -eq 'nosuchpackage' -and $_.status -eq 'not-pending' }).Count -ne 1 -or
         @($unknownEntries | Where-Object { $_.package -eq 'beta' -and $_.skipped -eq $true }).Count -ne 1 -or
         (Get-Content -LiteralPath $beta.Journal -Raw | ConvertFrom-Json).state -ne 'pending' -or
         -not (Test-Path -LiteralPath $beta.Version)) {
         throw "Unknown scoped package mutated pending state or returned empty success: $unknown"
     }
-    $betaRecovered = & $CoopExe --root $rootH recover beta --json
-    if ($LASTEXITCODE -ne 0 -or @($betaRecovered | ConvertFrom-Json)[0].status -ne 'recovered' -or
+    $betaRecovered = Invoke-CoopJson $CoopExe --root $rootH recover beta --json
+    if ($LASTEXITCODE -ne 0 -or @($betaRecovered)[0].status -ne 'recovered' -or
         (Test-Path -LiteralPath $beta.Version)) { throw "Scoped recovery did not finish the requested package: $betaRecovered" }
 
     # I: a scoped automatic recovery must still report a different manual transaction and return
@@ -359,8 +360,8 @@ try {
     @{state='pending';action='update';package='manualpkg';created=@();scripts=@();
       moves=@(@{from=$manualCurrent;to=$manualOld;moved=$true})} |
         ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$manualTx/journal.json" -Encoding utf8
-    $scopedManual = & $CoopExe --root $rootI recover autopkg --json
-    $scopedManualEntries = @($scopedManual | ConvertFrom-Json)
+    $scopedManual = Invoke-CoopJson $CoopExe --root $rootI recover autopkg --json
+    $scopedManualEntries = @($scopedManual)
     if ($LASTEXITCODE -ne 1 -or
         @($scopedManualEntries | Where-Object { $_.package -eq 'autopkg' -and $_.status -eq 'recovered' }).Count -ne 1 -or
         @($scopedManualEntries | Where-Object { $_.package -eq 'manualpkg' -and $_.skipped -eq $true -and $_.mode -eq 'manual' }).Count -ne 1 -or
@@ -381,7 +382,7 @@ try {
     @{state='pending';action='update';package='victim';created=@();scripts=@();
       moves=@(@{from=[IO.Path]::GetFullPath("$rootJ/.coop/packages/victim.json");to=$outsideRecord;moved=$true})} |
         ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$txJ/journal.json" -Encoding utf8
-    $outsideList = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    $outsideList = @(Invoke-CoopJson $CoopExe --root $rootJ list --json | Where-Object name -eq 'victim')
     if ($LASTEXITCODE -ne 0 -or $outsideList.Count -ne 1 -or $outsideList[0].version -eq '888') {
         throw "Query trusted a record outside Coop's transaction subtree: $outsideList"
     }
@@ -391,13 +392,13 @@ try {
     @{state='pending';action='update';package='victim';created=@();scripts=@();
       moves=@(@{from=[IO.Path]::GetFullPath("$rootJ/.coop/packages/victim.json");to=$insideRecord;moved=$true})} |
         ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$txJ/journal.json" -Encoding utf8
-    $foreignList = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    $foreignList = @(Invoke-CoopJson $CoopExe --root $rootJ list --json | Where-Object name -eq 'victim')
     if ($LASTEXITCODE -ne 0 -or $foreignList.Count -ne 1 -or $foreignList[0].version -eq '999') {
         throw "Query used a transaction record for a different package: $foreignList"
     }
     @{name='victim';version='777';directory=$appJ;status='ready';bucket='test';architecture='64bit';origin='coop'} |
         ConvertTo-Json | Set-Content -LiteralPath $insideRecord -Encoding utf8
-    $lastCommitted = @(& $CoopExe --root $rootJ list --json | ConvertFrom-Json | Where-Object name -eq 'victim')
+    $lastCommitted = @(Invoke-CoopJson $CoopExe --root $rootJ list --json | Where-Object name -eq 'victim')
     if ($LASTEXITCODE -ne 0 -or $lastCommitted.Count -ne 1 -or $lastCommitted[0].version -ne '777' -or
         $lastCommitted[0].management -ne 'managed') {
         throw "Query did not use a valid last committed record: $lastCommitted"

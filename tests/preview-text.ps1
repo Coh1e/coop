@@ -2,6 +2,7 @@
 # one line per package, or `--json` stops carrying the structured plan.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -31,7 +32,7 @@ foreach ($name in 'alpha','bravo') {
 }
 
 # A single preview is one readable line plus its diagnostics, never the JSON plan.
-$text = (& $CoopExe --root $root update probe/alpha --dry-run 2>&1) -join "`n"
+$text = (Invoke-CoopNative $CoopExe  --root $root update probe/alpha --dry-run) -join "`n"
 if ($LASTEXITCODE -cne 0) { throw "the preview failed: $text" }
 if ($text -cmatch '\{') { throw "the text preview printed JSON: $text" }
 if ($text -cnotmatch '(?m)^alpha: update 1\.0 \(installed 1\.0\)\s+executable') {
@@ -39,7 +40,7 @@ if ($text -cnotmatch '(?m)^alpha: update 1\.0 \(installed 1\.0\)\s+executable') 
 }
 
 # A batch preview prints one line per package instead of staying silent.
-$batch = (& $CoopExe --root $root update '*' --dry-run 2>&1) -join "`n"
+$batch = (Invoke-CoopNative $CoopExe  --root $root update '*' --dry-run) -join "`n"
 if ($LASTEXITCODE -cne 0) { throw "the batch preview failed: $batch" }
 foreach ($name in 'alpha','bravo') {
     if ($batch -cnotmatch "(?m)^$name`: update 1\.0") { throw "the batch preview skipped ${name}: $batch" }

@@ -1,5 +1,8 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -73,7 +76,7 @@ function New-ZipPackage([string]$path,[System.Collections.IDictionary]$entries) 
     } finally { $zip.Dispose(); $stream.Dispose() }
 }
 function Coop([string]$name,[string[]]$arguments) {
-    $output = & $CoopExe @arguments 2>&1 | Out-String
+    $output = Invoke-CoopNative $CoopExe  @arguments | Out-String
     $exit = $LASTEXITCODE
     if ($exit -ne 0) { throw "coop $($arguments -join ' ') failed with exit $exit`n$output" }
     return $output
@@ -295,7 +298,7 @@ try {
         post_install=@('Copy-Item "$dir\absent.txt" "$dir\copied.txt"')
     }
     [IO.File]::WriteAllText("$root/buckets/test/bucket/$failPackage.json",($failManifest | ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
-    $failRun = & $CoopExe --root $root install "test/$failPackage" --json 2>&1 | Out-String
+    $failRun = Invoke-CoopNative $CoopExe  --root $root install "test/$failPackage" --json | Out-String
     $failExit = $LASTEXITCODE
     Assert-True ($failExit -ne 0) 'the failing post_install transaction unexpectedly succeeded'
     Assert-True ((Get-UserRaw $rollbackName).present -eq $false) 'failed transaction left its environment variable behind'

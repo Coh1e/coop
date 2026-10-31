@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -104,7 +105,7 @@ Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-da
 [IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '3' $fixture2 $mapping))
 $lock = [IO.File]::Open("$root/.coop/packages/$name.json",[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
 try {
-    $failed = & $CoopExe --root $root update $name --json 2>&1
+    $failed = Invoke-CoopNative $CoopExe  --root $root update $name --json
     if ($LASTEXITCODE -eq 0) { throw 'occupied management record unexpectedly allowed update publication' }
 } finally { $lock.Dispose() }
 if (Test-Path -LiteralPath "$app/3") { throw 'failed persist update left the new version published' }
@@ -117,7 +118,7 @@ Assert-Text "$store/unrelated/keep.txt" 'unowned'
 
 # A changed persist mapping is an explicit unverified operation, not a silent migration.
 [IO.File]::WriteAllText("$root/buckets/test/bucket/$name.json",(New-Manifest '4' $fixture1 'renamed'))
-$blocked = & $CoopExe --root $root update $name --json 2>&1
+$blocked = Invoke-CoopNative $CoopExe  --root $root update $name --json
 if ($LASTEXITCODE -eq 0 -or ($blocked -join "`n") -notmatch 'Persistence mapping changes are not verified') { throw 'changed persist mapping was not explicitly refused' }
 if (Test-Path -LiteralPath "$app/4") { throw 'refused mapping change published a version' }
 Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-data-2 file=file-data-2'
@@ -126,7 +127,7 @@ Assert-Runs "$root/shims/persist-fixture.exe" 'persist-fixture 2 config=owner-da
 # Link ownership changes must stop uninstall before any deletion.
 Remove-Junction "$app/2/config"
 New-Item -ItemType Junction -Path "$app/2/config" -Target "$store/unrelated" | Out-Null
-$failed = & $CoopExe --root $root uninstall $name --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root uninstall $name --json
 if ($LASTEXITCODE -eq 0) { throw 'uninstall accepted a retargeted persistence junction' }
 if (-not (Test-Path -LiteralPath "$app/current/persist-fixture.exe") -or -not (Test-Path -LiteralPath "$store/unrelated/keep.txt")) { throw 'failed ownership check deleted the program or unrelated data' }
 Remove-Junction "$app/2/config"
@@ -134,7 +135,7 @@ New-Item -ItemType Junction -Path "$app/2/config" -Target "$store/config" | Out-
 
 Remove-Item -LiteralPath "$app/2/sample.ini" -Force
 Set-Content -LiteralPath "$app/2/sample.ini" -Value 'tampered' -NoNewline
-$failed = & $CoopExe --root $root uninstall $name --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root uninstall $name --json
 if ($LASTEXITCODE -eq 0) { throw 'uninstall accepted a replaced persistence hardlink' }
 Assert-Text "$store/sample.ini" 'file-data-2'
 if (-not (Test-Path -LiteralPath "$app/current/persist-fixture.exe")) { throw 'failed hardlink ownership check removed the current program' }
@@ -191,7 +192,7 @@ New-Item -ItemType Junction -Path "$root3/persist/persistlink/bad" -Target "$roo
 $badPair = [Collections.Generic.List[object]]::new()
 $badPair.Add([string[]]@('config','bad/config'))
 [IO.File]::WriteAllText("$root3/buckets/test/bucket/persistlink.json",(New-Manifest '1' $fixture1 $badPair))
-$failed = & $CoopExe --root $root3 install test/persistlink --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root3 install test/persistlink --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath "$root3/apps/persistlink/current") -or (Test-Path -LiteralPath "$root3/outside/config")) { throw 'reparse persist target was not refused before publication' }
 if (Test-Path -LiteralPath "$root3/.coop/packages/persistlink.json") { throw 'refused reparse persist install left a management record' }
 $journals = @(Get-ChildItem "$root3/.coop/transactions" -Recurse -Filter journal.json | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
@@ -202,7 +203,7 @@ Set-Content -LiteralPath "$root3/persist/persistfile/blocked" -Value 'not-a-dire
 $filePair = [Collections.Generic.List[object]]::new()
 $filePair.Add([string[]]@('config','blocked/config'))
 [IO.File]::WriteAllText("$root3/buckets/test/bucket/persistfile.json",(New-Manifest '1' $fixture1 $filePair))
-$failed = & $CoopExe --root $root3 install test/persistfile --json 2>&1
+$failed = Invoke-CoopNative $CoopExe  --root $root3 install test/persistfile --json
 if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath "$root3/apps/persistfile/current")) { throw 'file where persist directory is required did not fail before publication' }
 Assert-Text "$root3/persist/persistfile/blocked" 'not-a-directory'
 if (Test-Path -LiteralPath "$root3/.coop/packages/persistfile.json") { throw 'refused file-parent persist install left a management record' }

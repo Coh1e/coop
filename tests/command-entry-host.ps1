@@ -5,6 +5,9 @@ param(
     [switch]$RequirePythonHost
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
@@ -50,7 +53,7 @@ function Invoke-Coop([string[]]$arguments,[string]$pathValue = $null) {
     $saved = $env:PATH
     if ($null -ne $pathValue) { $env:PATH = $pathValue }
     try {
-        $output = & $CoopExe @arguments 2>&1 | Out-String
+        $output = Invoke-CoopNative $CoopExe  @arguments | Out-String
         return [pscustomobject]@{code=$LASTEXITCODE;text=$output}
     } finally { $env:PATH = $saved }
 }
@@ -63,7 +66,7 @@ function Invoke-Program([string]$exe,[string[]]$arguments,[string]$pathValue) {
     $saved = $env:PATH
     $env:PATH = $pathValue
     try {
-        $output = & $exe @arguments 2>&1 | Out-String
+        $output = Invoke-CoopNative $exe  @arguments | Out-String
         return [pscustomobject]@{code=$LASTEXITCODE;text=$output.Trim()}
     } finally { $env:PATH = $saved }
 }
@@ -100,7 +103,7 @@ function Find-GitBash {
 function Test-PythonHost([string]$exe) {
     if (-not $exe -or -not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $false }
     try {
-        $version = (& $exe --version 2>&1 | Out-String).Trim()
+        $version = (Invoke-CoopNative $exe  --version | Out-String).Trim()
         return $LASTEXITCODE -eq 0 -and $version -match '^Python 3\.'
     } catch { return $false }
 }

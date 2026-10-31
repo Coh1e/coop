@@ -1,6 +1,7 @@
-param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$GuardExe,
+﻿param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$GuardExe,
       [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $projectTests = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($projectTests,[StringComparison]::OrdinalIgnoreCase)) { throw 'Live tests must stay in project' }
@@ -15,12 +16,12 @@ function Invoke-Child([string]$File, [string[]]$Arguments, [hashtable]$Environme
     $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
-    foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
-    foreach ($key in $EnvironmentOverrides.Keys) { $start.Environment[$key] = $EnvironmentOverrides[$key] }
+    foreach ($argument in $Arguments) { Add-ProcessArgument $start ($argument) }
+    foreach ($key in $EnvironmentOverrides.Keys) { $start.EnvironmentVariables[$key] = $EnvironmentOverrides[$key] }
     $process = [Diagnostics.Process]::Start($start)
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
-    if (-not $process.WaitForExit(120000)) { $process.Kill($true); throw 'Live test process timed out' }
+    if (-not $process.WaitForExit(120000)) { $process.Kill(); throw 'Live test process timed out' }
     $result = @{ exit=$process.ExitCode; output=$stdout.GetAwaiter().GetResult(); error=$stderr.GetAwaiter().GetResult() }
     ++$script:childNumber
     $result | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root ('child-{0:d2}.json' -f $script:childNumber)) -Encoding utf8

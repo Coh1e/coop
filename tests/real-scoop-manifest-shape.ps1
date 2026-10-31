@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory)][string]$CoopExe,
     [Parameter(Mandatory)][string]$EvidenceDir,
     [string]$ScoopRoot = (Join-Path $env:USERPROFILE 'scoop'),
@@ -15,6 +15,9 @@ param(
 #     root, alternating with the real Scoop client, then the original installation list and raw
 #     user Path are verified unchanged.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
@@ -69,7 +72,7 @@ function Test-Installed([string]$name) {
     return $entry.Count -gt 0
 }
 function Get-ScoopExportApps {
-    $export = (& $scoop export 2>&1 | Out-String) | ConvertFrom-Json
+    $export = (Invoke-CoopNative $scoop  export | Out-String) | ConvertFrom-Json
     return @(@($export.apps) | ForEach-Object { "$($_.Name)@$($_.Version)" } | Sort-Object)
 }
 function Test-ScoopInstalled([string]$name) {
@@ -89,7 +92,7 @@ function Find-PythonHost {
     foreach ($candidate in $candidates) {
         if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         try {
-            $version = (& $candidate --version 2>&1 | Out-String).Trim()
+            $version = (Invoke-CoopNative $candidate  --version | Out-String).Trim()
             if ($LASTEXITCODE -eq 0 -and $version -match '^Python 3\.') { return [IO.Path]::GetFullPath($candidate) }
         } catch { }
     }
@@ -323,7 +326,7 @@ $versions = [ordered]@{
     coop_sha256 = HashOf $CoopExe
     powershell = $PSVersionTable.PSVersion.ToString()
     scoop_root = $ScoopRoot
-    scoop_version = (@(((& $scoop --version 2>&1 6>&1 | Out-String) -split "`r?`n") | Where-Object { $_ -match '^v\d' }) | Select-Object -First 1)
+    scoop_version = (@(((Invoke-CoopNative $scoop  --version 6>&1 | Out-String) -split "`r?`n") | Where-Object { $_ -match '^v\d' }) | Select-Object -First 1)
     shared_main_revision = (& git -C $sharedMain rev-parse HEAD | Out-String).Trim()
     project_tracked_changes = ((& git -C $projectRoot status --porcelain --untracked-files=no | Out-String).Trim() -split "`r?`n" | Where-Object { $_ })
     inventory_main_revision = (& git -C (Join-Path $InventoryRoot 'buckets/main') rev-parse HEAD | Out-String).Trim()

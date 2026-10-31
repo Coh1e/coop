@@ -3,6 +3,7 @@
 # `bucket rm` stops acting as `remove`.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -29,7 +30,7 @@ foreach ($wildcard in '*', '-a') {
 }
 
 # A system-level write is refused with the product's own marker, not as an unknown switch.
-$refusal = & $CoopExe --root $root uninstall -g demo 2>&1
+$refusal = Invoke-CoopNative $CoopExe  --root $root uninstall -g demo
 if ($LASTEXITCODE -cne 1) { throw "uninstall -g exited $LASTEXITCODE" }
 if (($refusal -join "`n") -cnotmatch 'global-scope-readonly') { throw "uninstall -g said: $($refusal -join ' | ')" }
 

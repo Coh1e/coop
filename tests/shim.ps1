@@ -3,6 +3,7 @@
 # stops reporting the target and arguments.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -39,6 +40,6 @@ $lines = @(& $CoopExe --root $root shim rm hello)
 if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch "Removing shim 'hello'") { throw "shim rm said '$($lines -join ' | ')'" }
 if ((Test-Path -LiteralPath "$root/shims/hello.exe") -or (Test-Path -LiteralPath "$root/shims/hello.shim")) { throw 'shim rm left a file behind' }
 
-$lines = & $CoopExe --root $root shim add bad 'D:\no\such\tool.exe' 2>&1
+$lines = Invoke-CoopNative $CoopExe  --root $root shim add bad 'D:\no\such\tool.exe'
 if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'does not exist') { throw "shim add on a missing target said '$($lines -join ' | ')'" }
 Write-Output 'PASS: shim add/list/info/alter/rm with a runnable launcher'

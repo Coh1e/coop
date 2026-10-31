@@ -2,6 +2,7 @@
 # that record, a normal run starts leaving one, or `recover --dry-run` consumes it.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 $allowedRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\') + '\'
 if (-not ($TestRoot.TrimEnd('\') + '\').StartsWith($allowedRoot, [StringComparison]::OrdinalIgnoreCase)) {
@@ -36,7 +37,7 @@ if (@(Get-ChildItem "$root/.coop/runs" -File -ErrorAction SilentlyContinue).Coun
 $previousToken = $env:COOP_ALLOW_TEST_FAULTS
 try {
     $env:COOP_ALLOW_TEST_FAULTS = '1'
-    & $CoopExe --root $root update probe/slow -f 2>&1 | Out-Null
+    Invoke-CoopNative $CoopExe  --root $root update probe/slow -f | Out-Null
     if ($LASTEXITCODE -ceq 0) { throw 'the crash fault did not stop the command' }
 
     $records = @(Get-ChildItem "$root/.coop/runs" -File -ErrorAction SilentlyContinue)
@@ -47,7 +48,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($record.stage)) { throw 'the record names no stage' }
 
     # A dry run reports it and leaves it in place.
-    $dry = & $CoopExe --root $root recover --dry-run 2>&1
+    $dry = Invoke-CoopNative $CoopExe  --root $root recover --dry-run
     if ($LASTEXITCODE -cne 0) { throw "recover --dry-run failed: $($dry -join ' | ')" }
     if (($dry -join "`n") -cnotmatch 'an interrupted run was recorded: coop update probe/slow') {
         throw "recover --dry-run did not name the run: $($dry -join ' | ')"
@@ -57,14 +58,14 @@ try {
     }
 
     # A real recover reports it and consumes it.
-    $recover = & $CoopExe --root $root recover 2>&1
+    $recover = Invoke-CoopNative $CoopExe  --root $root recover
     if (($recover -join "`n") -cnotmatch 'an interrupted run was recorded: coop update probe/slow') {
         throw "recover did not name the run: $($recover -join ' | ')"
     }
     if (@(Get-ChildItem "$root/.coop/runs" -File -ErrorAction SilentlyContinue).Count -cne 0) {
         throw 'recover did not consume the record'
     }
-    $again = & $CoopExe --root $root recover 2>&1
+    $again = Invoke-CoopNative $CoopExe  --root $root recover
     if (($again -join "`n") -cmatch 'interrupted run') { throw 'a consumed record was reported twice' }
 } finally {
     if ($null -eq $previousToken) { Remove-Item Env:\COOP_ALLOW_TEST_FAULTS -ErrorAction SilentlyContinue }

@@ -8,6 +8,9 @@ param(
 # components, and a repeated derived alias with Scoop's last-wins overwrite (reported, never silent),
 # while every absolute, drive-qualified and escaping write path stays rejected.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 # Coop writes UTF-8; the test root deliberately contains non-ASCII characters, so decode child
 # output with the same encoding before comparing paths and messages.
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -51,7 +54,7 @@ function Invoke-Coop([string[]]$arguments,[string]$pathValue = $null) {
     $saved = $env:PATH
     if ($null -ne $pathValue) { $env:PATH = $pathValue }
     try {
-        $output = & $CoopExe @arguments 2>&1 | Out-String
+        $output = Invoke-CoopNative $CoopExe  @arguments | Out-String
         return [pscustomobject]@{code=$LASTEXITCODE;text=$output}
     } finally { $env:PATH = $saved }
 }
@@ -64,7 +67,7 @@ function Invoke-Program([string]$exe,[string[]]$arguments,[string]$pathValue = $
     $saved = $env:PATH
     if ($null -ne $pathValue) { $env:PATH = $pathValue }
     try {
-        $output = & $exe @arguments 2>&1 | Out-String
+        $output = Invoke-CoopNative $exe  @arguments | Out-String
         return [pscustomobject]@{code=$LASTEXITCODE;text=$output}
     } finally { $env:PATH = $saved }
 }
@@ -82,7 +85,7 @@ function Find-PythonHost {
     foreach ($candidate in $candidates) {
         if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         try {
-            $version = (& $candidate --version 2>&1 | Out-String).Trim()
+            $version = (Invoke-CoopNative $candidate  --version | Out-String).Trim()
             if ($LASTEXITCODE -eq 0 -and $version -match '^Python 3\.') { return [IO.Path]::GetFullPath($candidate) }
         } catch { }
     }

@@ -21,6 +21,7 @@ param(
 # instead of accidentally running the WSL bash/wslpath pair. TERM=xterm is scoped to the wrapper
 # child because the test starts from a non-terminal process.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\')
 $EvidenceDir = [IO.Path]::GetFullPath($EvidenceDir)
 if (-not ($EvidenceDir.TrimEnd('\')+'\').StartsWith($projectRoot+'\',[StringComparison]::OrdinalIgnoreCase)) {
@@ -78,7 +79,7 @@ function Find-PythonHost {
     foreach ($candidate in $candidates) {
         if (-not $candidate -or -not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
         try {
-            $version = (& $candidate --version 2>&1 | Out-String).Trim()
+            $version = (Invoke-CoopNative $candidate  --version | Out-String).Trim()
             if ($LASTEXITCODE -eq 0 -and $version -match '^Python 3\.') { return [IO.Path]::GetFullPath($candidate) }
         } catch { }
     }

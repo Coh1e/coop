@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -14,10 +15,10 @@ $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true
-$start.Environment['PATH'] = Join-Path $env:SystemRoot 'System32'
-$start.Environment['HTTPS_PROXY'] = 'http://127.0.0.1:'+$port
-$start.Environment['NO_PROXY'] = ''
-foreach ($arg in @('--root',$root,'bucket','add','main','https://github.com/ScoopInstaller/Main','--json')) { $start.ArgumentList.Add($arg) }
+$start.EnvironmentVariables['PATH'] = Join-Path $env:SystemRoot 'System32'
+$start.EnvironmentVariables['HTTPS_PROXY'] = 'http://127.0.0.1:'+$port
+$start.EnvironmentVariables['NO_PROXY'] = ''
+foreach ($arg in @('--root',$root,'bucket','add','main','https://github.com/ScoopInstaller/Main','--json')) { Add-ProcessArgument $start ($arg) }
 $process = [Diagnostics.Process]::Start($start)
 $stdout = $process.StandardOutput.ReadToEndAsync()
 $stderr = $process.StandardError.ReadToEndAsync()
@@ -27,10 +28,10 @@ try {
     $client = $accept.GetAwaiter().GetResult()
     $cache = @(Get-ChildItem -LiteralPath "$root/.coop/staging" -Directory -ErrorAction SilentlyContinue)
     if (-not $cache.Count -or $process.HasExited) { throw 'Clone initialization was not observed in progress' }
-    $process.Kill($true)
+    $process.Kill()
     $process.WaitForExit()
 } finally {
-    if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
+    if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
     if ($client) { $client.Dispose() }
     $listener.Stop()
 }
@@ -43,11 +44,11 @@ $retryStart.UseShellExecute = $false
 $retryStart.CreateNoWindow = $true
 $retryStart.RedirectStandardOutput = $true
 $retryStart.RedirectStandardError = $true
-foreach ($arg in @('--root',$root,'bucket','add','main','https://github.com/ScoopInstaller/Main','--json')) { $retryStart.ArgumentList.Add($arg) }
+foreach ($arg in @('--root',$root,'bucket','add','main','https://github.com/ScoopInstaller/Main','--json')) { Add-ProcessArgument $retryStart ($arg) }
 $retry = [Diagnostics.Process]::Start($retryStart)
 $retryOutput = $retry.StandardOutput.ReadToEndAsync()
 $retryError = $retry.StandardError.ReadToEndAsync()
-if (-not $retry.WaitForExit(90000)) { $retry.Kill($true); throw 'Clone retry timed out' }
+if (-not $retry.WaitForExit(90000)) { $retry.Kill(); throw 'Clone retry timed out' }
 $retryOutput.GetAwaiter().GetResult() | Set-Content -LiteralPath "$root/retry-output.json" -Encoding utf8
 $retryError.GetAwaiter().GetResult() | Set-Content -LiteralPath "$root/retry-error.txt" -Encoding utf8
 if ($retry.ExitCode -ne 0) { throw ('Retry after actual clone interruption failed; evidence: '+$root) }
