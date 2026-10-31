@@ -50,7 +50,7 @@ total    1.690 s
 
 默认不打印，因此默认输出仍与 Scoop 逐字一致。归因的意义在于**两个量可以分别比较**：一个混着网络的总时长无法与另一客户端对照，旧的那张耗时表就是因为这个被撤掉的。
 
-与 Scoop 的比值对照见 `docs/acceptance-matrix.md`（本机比值 0.21，阈值 1.2，由 `scripts/perf-compare.ps1` 产生）。
+与 Scoop 的比值对照见 `docs/history/acceptance-matrix.md`（本机比值 0.21，阈值 1.2，由 `scripts/perf-compare.ps1` 产生）。
 
 ## 与 Scoop 的逐字对照
 

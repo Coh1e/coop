@@ -2,7 +2,7 @@ param(
     [string]$ScoopShim = "$env:USERPROFILE\scoop\shims\scoop.ps1",
     [string]$Output = (Join-Path $PSScriptRoot '../.local/scoop-baseline')
 )
-# Reproduces the Scoop column of docs/acceptance-matrix.md: the same fixtures, run through a real Scoop
+# Reproduces the Scoop column of docs/history/acceptance-matrix.md: the same fixtures, run through a real Scoop
 # in a project-local root, with the command, exit code and output recorded. Without this script the
 # column can only be quoted as a historical capture; with it, a reader can regenerate it on their box.
 $ErrorActionPreference = 'Stop'

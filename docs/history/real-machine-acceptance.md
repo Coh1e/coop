@@ -1,6 +1,6 @@
 # 本机安装集的逐项交替验收（R19/#40）
 
-> **状态（2026-10-30）**：本页是历史验收快照，命令面、版本与测试数量已继续推进；当前状态与证据入口见 [README](../README.md)。
+> **状态（2026-10-30）**：本页是历史验收快照，命令面、版本与测试数量已继续推进；当前状态与证据入口见 [README](../../README.md)。
 
 > 本页记录 2026-10-27 在本机同一真实 Scoop 根上执行的一轮验收：队列是机器当时实际安装的 15 个软件，不是挑选过的固定样本。命令、退出码、逐包事实与日志都在被忽略的 `.local/pi/tasks/40/evidence/cohort-final3/cohort-20261026-201857/` 内；本页只做汇总与索引。
 
@@ -21,7 +21,7 @@
 | Coop | 本票提交构建的 `coop.exe`，`coop 0.1.0`，SHA256 `76666fae4dad953acaf83c17f7270d3afad91dcd7a33efe5c0cab0dcc9588a79` |
 | 工具 | PowerShell 7.6.5、CMake 4.4.4、Ninja 1.13.2、MSVC x64 Build Tools |
 | 验收接口 | 真实 `coop.exe --root C:\Users\Neo\scoop …` 与真实 `scoop`，同一机器顺序交替；程序通过 HKCU/HKLM 的 PATH 解析（不使用当前会话继承的 PATH） |
-| 脚本 | [`tests/real-scoop-cohort.ps1`](../tests/real-scoop-cohort.ps1)：每次运行写入新的 `cohort-<UTC>` 目录，逐命令记录 argv、退出码与输出 |
+| 脚本 | [`tests/real-scoop-cohort.ps1`](../../tests/real-scoop-cohort.ps1)：每次运行写入新的 `cohort-<UTC>` 目录，逐命令记录 argv、退出码与输出 |
 
 “运行/版本/入口/环境/数据/安装状态”的判定来源：
 
@@ -84,7 +84,7 @@
 
 - `pi-coding-agent` 只做只读记录：它正是本轮执行器的运行载体，重写其入口或切换版本会中断验收本身。没有据此断言或否认产品能力。
 - 本轮没有为了证明独立性而卸载用户日常使用的 Git、7-Zip 或执行器自身；“无 Scoop 初始化”由 [#38](#38) 的独立初始化测试与本机 `init` 覆盖，不属于本票队列。
-- 本机没有注册 `extras` bucket，因此本票不产生 Extras 覆盖面结论；Main/Extras 的完整分母、机制缺口与逐包报告见 [Main／Extras 全量兼容盘点](coverage-report.md)。
+- 本机没有注册 `extras` bucket，因此本票不产生 Extras 覆盖面结论；Main/Extras 的完整分母、机制缺口与逐包报告见 [Main／Extras 全量兼容盘点](../coverage-report.md)。
 - 本轮没有执行 `coop cleanup` 删除用户保留的旧版本、没有 `--purge` 彻底删除，也没有跨包全局回滚的断言；这些由各自票与项目内测试覆盖。
 - `scoop reset` 会跳过正在运行的进程（本轮的 `pi-coding-agent` 因此被排除在逐项入口重发之外），这是 Scoop 自身行为，不是本轮的额外限制。
 

@@ -15,7 +15,7 @@
 - 分母为 Main 1701 + Extras 2448 = **4149 份 Manifest**。Main 使用本机共用工作树实际检出的 `5be7f8c702856c72800a0a4945b88fe6ea2bd52f`；Extras 使用本轮从官方仓库取得的 `0f8f4b5fd43bedccc7b233b77f4605bddba8085b`（本机 Scoop 根没有注册 Extras）。两份 bucket 都由项目内副本固定，Main 的 1701 份 Manifest 与共用工作树逐字节一致。
 - **读取：4149/4149 通过**（`coop info --json` 均返回有效 IR 校验结果），没有无法解析或无法生成诊断的 Manifest。
 - **规划：4094/4149 的 64bit 安装预览可执行**；53 个包的预览明确 `execution_available=false`；另有 2 个 helper 包（`7zip`、`innounp`）在本次盘点根内表现为“已安装”，不计入缺口。
-- **运行验证：15/4149**。这 15 个包正是 [#40 逐项交替验收](real-machine-acceptance.md) 的本机实际安装集合；其安装 Manifest 的 SHA256 与本轮分母完全一致，程序运行退出码均为 0。其余 4134 个包没有本轮运行事实。
+- **运行验证：15/4149**。这 15 个包正是 [#40 逐项交替验收](history/real-machine-acceptance.md) 的本机实际安装集合；其安装 Manifest 的 SHA256 与本轮分母完全一致，程序运行退出码均为 0。其余 4134 个包没有本轮运行事实。
 - 53 个被阻塞的包归为 6 类机制缺口：`psmodule` 28、命令入口宿主 11、Manifest 形状/路径 6、依赖缺失 5、架构产物缺失 3、依赖自身不受支持 2；其中 2 个包各涉及两类，去重后 53。完整包名、诊断码与原文见下表与证据。
 - ZIP、7z、tar、MSI、Inno Setup、NSIS 载荷、脚本、入口、快捷方式、持久化、环境、依赖、多产物、重命名、四种摘要算法等机制均出现在分母中并有对应计划；计划可执行不代表该机制已经逐包或逐生命周期跑过。
 
@@ -172,7 +172,7 @@ NSIS 安装器载荷不靠 Manifest 字段声明，而是 408 个包的 executab
 | uv | 0.13.5 | Scoop reset；Coop 版本往返 |
 | zoxide | 0.10.0 | Scoop reset；Coop 版本往返 |
 
-这 15 个包在安装态上覆盖 ZIP、7z、MSI、单文件产物以及命令入口、快捷方式、环境、持久化等对象；#40 实际执行的是 `scoop reset`、Coop 本地版本往返、真实更新、卸载重装和 Scoop 卸载后重装，并没有为每个包重新执行其全部脚本或安装器，也没有新装其余 4134 个包。`clink` 的 facts 快照版本是 1.9.34，`git` 是 2.56.0.3；它们的验证运行来自 lifecycle 的 `coop-real-update`（1.9.35）与 `scoop-real-update`（2.56.0.4），而不是把旧版本运行套到新 Manifest 上。`pi-coding-agent` 因执行器自身运行中只使用只读 facts 运行。逐项运行、入口、环境、数据与双方识别事实见[本机安装集的逐项交替验收](real-machine-acceptance.md)；Extras 没有任何本轮真机验证。
+这 15 个包在安装态上覆盖 ZIP、7z、MSI、单文件产物以及命令入口、快捷方式、环境、持久化等对象；#40 实际执行的是 `scoop reset`、Coop 本地版本往返、真实更新、卸载重装和 Scoop 卸载后重装，并没有为每个包重新执行其全部脚本或安装器，也没有新装其余 4134 个包。`clink` 的 facts 快照版本是 1.9.34，`git` 是 2.56.0.3；它们的验证运行来自 lifecycle 的 `coop-real-update`（1.9.35）与 `scoop-real-update`（2.56.0.4），而不是把旧版本运行套到新 Manifest 上。`pi-coding-agent` 因执行器自身运行中只使用只读 facts 运行。逐项运行、入口、环境、数据与双方识别事实见[本机安装集的逐项交替验收](history/real-machine-acceptance.md)；Extras 没有任何本轮真机验证。
 
 ## 历史真机样本（不计入本轮已验证数）
 

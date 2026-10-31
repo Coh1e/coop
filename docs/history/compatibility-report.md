@@ -1,12 +1,12 @@
 # 首版真实样本兼容与整体验收
 
-> 历史报告：本页记录 T18/#20 当时的原型状态（含脚本子集分类）。#31/R10 已把生命周期脚本改为真实 PowerShell + 固定 Scoop 兼容库执行，脚本文本不再作为可执行性判据；#33/R12 已启用 MSI 只读镜像提取，不再以机器缓存限制阻塞；#34/R13 已启用 Inno Setup 的 `innosetup` 提取（通过 root 内声明的 innounp helper）。当前脚本语义见[生命周期 Hook 与真实 PowerShell](script-support.md)，当前 MSI 与 Inno Setup 语义见[Installer/Uninstaller 与特殊安装机制](installer-support.md)，当前固定样本分类由 `tests/acceptance.ps1` 输出；官方 Main／Extras 的完整分母、机制缺口与真机验证数量见 [Main／Extras 全量兼容盘点](coverage-report.md)。下方分类只作追溯。
+> 历史报告：本页记录 T18/#20 当时的原型状态（含脚本子集分类）。#31/R10 已把生命周期脚本改为真实 PowerShell + 固定 Scoop 兼容库执行，脚本文本不再作为可执行性判据；#33/R12 已启用 MSI 只读镜像提取，不再以机器缓存限制阻塞；#34/R13 已启用 Inno Setup 的 `innosetup` 提取（通过 root 内声明的 innounp helper）。当前脚本语义见[生命周期 Hook 与真实 PowerShell](../script-support.md)，当前 MSI 与 Inno Setup 语义见[Installer/Uninstaller 与特殊安装机制](../installer-support.md)，当前固定样本分类由 `tests/acceptance.ps1` 输出；官方 Main／Extras 的完整分母、机制缺口与真机验证数量见 [Main／Extras 全量兼容盘点](../coverage-report.md)。下方分类只作追溯。
 
 日期：2026-10-25。任务：[T18 / #20](https://github.com/Coh1e/coop/issues/20)，父规格 [#2](https://github.com/Coh1e/coop/issues/2)。代码基线为 `7426d346cfc83c1c484e924e71d3b944d2605ff9` 之后的 T18 提交；本轮工具为 Windows 11 x64、Coop 0.1.0、PowerShell 7.6.5、CMake 4.4.4、Ninja 1.13.2。所有安装、更新、卸载和数据测试都在被忽略的 `.local/tests` 项目内根目录执行，不读取或修改真实用户 Scoop 根。
 
 ## 结论
 
-- 固定 [20 份真实 Manifest](../tests/corpus/index.json) 全部保持字节不变并可被 `coop info` 读取；64bit 计划中 7 份可执行、9 份明确不支持、4 份因输入或前置条件被拒绝。数量不代表生态兼容率。
+- 固定 [20 份真实 Manifest](../../tests/corpus/index.json) 全部保持字节不变并可被 `coop info` 读取；64bit 计划中 7 份可执行、9 份明确不支持、4 份因输入或前置条件被拒绝。数量不代表生态兼容率。
 - 本轮实际跑通“原有 Scoop 安装 → 预览 → 原地接管 → 本地查询 → 显式更新 bucket → 更新预览 → 失败拒绝 → 更新 → 批量部分失败 → 卸载”的真实 jq 路径，并验证失败更新保留当前版本、成功更新保留旧版本、卸载保留单独记录的旧版本。
 - 真实 `Main/nodejs` 的 7z、`persist`、`env_add_path` 与 `post_install` 安装成功，程序返回 `v26.12.1`；普通卸载保留 `persist/nodejs/bin`、`persist/nodejs/cache` 和测试标记，`uninstall --purge` 预览只列出这两个声明 store。
 - 真实 `Main/ripgrep` 与 `Main/air` 的归档生命周期由本轮 `archive_lifecycle` 测试补充验证；`Main/jq`、`Main/nodejs` 由本轮新增 `acceptance` 测试验证。

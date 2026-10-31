@@ -1,8 +1,8 @@
 # 完整交付验收与人工验收说明（R24 / #45）
 
-> **状态（2026-10-30）**：本页是历史验收快照，命令面、版本与测试数量已继续推进；当前状态与证据入口见 [README](../README.md)。
+> **状态（2026-10-30）**：本页是历史验收快照，命令面、版本与测试数量已继续推进；当前状态与证据入口见 [README](../../README.md)。
 
-> 本页是从**最终构建**重新执行的整体验收记录，以及照做即可重复的人工验收步骤。它按实际证据区分“本轮运行”“历史结果”和“未运行”，不把关闭票数、计划成功或模型自述当作完成。逐条历史 verifier 发现的处置见[历史 verifier 发现清单](verifier-findings-inventory.md)。
+> 本页是从**最终构建**重新执行的整体验收记录，以及照做即可重复的人工验收步骤。它按实际证据区分“本轮运行”“历史结果”和“未运行”，不把关闭票数、计划成功或模型自述当作完成。逐条历史 verifier 发现的处置见[历史 verifier 发现清单](../verifier-findings-inventory.md)。
 
 ## 1. 结论
 
@@ -89,8 +89,8 @@ ctest --test-dir .local/build --output-on-failure
 | 无变化刷新（本地副本） | 3 | **67.0 / 68.6** | `received_bytes=0` |
 
 - 未达项按实测如实报告，不作“平均达标”推导：`list` 仍明显高于 50ms 目标，`info` 的两个真实样本一个 p95 超目标、一个 p50 也超目标。这与 #44 记录的真实根规模结论一致；本轮产品源码相对 #44 只改了 `entries` 的共享元数据清理与 `psmodule` 保留判断，没有改变查询/刷新热路径。
-- 本轮没有重跑真实 HTTPS 首次刷新（需再下载约 54MB）：其最近一次实测（`89b4cf80…` 固定修订、54,381,675 字节、29,297.8ms 单样本）在 [性能报告](performance-support.md) 中作为**历史结果**保留，不能当成最终二进制的新运行。
-- 有变化/无变化刷新与查询的完整 p50/p95、机器和缓存条件在 `.local/pi/tasks/45/evidence/perf-real-a4d7ced/perf-real-report.json`；更早的 200/1500/3000 规模与优化前后对比见 [性能报告](performance-support.md)。
+- 本轮没有重跑真实 HTTPS 首次刷新（需再下载约 54MB）：其最近一次实测（`89b4cf80…` 固定修订、54,381,675 字节、29,297.8ms 单样本）在 [性能报告](../performance-support.md) 中作为**历史结果**保留，不能当成最终二进制的新运行。
+- 有变化/无变化刷新与查询的完整 p50/p95、机器和缓存条件在 `.local/pi/tasks/45/evidence/perf-real-a4d7ced/perf-real-report.json`；更早的 200/1500/3000 规模与优化前后对比见 [性能报告](../performance-support.md)。
 
 ## 4. 完整分母、逐机制证据与人类批准的例外
 
@@ -98,7 +98,7 @@ ctest --test-dir .local/build --output-on-failure
 
 | 项 | 结果 |
 | --- | --- |
-| 分母 | Main `eebcee22…` 1701 + Extras `0f8f4b5f…` 2448 = **4149** 份 Manifest（R28 重测；完整基线与逐包记录见[覆盖报告](coverage-report.md)） |
+| 分母 | Main `eebcee22…` 1701 + Extras `0f8f4b5f…` 2448 = **4149** 份 Manifest（R28 重测；完整基线与逐包记录见[覆盖报告](../coverage-report.md)） |
 | 读取 | 4149/4149 |
 | 计划可执行 | 4141 |
 | 计划被阻塞 | 6：`architecture-artifact` 3（arm64-only）、`external-host:python` 3（`main/retdec`、`main/vapoursynth`、`extras/pdd`；默认用户 PATH 无真实 Python 3） |
@@ -111,16 +111,16 @@ ctest --test-dir .local/build --output-on-failure
 
 | 机制 | 证据 |
 | --- | --- |
-| 共用状态、双向交替、独立初始化 | 本页 §3.2–§3.4；[真实基线](real-scoop-baseline.md)、[逐项交替](real-machine-acceptance.md) |
-| 共用 bucket 刷新、分支/修订/本地修改 | [共用 bucket 的直接刷新](shared-bucket-support.md)、[性能](performance-support.md) |
-| 查询、预览与执行同源 | [包管理 IR 与查询/预览路径](ir-pipeline.md)、CTest `ir_pipeline`/`plan`/`acceptance` |
-| 归档、多产物、架构、摘要算法 | [归档生命周期覆盖](archive-support.md)、[多产物](multi-artifact-support.md) |
-| 脚本、Hook、installer/uninstaller 程序 | [生命周期 Hook](script-support.md)、[Installer/Uninstaller](installer-support.md) |
-| 命令入口、快捷方式、用户环境 | [复杂命令入口与环境暴露](exposure-support.md)、[命令入口宿主](command-entry-support.md)、[Manifest 形状](manifest-shape-support.md)、[PSModulePath](psmodule-support.md) |
-| 持久化数据、旧版本、清理与彻底删除 | [持久化](persistence-support.md)、[旧版本](old-version-support.md) |
-| 依赖、反向保护、跨 bucket 来源 | [依赖](dependency-support.md)、[覆盖报告](coverage-report.md) |
-| 中断、恢复与冲突诊断 | [恢复](recovery-support.md)、本页 §3.5 |
-| CLI 路径、退出码与批量 | [CLI 边界](cli-boundaries.md)、CTest `path_batch` |
+| 共用状态、双向交替、独立初始化 | 本页 §3.2–§3.4；[真实基线](../real-scoop-baseline.md)、[逐项交替](real-machine-acceptance.md) |
+| 共用 bucket 刷新、分支/修订/本地修改 | [共用 bucket 的直接刷新](../shared-bucket-support.md)、[性能](../performance-support.md) |
+| 查询、预览与执行同源 | [包管理 IR 与查询/预览路径](../ir-pipeline.md)、CTest `ir_pipeline`/`plan`/`acceptance` |
+| 归档、多产物、架构、摘要算法 | [归档生命周期覆盖](../archive-support.md)、[多产物](../multi-artifact-support.md) |
+| 脚本、Hook、installer/uninstaller 程序 | [生命周期 Hook](../script-support.md)、[Installer/Uninstaller](../installer-support.md) |
+| 命令入口、快捷方式、用户环境 | [复杂命令入口与环境暴露](../exposure-support.md)、[命令入口宿主](../command-entry-support.md)、[Manifest 形状](../manifest-shape-support.md)、[PSModulePath](../psmodule-support.md) |
+| 持久化数据、旧版本、清理与彻底删除 | [持久化](../persistence-support.md)、[旧版本](../old-version-support.md) |
+| 依赖、反向保护、跨 bucket 来源 | [依赖](../dependency-support.md)、[覆盖报告](../coverage-report.md) |
+| 中断、恢复与冲突诊断 | [恢复](../recovery-support.md)、本页 §3.5 |
+| CLI 路径、退出码与批量 | [CLI 边界](../cli-boundaries.md)、CTest `path_batch` |
 
 ### 4.3 人类批准的例外
 
@@ -135,11 +135,11 @@ ctest --test-dir .local/build --output-on-failure
 - **各机制的真机脚本没有在最终构建上逐个重跑**：归档/多产物、MSI/Inno/NSIS、Hook/installer 程序、持久化、入口/环境/快捷方式和依赖的真实样本运行仍是各自票的历史证据（本页 §4.2 链接）；它们在最终构建的默认套件中有对应夹具，且本轮 15 包真实生命周期覆盖了入口/环境/持久化/版本的通用路径。不把这两类证据混为一谈，也不声称每个机制的每个真实样本都在本轮重新运行。
 - 4136 个 Main/Extras 包（闭合计数：4149 − 13 已验证；含 2 个安装副本与分母不一致的包）只有只读读取与规划，没有逐包生命周期；Extras 软件没有在本机真实根实际运行（本机 Scoop 根未注册 Extras）。
 - 2 个 32bit/arm64 以外的架构边界：32bit 只执行了真实 `air` 包；arm64 只有批准例外中的规划与静态证据，没有生命周期。
-- `psmodule`：Scoop 自己卸载 Coop 安装的模块包（`uninstall_psmodule` 会递归删除 junction 目标）仍未运行；系统级模块与机器级 `PSModulePath` 未实现；这些在[psmodule 支持](psmodule-support.md)中保持未运行。
+- `psmodule`：Scoop 自己卸载 Coop 安装的模块包（`uninstall_psmodule` 会递归删除 junction 目标）仍未运行；系统级模块与机器级 `PSModulePath` 未实现；这些在[psmodule 支持](../psmodule-support.md)中保持未运行。
 - MSI 的外部/多段 cabinet、WiX/Dark 等厂商安装器结构仍明确拒绝；没有真实样本。Inno/NSIS 依赖 root 内已安装的 helper，helper 缺失时在执行阶段具名失败。
 - `pi-coding-agent` 是本轮执行器自身，只做只读事实记录，不重写入口或切换版本。
 - 最终构建上没有可用的真实 Scoop 发起**版本更新**样本：`scoop update jq` 报告 1.7.1 已是其当前最新（未发生版本变化），因此“Scoop 真实更新 → Coop 识别”在本轮只有 Scoop `reset` 与之前构建上的 `uv 0.13.5→0.13.6` 证据；后者是历史结果，不冒充最终构建运行。
-- 历史 verifier 的 P3 精度/证据标注条目未逐项重跑或改写；状态与原因逐条见[清单](verifier-findings-inventory.md)。它们不构成产品能力通过，也不阻塞本次验收。
+- 历史 verifier 的 P3 精度/证据标注条目未逐项重跑或改写；状态与原因逐条见[清单](../verifier-findings-inventory.md)。它们不构成产品能力通过，也不阻塞本次验收。
 - 真实共用根上的操作只限本轮声明的包与范围：没有强杀用户程序、没有卸载用户的 Git/7-Zip/Scoop、没有改无关用户配置或系统环境；新的真实副作用仅为正常的软件更新（紧邻的上一构建上的 `gh 2.103.2→2.103.3`、`uv 0.13.5→0.13.6`）与最终构建上已验证的版本往返切换。
 
 ## 6. 本轮发现并修复的共享状态缺陷
@@ -223,4 +223,4 @@ pwsh -NoProfile -File tests/perf-real.ps1 `
 | 真实恢复 | `.local/pi/tasks/45/evidence/recovery-a4d7ced-20261027-231015/` |
 | 性能 | `.local/pi/tasks/45/evidence/perf-real-a4d7ced/` |
 | 缺陷复现与修复 | `.local/pi/tasks/45/evidence/cohort-9b7e65e/…/lifecycle/scoop-remove/`、`clink-reinstall-fix-20261027-092910/` |
-| 历史 verifier 清单 | [docs/verifier-findings-inventory.md](verifier-findings-inventory.md) |
+| 历史 verifier 清单 | [docs/verifier-findings-inventory.md](../verifier-findings-inventory.md) |

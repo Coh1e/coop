@@ -1,3 +1,6 @@
 .local/
 .idea/
 devkit/
+cmake-build-debug/
+probe-root.txt
+*.log

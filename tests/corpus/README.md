@@ -2,7 +2,7 @@
 
 此目录保存 20 份未经修改的真实 Manifest、原始 bucket 的 Unlicense、来源与 SHA256 索引，以及全量字段统计。它们不是已通过安装测试的软件名单。
 
-`index.json` 按样本记录版本、固定修订、官方来源、文件哈希、选择理由和静态特征。初始状态为 PowerShell JSON 解析通过，Coop 计划与生命周期均 `not-run`；后续运行结果另存证据，不通过编辑原始 Manifest 来使测试变绿。T18 的逐样本计划与生命周期结果见[首版真实样本兼容与整体验收报告](../../docs/compatibility-report.md)。
+`index.json` 按样本记录版本、固定修订、官方来源、文件哈希、选择理由和静态特征。初始状态为 PowerShell JSON 解析通过，Coop 计划与生命周期均 `not-run`；后续运行结果另存证据，不通过编辑原始 Manifest 来使测试变绿。T18 的逐样本计划与生命周期结果见[首版真实样本兼容与整体验收报告](../../docs/history/compatibility-report.md)。
 
 研究输入全部来自公开源码，运行以下命令只下载和读取资料，不执行上游安装脚本：
 

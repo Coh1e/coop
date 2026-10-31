@@ -1,108 +1,87 @@
 # Coop
 
-Coop 是 C++20 Windows 原生软件包管理器，直接与现有用户级 Scoop 安装共用安装根、bucket、软件、入口、持久化数据与安装记录，复用其 bucket 与 Manifest 生态；不需要接管、迁移或私有记录前置。
+Coop 是 Windows 原生的软件包管理器，与现有用户级 Scoop 共用安装根、bucket、软件、入口、持久化数据和安装记录。它不要求迁移或接管：两个客户端可以先后管理同一批软件。Scoop 的 Manifest 与 bucket 生态可直接使用。
 
-首版已具备原生 CLI、本地查询与 bucket 管理，以及共享状态下的安装、更新、卸载、入口/快捷方式/真实用户环境与 PATH、持久化、依赖保护与中断恢复路径；显式 `bucket update` 已可在本机真实 Scoop 根内原地刷新共用 bucket。共享状态的双向流程、独立初始化、目标机制、失败恢复与性能已在最终构建上重新验收：本机实际安装的 15 个软件在同一真实 Scoop 根上逐项通过，结果、未运行项与人类验收步骤见[完整交付验收与人工验收说明](docs/final-acceptance.md)。2026-10-29 发布 `v0.1.0`；2026-10-30 发布 `v0.2.0`：Scoop 的 28 个命令全部有实现，命令面、参数语义与读命令输出按[命令面盘点](docs/research/scoop-command-surface-audit.md)补齐，并在本机真实根上完成只读验收与可逆写入验收；`v0.2.1` 修复 `v0.2.0` 的版本断言并在 `update -f` 上支持同一版本的强制重装；`v0.2.2` 让写命令在被杀后留下可诊断的运行记录（`coop recover` 会报告）；`v0.2.3` 修正预览输出与 CRLF bucket 刷新；`v0.2.4` 修正 `search` 的 Binaries 列与 bucket 顺序，并在本地无结果时查询已知 bucket。Release 提供 x64 构建产物，并收录于 [Coh1e/scoop-bucket](https://github.com/Coh1e/scoop-bucket)；日常使用仍请按该页的范围与证据判断。
-
-当前产品方向已由 [正式规格 #21](https://github.com/Coh1e/coop/issues/21) 更新为与 Scoop 共用安装与状态：查询、预览与实际写入使用同一条独立的包管理 IR、校验与计划路径，直接读取本机真实 Scoop 安装事实，无需先执行接管；旧预览操作列表、旧执行记录与私有接管路径已由 R22 移除。模块边界与证据见 [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)，本轮真实安装与只读核对见 [真实 Scoop 安装基线](docs/real-scoop-baseline.md)；本机实际安装的 15 个软件已在同一真实 Scoop 根上完成逐项交替验收，见 [逐项交替验收](docs/real-machine-acceptance.md)。
-
-- [已确认的产品范围](docs/design-scope.md)
-- [当前正式规格（#21）](https://github.com/Coh1e/coop/issues/21)
-- [与 Scoop 共用状态的决定](docs/adr/0002-share-scoop-state.md)
-- [包管理 IR 与查询/预览路径](docs/ir-pipeline.md)
-- [真实 Scoop 安装基线](docs/real-scoop-baseline.md)
-- [共用 bucket 的直接刷新](docs/shared-bucket-support.md)
-- [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)
-- [CLI 反馈与下载缓存](docs/cli-feedback.md)
-- [读命令的文本输出](docs/query-output.md)
-- [Scoop 命令面与 Coop 的差距盘点](docs/research/scoop-command-surface-audit.md)
-- [没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)
-- [原型正式规格（历史，#2）](https://github.com/Coh1e/coop/issues/2)
-- [设计背景、验收路径与下一步](docs/architecture.md)
-- [Git 库选择方向](docs/adr/0001-use-embedded-git-library.md)
-- [Scoop Git 调用审计](docs/research/scoop-git-command-audit.md)
-- [goop 实现对照](docs/research/git-free-buckets.md)
-- [归档生命周期覆盖](docs/archive-support.md)
-- [多产物、架构与摘要算法支持](docs/multi-artifact-support.md)
-- [持久化数据支持](docs/persistence-support.md)
-- [旧版本保留、回退、清理与数据彻底删除](docs/old-version-support.md)
-- [依赖安装与反向依赖保护](docs/dependency-support.md)
-- [复杂命令入口、快捷方式与环境暴露](docs/exposure-support.md)
-- [命令入口宿主扩展（.py、无扩展名、.config）](docs/command-entry-support.md)
-- [Manifest 形状、相对路径与重复别名兼容](docs/manifest-shape-support.md)
-- [PowerShell 模块暴露（psmodule）](docs/psmodule-support.md)
-- [生命周期 Hook 与真实 PowerShell](docs/script-support.md)
-- [Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)
-- [跨机制中断恢复与冲突诊断](docs/recovery-support.md)
-- [本地查询与 Git 刷新性能](docs/performance-support.md)
-- [首版真实样本兼容与整体验收报告](docs/compatibility-report.md)
-- [完整交付验收与人工验收说明](docs/final-acceptance.md)
-- [历史 verifier 发现清单（#22–#49）](docs/verifier-findings-inventory.md)
-- [本机 15 个安装软件的逐项交替验收](docs/real-machine-acceptance.md)
-- [Main／Extras 全量兼容盘点](docs/coverage-report.md)
-- [GitHub 任务与规格](https://github.com/Coh1e/coop/issues)
+当前为 `v0.2.4`，支持 Windows x64。与 Scoop 的兼容边界、已验证范围和未运行项见[兼容性盘点](docs/coverage-report.md)与[能力边界](#能力边界)。
 
 ## 安装
 
-发布产物 `coop-v<版本>-x64.zip` 解压后 `coop.exe` 与 `scoop-lib/` 同级，两者需要放在一起；压缩包还带 `LICENSE`、`THIRD_PARTY.md` 和 `licenses/`。也可以从 Scoop bucket 安装：
+发布产物 `coop-v<版本>-x64.zip` 解压后，`coop.exe` 与 `scoop-lib/` 必须同级；压缩包还包含 `LICENSE`、`THIRD_PARTY.md` 和 `licenses/`。也可以从 Scoop bucket 安装：
 
 ```powershell
 scoop bucket add coh1e https://github.com/Coh1e/scoop-bucket
 scoop install coh1e/coop
 ```
 
-## 项目内准备、构建与运行
+版本记录见 [Releases](https://github.com/Coh1e/coop/releases)。
 
-需要已有 MSVC x64 Build Tools、Windows SDK、CMake 3.25+、Ninja 和 PowerShell。默认 CTest 的 `bucket`/`performance` 测试还用 `git.exe` 编写项目内测试仓库；它只是夹具工具，Coop 产品运行不依赖 git.exe。所有命令在仓库根目录执行，依赖、构建、测试数据和临时文件都留在项目内：
+## 构建与测试
+
+需要：
+
+- Windows 10/11 x64。
+- Visual Studio 2022 Build Tools 或更高版本，MSVC 19.30+，以及 Windows SDK。
+- CMake 3.25+、Ninja。
+- Windows PowerShell 5.1。测试与脚本以它为基线；`pwsh 7` 可用，但不是验收门禁。
+- `git.exe` 仅用于测试夹具；`fetch-deps.ps1` 使用 `curl.exe` 与 `tar.exe`。
+
+在仓库根目录执行：
 
 ```powershell
-./scripts/fetch-deps.ps1                 # 下载并校验固定依赖、Scoop 夹具和真实测试归档
-./scripts/build.ps1                      # 配置、构建并运行默认测试
-ctest --test-dir .local/build --output-on-failure
-ctest --test-dir .local/build --output-on-failure -R '^(acceptance|cli|query|bucket|plan|adopt|archive_lifecycle|hooks|installers|persistence|dependencies|recovery)$'
-./scripts/install-hooks.ps1              # 每个克隆一次：安装 pre-commit 钩子（编码与空白快检查）
+./scripts/fetch-deps.ps1     # 下载并校验固定依赖、Scoop 夹具与真实测试归档
+./scripts/build.ps1          # 配置、构建并运行完整 CTest
+./scripts/build.ps1 -Action test-fast
+./scripts/install-hooks.ps1  # 每个克隆一次：安装 pre-commit 检查
 ```
 
-测试通过 `scripts/build.ps1` 或 `ctest` 运行，不要直接调用 `tests/*.ps1`：CTest 记录的 PowerShell 路径不一定在 `PATH` 里。`scripts/install-hooks.ps1` 只安装秒级检查——源码里的 UTF-8 BOM、同一文件混用 CRLF/LF、`git diff --check` 的空白错误；完整 48 项测试仍然是有意执行的一步（`./scripts/build.ps1 -Action test`），因为慢钩子会被 `--no-verify` 绕过。
+依赖、构建产物、测试数据和临时文件都在项目内的 `.local/`。测试通过 `scripts/build.ps1` 或 `ctest` 运行，不要直接调用 `tests/*.ps1`。
 
-`fetch-deps.ps1` 获取 nlohmann/json 3.12.0、libgit2 1.9.7、libarchive 3.7.7 / zlib 1.3.1 / xz 5.6.4 / zstd 1.5.7 / bzip2 1.0.8 源码，以及真实 jq 1.7.1/1.8.2、ripgrep、air、nodejs 7z、luajit tar.zst、tidy ZIP、curl tar.xz、unzip 7z SFX 和 7-Zip MSI 测试归档；全部只写入被忽略的 `.local`。构建产物在 `.local/build`，临时文件在 `.local/tmp`。脚本只在编译子进程中加载 MSVC 环境并设置临时目录，不修改用户或系统环境。构建会把仓库内固定的 Scoop 兼容库 `assets/scoop-lib` 复制为 `coop.exe` 旁的 `scoop-lib/`；生命周期脚本需要真实 PowerShell（默认 `pwsh.exe`，可用 `COOP_POWERSHELL` 指定），显式 `COOP_SCOOP_LIB` 可换用另一份同布局兼容库。`tests/acceptance.ps1` 用固定 20 份真实 Manifest 和真实程序完成首版整体验收，结果写入项目内测试根。
+## 常用命令
 
-可运行 `.local/build/coop.exe --version` 或 `--help`；退出码固定为 0（完成）、1（操作失败或批量部分失败）、2（命令行用法错误）。`--root`、`--global-root`、`--arch` 同时接受 `--root <值>` 与 `--root=<值>`；根路径按当前目录解析为绝对路径，折叠 `.`/`..`/重复分隔符/正反斜杠并去掉末尾分隔符，空值直接拒绝。绝对根达到 240 字符时自动改用 Windows 扩展长度形式（盘符加 `\?\`，UNC 转 `\?\UNC\`），使包目录、缓存、入口与持久化整体避开 `MAX_PATH`；长根下 `current`/持久化 junction 保存普通 NT 目标，安装后仍可查询、运行入口、卸载。标准输出与标准错误固定为 UTF-8，连接控制台时临时切换到 UTF-8 代码页并在退出前恢复；读取 JSON 的 PowerShell 脚本应显式设置 `[Console]::OutputEncoding` 为 UTF-8。通过 `--root <目录> list [查询]|search [查询]|info <bucket/包名>` 查询本地安装及 bucket，添加 `--json` 获取结构化输出；`--global-root` 可明确指定另一个只读系统级安装根。未指定根时查询当前用户的默认 Scoop 位置。路径、退出码与批量规则见 [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)。
+```powershell
+coop init
+coop bucket add main https://github.com/ScoopInstaller/Main
+coop install jq
+coop list
+coop search git
+coop info jq
+coop update
+coop uninstall jq
+coop recover
+```
 
-`init [--dry-run]` 在没有 Scoop 的机器上建立双方共用的标准布局：只创建缺失的 `apps`、`buckets`、`cache`、`persist`、`shims`，不写私有记录、不下载、不启动子进程、不修改用户环境，重复执行幂等；预览只报告将创建的目录。之后可直接用 `install` 安装软件，安装记录使用 Scoop 标准格式，用户之后安装 Scoop 仍可在同一 root 识别和管理。`init` 不需要预装 Git、7-Zip 或 Scoop；兼容组件版本、许可、真实新 root 的双向交替和边界见[没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)。
+命令分组：
 
-`bucket add <名称> <公开HTTPS Git URL或本地目录>` 注册来源；Git来源可指定 `--branch` 或 `--revision`。Git来源直接克隆到 Scoop 共用的 `<根>/buckets/<名称>` 工作树并保留完整历史；`bucket update [名称]` 在该工作树内 fetch 后原地前进，已存在的 Scoop bucket 会被就地识别和刷新。裸 `coop update` 与 `coop bucket update` 是同一个动作：打印 `Updating Buckets...` 后刷新全部已注册 bucket（Coop 没有自更新，因此没有 `Updating Scoop...` 段）；`update *` / `update -a` 是另一个手势，更新全部已装软件。`bucket list` 查看（刷新中断时显示 `refresh_pending` 与日志路径），`bucket rm <名称>`（`remove` 同义）只撤销注册并保留源文件，之后可用同名 `bucket add` 重新注册现有工作树；`bucket known` 列出 Scoop 已知的 bucket——共用根里装了 Scoop 时读它自带的 `buckets.json`（保持声明顺序），否则用内嵌快照。Git使用内嵌库，无需git.exe；私有/SSH来源不联网更新。标准代理仅在当前进程环境中通过HTTPS_PROXY/NO_PROXY读取，不修改系统代理。
+- 查询：`list`、`search`、`info`、`status`、`prefix`、`cat`、`which`、`home`、`depends`、`export`、`checkup`、`help`。
+- 写入：`install`、`update`、`uninstall`、`reset`、`recover`、`cleanup`、`hold`、`unhold`。
+- 来源：`bucket add|update|list|rm|known`、`import`。
+- 配置：`config`、`alias`、`shim`。
 
-刷新前验证目标树、检查工作树是否干净，并要求目标 revision 是当前 HEAD 的快进；未提交修改、本地提交或分叉历史都会拒绝更新，保留 `.git`、实际分支、本地内容和已发布记录，不自动 `clean`。首次、有变化、无变化刷新分别记录 `refresh_kind`、revision、`changed_files`、`received_bytes`、`files_count` 和 `synced_at`。分支、本地修改、失败保留和边界见[共用 bucket 的直接刷新](docs/shared-bucket-support.md)。第三方源码版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+写入命令支持 `--dry-run`、`--json`、`--arch 64bit|32bit|arm64`。退出码固定为 0（完成）、1（失败或批量部分失败）、2（用法错误）。`--json` 是机器契约；文本模式与 Scoop 同形，具体规则见[读命令的文本输出](docs/query-output.md)与[CLI 路径、退出码与批量边界](docs/cli-boundaries.md)。
 
-`config` 与 `alias` 读写 Scoop 自己的配置文件（`%XDG_CONFIG_HOME%\scoop\config.json`，没有该变量时 `%USERPROFILE%\.config\scoop\config.json`）：`config` 只写 Coop 实现过的键（目前是 `ALIAS`），其余键照常读取、在输出里标 `Coop ignores this key`，写入会被拒绝——覆盖 `root_path`、`last_update` 这类机器相关键会直接改坏另一方的行为。`alias add <名字> <命令> [描述]` 按 Scoop 的形状写 `<根>/shims/scoop-<名字>.ps1` 与 `ALIAS` 条目，`coop <名字>` 直接运行该脚本；`alias list [-v]` 列出命令与摘要，`alias rm` 同时删两处。`import <路径|URL>` 读取 scoopfile：缺失的 bucket 先注册，随后逐包走与 `install a b` 相同的批量路径，`Global install` 条目以 `global-scope-readonly` 报告并跳过。`shim add <名> <命令> [参数...]` 在 `<根>/shims` 发布与包入口同一种启动器并写 Scoop 的 `.shim` 元数据（`path`/`args`），所以 `shim rm`/`list`/`info`/`alter` 与另一客户端看到的是同一批对象；`alter` 只改参数，换目标要 `rm` + `add`。
+## 能力边界
 
-`install|update|uninstall|reset <包名>... --dry-run` 从本地清单和安装记录生成只读计划，可指定 `--arch 64bit|32bit|arm64`，添加 `--json` 获取结构化输出。计划列出文件摘要、产物、入口、环境、持久化、脚本、依赖顺序及预计操作；`ir_operations` 就是执行器消费的唯一序列。已知不支持/无效项与尚未验证的生命周期分别报告。
+- 共用安装根与状态；不承诺两个客户端同时写入。
+- 系统级根只读：`update`、`uninstall`、`reset` 以 `global-scope-readonly` 拒绝写入；`-g`/`--global` 不写入。
+- 不自动同步 bucket、不自动发布；只有显式 `update`、`update *` 或 `bucket update` 刷新共用 bucket。
+- 生命周期 Hook、`installer.script` 与安装器程序由真实 PowerShell 执行，需要 PowerShell 与随包的 `scoop-lib/`；脚本不经过文本白名单。
+- MSI 产物按管理镜像提取，不运行 `msiexec`；Inno Setup 与 NSIS 载荷需要已安装在 root 内的 helper，Coop 不下载、不内嵌 helper，厂商安装器不运行。
+- 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除，`cleanup` 才清理旧版本。
+- arm64 生命周期未验证；32bit 真实包已执行。完整未运行项见[兼容性盘点](docs/coverage-report.md)。
 
-`install` 读取 Manifest 显式 `depends`，由 IR Planner 解析依赖图并写入计划：已安装依赖从共享 `apps/<包>/current` 复用，未安装依赖各自带有预览可核对的 IR 操作序列；执行按同一计划顺序逐包进行，每个包有独立事务。写命令接受 Scoop 的开关：`-i/--independent` 不把声明的依赖加入本次计划，`-k/--no-cache` 忽略 `<根>/cache` 重新下载，`-s/--skip-hash-check` 把摘要不符降级为 `WARN` 而不失败，`-f/--force` 在版本未变时仍然执行，`-q/--quiet` 隐藏进度行，`-u/--no-update-scoop` 恒成立（Coop 从不自更新）。缺失、循环、跨 bucket 歧义和来源冲突在写入前明确失败，带版本的依赖写法仍拒绝；`install <包>@<版本>` 只接受与当前清单一致的版本，其他版本报 `version-unavailable` 而不猜下载地址。`install|update|uninstall|reset` 可一次接收多个包，按请求顺序逐包报告 `success`、`skipped`、`failed`、`blocked` 或 `partial`；部分失败总体非零且不回滚已完成项，不声称全局事务。JSON 为逐项数组，文本模式每包一行并在末尾给出总体计数（如 `2 package(s): 1 succeeded, 0 skipped, 1 failed`）。依赖安装、更新前检查和批量结果见 [依赖安装与反向依赖保护](docs/dependency-support.md)，路径与退出码约定见 [CLI 路径、退出码与批量边界](docs/cli-boundaries.md)。
+## 文档
 
-卸载前检查所有已安装包保存 Manifest 的已知依赖，包括未接管的安装；被依赖时列出依赖方并拒绝卸载，证据不可读时也不会假定没有依赖。Coop 不自动连带卸载，不自动清理疑似无用依赖，也不删除 Manifest 声明的外部工具需求。
-
-`list`、`search`、`info` 的默认文本输出与 Scoop 同形（`Installed apps:` 表、`Results from local buckets...` 表、`info` 的键值块）；管理权（`managed`/`unadopted`）、安装状态、上次操作、`synced_at` 等字段只保留在 `--json`。`list [查询]` 接受一个过滤词，`search` 不带查询时列出全部本地清单。`status` 只比较已装版本与本地已同步清单（不联网、不 fetch），无差异时打印 `Everything is ok!`；`prefix`、`cat`、`which`、`home` 分别打印 `current` 路径、清单原文、shim 指向的目标与声明的 homepage；`depends` 按安装顺序列出依赖（含包自己），`export` 输出 `scoop import` 能读的 scoopfile，`checkup` 检查 Coop 自己的不变量（长路径、bucket 目录、pending 事务、失效 shim），`help [命令]` 列出全部命令并标注 Coop 尚未实现的那几个。形状、刻意偏离与证据见[读命令的文本输出](docs/query-output.md)。
-
-`list` 的 JSON 分开给出管理权（`managed`/`unadopted`）、安装状态和上次操作状态，更新失败不会被报告为未安装或已成功。系统级项在 JSON 中带 `scope: global` 与 `read_only: true`；仅存在于系统级根的包可查询、可预览，但 `update`、`uninstall`、`reset` 会以稳定标记 `global-scope-readonly` 在执行前拒绝，不会写入该系统级根；当前用户级 `install` 仍只写用户根，并在计划与结果中报告 `global_installation` 只读事实。Windows 文件名不区分大小写，包名与安装目录的身份比较同样不区分大小写。
-
-`install|update|uninstall <包名>` 执行单文件、多产物、`#/` 重命名产物、架构专属 Manifest、ZIP、7z（含真实 `#/dl.7z` 自解压下载）、tar、tar.gz/tgz、tar.xz/txz、tar.bz2/tbz、tar.zst/tzst、tar.lzma 包，包括嵌套 `extract_dir`、`extract_to`、已安装依赖、目录/文件持久化映射，以及 `bin`、`shortcuts`、`env_add_path`、`env_set` 声明：EXE/COM、BAT/CMD、PS1、JAR、`.py` 与无扩展名/`.config`（Scoop bash else 分支）入口分别用对应宿主启动并转发参数与退出码，`.py`/bash 入口生成 Scoop 同形的 `.cmd`/sh 包装，宿主缺失时执行前诊断，GUI 目标使用 GUI 子系统启动器；`bin`/`shortcuts` 参数按 Scoop 展开 `$dir`、`$original_dir`、`$persist_dir`；任意长度 `bin` 元组按声明顺序把别名后的元素拼成参数串，`env_add_path` 接受 `.`/`./`/尾分隔符，`shortcuts` 目标与图标允许 Scoop 的 `..` 相对路径，重复别名在同一 shim 家族内按 last-wins 重写、跨 `.exe`/脚本家族则两套保留且 `.exe` 生效，并以 `warnings` 报告而不静默丢失；`BAT/CMD`、`PS1`、`JAR` 入口同时发布 Scoop 同形的 `.cmd`（PS1 还有 `.ps1`）与 sh 包装供快捷方式和另一客户端使用；绝对路径、盘符与越界写目标仍拒绝（见[Manifest 形状、相对路径与重复别名兼容](docs/manifest-shape-support.md)）；快捷方式写入开始菜单并在管理记录中保存路径与摘要，外部删除的视为已撤销并记录、不阻塞后续更新/卸载，内容被修改的仍拒绝，另一客户端重建但目标、参数、图标一致时按同一归属处理；Scoop `reset` 重建的原生脚本包装只在内容指向本包时随卸载清理；Scoop 安装的 BAT/PS1/JAR 包只有 `.cmd`/`.ps1`/sh 包装时也能从这些证据更新与卸载（隔离实际执行，真实 `clink` 预览）。声明环境写入当前用户 `HKCU\Environment`，广播给新进程，同时应用到 Coop 命令进程；记录原值并保护用户后续修改，卸载恢复或只撤销仍归属 Coop 的值。系统级环境变量仍不修改。真实 `lessmsi`/`red-view`/`spotbugs`/`touch`/`cfr` 入口与 Scoop 交替证据见[复杂命令入口、快捷方式与环境暴露](docs/exposure-support.md#真机验证r07-28)。生命周期 Hook 按 Scoop 顺序在真实 PowerShell 子进程中执行全部六个阶段（`pre_install`、`installer.script`、`post_install`、`pre_uninstall`、`uninstaller.script`、`post_uninstall`），提供固定的 Scoop 兼容库（`scoop-lib`，见 [THIRD_PARTY.md](THIRD_PARTY.md)）与本机固定 v0.6.0 语义的上下文和辅助函数；脚本原文不再经过文本白名单，合法修改仍执行，失败脚本的 stdout/stderr 与退出码可见、不自动重试，外部副作用不声称回滚（依据见[生命周期 Hook 与真实 PowerShell](docs/script-support.md)）。全部使用原生下载、按 Manifest 声明的 SHA256/SHA512/SHA1/MD5 校验、内置 libarchive 解压及原生 junction/hardlink，普通 ZIP、7z 与 tar 压缩流不需要安装 7-Zip；多产物、架构与摘要算法的真机证据见[多产物、架构与摘要算法支持](docs/multi-artifact-support.md)，归档格式、嵌套布局与共享归档交替证据见[归档生命周期覆盖](docs/archive-support.md)；MSI 产物按 Scoop `Expand-MsiArchive` 的管理镜像语义提取：以只读方式打开 Windows Installer 数据库（`msi.dll`）并在 Windows cabinet 解压 API（`cabinet.dll`）中展开内嵌 cabinet，不启动 `msiexec`、不提权、不重启、不写 `%WINDIR%\Installer` 机器缓存；真实共用根上 Coop 与 Scoop 的版本目录逐文件一致，证据见[Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)。Inno Setup 的 `innosetup` 产物由 root 内已安装的 innounp helper 解包：参数与 `-c` 选择按 Scoop `Expand-InnoArchive`，不执行厂商安装器、不提权、不重启，也不下载或内嵌 helper；helper 缺失时预览阻塞且不静默安装，真实 Main/units 更新、rizin 子目录布局、截断失败与双向交替证据见[Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)。NSIS 安装器载荷按内容签名识别后由 root 内已安装的 7-Zip helper 按 Scoop `Expand-7zipArchive` 参数解包（不执行厂商 `setup.exe`、不提权、不重启、不下载或内嵌 helper；普通 7z/ZIP/tar 仍走原生解压），真实 Main/apngasm 安装/更新/截断失败/双向交替证据见同一文档；WiX/Dark 等其他厂商安装器机制仍在执行前明确拒绝；`installer.file/args` 安装器/卸载器程序声明由真实 PowerShell 与固定 Scoop 兼容库调用上游 `Invoke-Installer` 执行（程序在版本目录运行、`current`/入口发布之前，`$dir`/`$global`/`$version` 参数替换、`.ps1` 直接调用和 `keep` 删除语义按 Scoop），程序自身的外部副作用不承诺回滚且失败不自动重试；生命周期脚本文本本身不再作为拒绝理由，脚本中的 `reg import` 会作为受信包内容执行，Coop 不承诺回滚其注册表副作用。`uninstall <包名> --purge` 是独立的彻底删除请求：预览列出声明的持久化 store 准确范围，执行前重查管理记录、链接归属和 store 文件身份，只删除声明的 store 目标，不跟随 reparse point，也不删除 `persist/<包名>` 下未声明内容；链接被重定向、记录变化或 store 变成链接时在任何删除前失败。`cleanup [包名...]` 只删除管理记录中已记录、摘要未变、非当前且没有 pending 事务的旧版本目录；未记录、缺失 Manifest、被修改或在使用的版本保留并报告原因，不猜测历史下载地址。`reset <包名>@<版本>` 只使用本机已存在的版本目录、保存的 Manifest、安装记录和实际产物回退程序：预览与执行使用同一 IR 操作序列，不下载、不猜测 URL、不重跑 Hook 或 installer，持久化链接原地核对复用，结果分开报告 `reset_from`、`retained_versions` 与 `data_rollback: none`；目标版本缺失、被修改、持久化映射变化或链接被重定向时拒绝。清理预览用 `delete_scope`/`keep_scope`/`current` 列出准确范围，执行只删除该范围；旧版本与回退细节见[旧版本保留、回退、清理与数据彻底删除](docs/old-version-support.md)。归档格式与持久化语义、脚本语义、真实样本、安全边界和未验证项见 [归档生命周期覆盖](docs/archive-support.md)、[持久化数据支持](docs/persistence-support.md)、[复杂命令入口、快捷方式与环境暴露](docs/exposure-support.md)、[生命周期 Hook 与真实 PowerShell](docs/script-support.md) 与 [Installer/Uninstaller 与特殊安装机制](docs/installer-support.md)。Coop 创建的安装使用自身管理记录；共用 Scoop 安装从 `apps/<包>/current`、标准安装记录、真实入口和实际产物/版本树重新核对事实，不要求先接管，私有记录缺失不作为拒绝依据。入口和持久化链接冲突会拒绝覆盖。更新默认沿用已安装来源与架构，保留旧版本，准备与切换失败时尝试恢复原入口和链接；保留旧程序不代表持久化数据已回滚。旧版本清理与数据彻底删除分别由 `cleanup` 和 `uninstall --purge` 显式触发，普通卸载仍保留声明数据。写操作受根目录写锁保护并保留先行事务日志；异常退出留下 pending 日志时会阻止后续写入但允许查询。`coop list` 会从 pending 日志显示未完成操作及恢复方式；`coop recover [包名...] [--dry-run]` 先报告自动恢复或需要人工处理的分类与逐项动作，再回滚可安全还原的 Coop 自有路径；包名限定执行范围，未指定事务保持 pending 并标记 skipped，仍有 pending 或指定包不存在时退出非零。恢复不重跑任何脚本，脚本外部副作用仍标为未知；移入/移出端点同时存在、所有权不明或路径不安全时保持 pending 并返回非零，等待人工核对后重试；创建对象被替换/修改/重定向时报告 `created-path-replaced`、`created-file-modified`、`created-link-repointed` 等冲突码且不删除外部对象，恢复同时按日志 `environment_undo` 还原本事务写过的 HKCU 值（用户后来修改的值保留并诊断）。确定性阶段故障测试使用仅工程可用的双开关（`COOP_ALLOW_TEST_FAULTS=1` 加根内 `.coop/test-faults.json`），不改变正常操作行为；真机交替与冲突证据见[跨机制中断恢复与冲突诊断](docs/recovery-support.md#6-跨机制故障矩阵与本轮验证)。真实共用根上的既有持久化链接识别、文件/目录映射在 Coop 更新与 Scoop reset/重装间的原地复用、普通卸载保留和准备失败保护见[持久化数据支持](docs/persistence-support.md#真机验证r09-30)。
-
-## 已知限制与恢复范围
-
-- 实测平台为 Windows x64；32bit 真实 air 包已执行。arm64 生命周期未执行：3 个只提供 arm64 产物的包（`main/gel-arm64`、`main/llvm-arm64`、`extras/cpu-z-arm64`）的生命周期是本轮人类明确批准的例外，保持“未运行/未验证”；x64 下的不适用与 `--arch arm64` 规划是分开的证据，不能算作 ARM64 安装、更新或运行已验证。共享归档的实际 `update`/`uninstall` 走同一 IR 计划路径，已用 Scoop 安装的 air 包完成更新、reset 与失败保护验证。
-- MSI 产物可实际安装、更新和卸载：从只读 Windows Installer 数据库与内嵌 cabinet 生成管理镜像，不启动 `msiexec`、不提权、不重启、不写 `%WINDIR%\Installer`；外部或多段 cabinet、WiX/Dark 等其他厂商 EXE 安装器结构仍明确拒绝。Inno Setup 的 `innosetup` 产物由 root 内声明的 innounp helper 提取（参数与 `-c` 选择按 Scoop，不执行厂商安装器、不下载 helper），真实 Main/units 更新与 rizin 子目录布局已验收。NSIS 安装器载荷在摘要校验后按内容签名识别，由 root 内声明的 7-Zip helper 提取（参数按 Scoop `Expand-7zipArchive`，不执行 `setup.exe`、不下载 helper，普通 7z/ZIP/tar 不受影响），真实 Main/apngasm 更新、截断失败与双向交替已验收。系统级服务/注册表/环境写入仍不在自动路径内。`installer.file/args` 安装器/卸载器程序由真实 PowerShell 调用上游 `Invoke-Installer` 执行：程序在版本目录运行、`keep` 与参数替换按 Scoop，非零程序退出使包操作失败并回滚已创建的包状态，程序的项目外副作用保留为未知且不自动重试。生命周期脚本同样由真实 PowerShell 与固定 Scoop 兼容库执行，文本不再按子集拒绝；缺少 PowerShell 或兼容库时在执行前诊断，脚本中的外部工具缺失以非零退出码失败。
-- 命令入口按宿主类型发布 Coop 启动器与 Scoop 同形的 `.cmd`/`.ps1`/sh 包装（`.py`/bash 只有包装）；真实 Scoop `reset` 产生的包装只在 Coop 卸载时按内容归属清理。Scoop 安装的纯包装包可从内容与命令名证据更新/卸载（真实 `clink` 已验证）；Coop 与 Scoop 都能识别同一套发布结果，但仍不承诺两者同时写入。
-- 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除声明的 store，`cleanup` 才删除已记录且摘要未变的旧版本，`cleanup -k/--cache` 清理没有对应已装当前版本的下载缓存条目（`--dry-run` 只列不删）。外部删除或修改入口、链接和 store 会被重新核对，不自动覆盖或猜测修复。`reset` 只回退程序，不重跑安装脚本或安装器程序，也不回退持久化数据；目标版本必须仍在本机且证据完整，远端历史版本查找仍不在范围。
-- 异常退出留下 pending 事务时阻止新的写入但仍允许查询；`coop list` 显示恢复方式，`coop recover [包名...] [--dry-run]` 只回滚可安全还原的 Coop 自有路径、恢复本事务写过的 HKCU 环境值，不重跑脚本或安装器程序，外部副作用标为未知。创建对象记录文件身份/摘要证据；被另一客户端替换、修改或重定向的对象以 `created-path-replaced`、`created-file-modified`、`created-link-repointed` 等稳定冲突码报告而不删除，后续 Scoop 操作安装的事实会重新识别。
-- `hold <包>`/`unhold <包>` 写安装记录里的 `hold` 字段（Scoop 也读它）：被 hold 的包在 `list` 的 `Info` 列显示 `Held package`，`update` 会以 `held-package` 在执行前拒绝，`unhold` 后恢复。
-- 不自动同步 bucket、不自动发布；只有显式 `update`、`update *` 或 `bucket update` 会刷新共用 bucket。系统级写入仍被拒绝：在任何写命令上使用 `-g`/`--global` 会以稳定标记 `global-scope-readonly` 说明产品边界，而不是报未知选项。真实共用根上的查询、预览、安装、更新、卸载、reset、恢复、入口/环境与 psmodule 写入已在受权的本机环境中逐项运行（证据与未运行项见[完整交付验收与人工验收说明](docs/final-acceptance.md)），但这些操作不会由后台自动触发，也不承诺两个客户端同时写入。Git 私有/SSH 来源与跨工具同时写入不在首版范围。`init` 只建立标准目录，不注册用户 PATH 或环境变量；无 Scoop 环境的真机验证使用项目内全新 root 与受限 `PATH`，没有卸载本机真实 Scoop/Git/7-Zip，详见[没有 Scoop 时的独立初始化与使用](docs/initialization-support.md)。逐样本结论、未运行项和证据见[首版真实样本兼容与整体验收报告](docs/compatibility-report.md)；完整 Main／Extras 分母、机制缺口与真机验证数量见[Main／Extras 全量兼容盘点](docs/coverage-report.md)。
+- 开始使用：[已确认的产品范围](docs/design-scope.md)、[体系结构](docs/architecture.md)、[与 Scoop 共用状态的决定](docs/adr/0002-share-scoop-state.md)。
+- 命令与输出：[CLI 路径、退出码与批量边界](docs/cli-boundaries.md)、[读命令的文本输出](docs/query-output.md)、[CLI 反馈与下载缓存](docs/cli-feedback.md)。
+- 包机制：[包管理 IR 与查询/预览路径](docs/ir-pipeline.md)、[Manifest 形状兼容](docs/manifest-shape-support.md)、[归档生命周期](docs/archive-support.md)、[多产物与摘要算法](docs/multi-artifact-support.md)、[Installer 与特殊安装机制](docs/installer-support.md)。
+- 状态与恢复：[跨机制中断恢复](docs/recovery-support.md)、[持久化数据](docs/persistence-support.md)、[旧版本与清理](docs/old-version-support.md)。
+- 入口与环境：[命令入口与快捷方式](docs/exposure-support.md)、[PowerShell 模块暴露](docs/psmodule-support.md)、[生命周期 Hook](docs/script-support.md)、[依赖安装与保护](docs/dependency-support.md)。
+- 共用 bucket：[共用 bucket 的直接刷新](docs/shared-bucket-support.md)、[没有 Scoop 时的独立初始化](docs/initialization-support.md)。
+- 兼容性与验证：[Main/Extras 全量盘点](docs/coverage-report.md)、[首版真实样本报告](docs/history/compatibility-report.md)、[完整交付验收](docs/history/final-acceptance.md)、[逐项交替验收](docs/history/real-machine-acceptance.md)、[历史验收矩阵](docs/history/acceptance-matrix.md)。
+- 性能与体积：[本地查询与 Git 刷新性能](docs/performance-support.md)、[包体决策](docs/adr/0005-binary-size-build-only.md)。
+- 写作与决策：[写作标准](docs/writing-style.md)、[ADR 目录](docs/adr/)、[研究记录](docs/research/)。
+- 任务与规格：[GitHub Issues](https://github.com/Coh1e/coop/issues)、[正式规格 #21](https://github.com/Coh1e/coop/issues/21)。
 
 ## 许可证
 
-Coop 以 [MIT 许可证](LICENSE) 发布，可自由使用、修改、再发布和商用，只需保留版权与许可声明。随包分发的第三方组件（`scoop-lib`、静态链接的库）仍按各自许可证分发，来源与全文见 [THIRD_PARTY.md](THIRD_PARTY.md)。
-
-## 测试范围
-
-默认测试不依赖外网，包含真实CLI、进程树观测、只读预览、固定 20 份真实 Manifest 的读取/计划分类与本轮生命周期、真实 jq 共用安装查询到卸载的首条路径、真实 nodejs 7z 与持久化保留、真实ZIP/tar.gz/7z归档生命周期、真实 7-Zip MSI 的安装/更新/卸载与损坏失败（`tests/msi-lifecycle.ps1`）、归档安全拒绝、本地Git增量、故障、中断和并发验证，复杂命令入口、快捷方式和真实用户环境/PATH（快捷方式写入 `COOP_PROGRAMS_DIR` 指定的隔离目录；环境测试使用唯一变量名和 `finally` 快照恢复；`.py`/无扩展名/`.config` 入口用真实 CPython 与 Git bash 运行并核对 Scoop 同形包装、缺失宿主诊断和更新/卸载），`tests/manifest-shape.ps1`（任意长度 bin 元组、env_add_path 相对写法、父目录快捷方式、重复别名 last-wins 与警告、越界拒绝）、`tests/versions-bucket.ps1`（跨 bucket `versions` 依赖来源：bucket 限定名与 `python27`/`ffmpeg-shared-4.4.1` 这类版本化包名、依赖先于主包、已安装依赖复用不重装、同名异 bucket 冲突、缺 bucket 时 `dependency-missing` 去重），生命周期 Hook 与 installer/uninstaller 脚本（固定样本脚本原文、真实 PowerShell 与固定 Scoop 兼容库、上下文与 helper、顺序、合法修改、失败与宿主能力诊断），包管理 IR 的安装事实、分层诊断、操作序列与无副作用查询/预览（`tests/ir-pipeline.ps1`）以及非 Scoop 来源适配器直接复用同一 IR/Validator/Planner 契约的模块测试（`tests/ir_reuse_fixture.cpp`）、多产物/改名/架构/摘要算法及失败保护（`tests/multi-artifact.ps1`），无 Scoop 时的独立初始化布局、冲突拒绝与幂等（`tests/initialization.ps1`）、CLI 路径边界与批量逐包结果（`tests/path-batch.ps1`：中文/空格/复杂路径、退出码 0/1/2、超过 `MAX_PATH` 的根、系统级根只读与用户级并存），以及完整进程的性能测量（`version`/`list`/`info`/`search`、索引命中与刷新、共用 bucket 首次/有变化/无变化刷新）。性能目标、实测值与机器环境见[本地查询与 Git 刷新性能](docs/performance-support.md)；`tests/perf-real.ps1` 在明确指定的真实根上测量查询与刷新，并在项目内的真实 `main` 副本上测量首次/有变化/无变化刷新的 p50/p95 与载荷。可另运行 `tests/git-live.ps1`，显式指定已构建Coop、process_guard和项目内测试根，验证GitHub/GitLab HTTPS、无git.exe、代理失败和无效证书；`tests/real-scoop-readonly.ps1` 对人工选定的本机真实 Scoop 根执行只读盘点、查询与预览，并核对根内文件未被改动；`tests/real-scoop-initialization.ps1` 在项目内全新 root 上以不含 `git`/`7z`/`scoop` 的 `PATH` 执行初始化、真实 bucket 克隆、安装与运行，再安装复用自本机的真实 Scoop 程序树，并顺序执行 Scoop 识别、reset、卸载与 Coop 重装/卸载，同时恢复并核对用户 PATH；`tests/real-scoop-bucket.ps1` 在明确授权下只刷新一个真实共用 bucket，并核对分支、修订、本地修改、无变化刷新和无辅助进程；`tests/real-scoop-multi.ps1` 在明确授权下安装、运行并卸载尚未安装的真实多产物/架构/摘要算法样本，并验证真实下载与校验失败不替换当前版本；`tests/real-scoop-archives.ps1` 在同一真实根上顺序验证 ZIP、7z、tar.gz/tar.xz/tar.zst、嵌套布局、7z SFX、共享归档更新和损坏归档失败保护；`tests/real-scoop-dependencies.ps1` 验证真实 git-tfs 复用已安装 git、反向依赖阻止卸载、不自动连带清理和真实缺失依赖诊断；`tests/real-scoop-exposure.ps1` 在明确授权下安装、运行并由真实 Scoop reset 本轮五种入口类型的 Main 包，核对 GUI 窗口、工作目录、快捷方式目标/参数/图标/子目录与 Coop 卸载后的入口清理；`tests/real-scoop-persistence.ps1` 在同一真实根只读核对既有 7zip junction，并用 mediamtx（文件映射）与 pocketbase（目录映射）核对 Coop 更新、Scoop reset/重装、普通卸载保留和准备失败下 store 不搬动，结束后清理本轮安装与测试 store；`tests/old-versions.ps1` 覆盖本地版本回退、清理范围、链接保护和 Hook 不重跑；`tests/real-scoop-old-versions.ps1` 在真实共用根上用临时 bucket 顺序执行 Coop/Scoop 安装、更新、回退、清理与 purge，并核对既有包清单不变；`tests/recovery-matrix.ps1` 通过工程专用阶段故障缝在真实 CLI 上覆盖版本发布、解压（含真实 MSI/Inno Setup/NSIS 产物）、入口、用户环境、持久化、Hook 与声明安装器程序的崩溃/失败、回滚与冲突码；`tests/real-scoop-recovery.ps1` 在真实共用根上注入真实进程崩溃、与 Scoop reset/安装/卸载交替，并核对恢复后的事实与冲突诊断；`tests/real-scoop-hooks.ps1` 在明确授权下只读预览已安装 git/7zip 的真实 Hook 计划，并用 rclone 在真实根上执行一次 `pre_install`/`uninstaller.script` 安装与卸载，核对 Scoop 可见性、程序版本、持久化保留和清理。默认测试还包含 `tests/installer-programs.ps1`（安装器/卸载器程序与多阶段脚本组合的安装、更新、卸载、`keep`、参数替换、失败与回滚）。`tests/real-scoop-installers.ps1` 只读预览真实 Main/vcpkg 的安装器程序与多阶段脚本组合，并在同一真实根上执行 Main/groovyserv 的真实 `bin\setup.bat` 安装程序生命周期（安装、程序产物、Scoop 可见性与卸载）。`tests/real-scoop-msi.ps1` 在明确授权下对真实 Main/kalker 与 Main/pkgconf 执行 Coop→Scoop→Coop 双向交替，对比两客户端生成的版本目录逐文件 SHA256，并核对 Coop 操作不改变 Windows Installer 机器缓存。`tests/real-scoop-coverage.ps1` 固定实际 Main 工作树修订与官方 Extras 修订，对全部 4149 份 Manifest 执行只读 `info` 与 `install --dry-run`，逐包记录机制、读取、规划和 #40 真机验证状态，并按依赖来源清单 [`tests/coverage/dependency-sources.json`](tests/coverage/dependency-sources.json) 以固定 40 位修订注册官方 `versions` bucket（不入分母）以解析 `versions/*` 依赖，输出可提交的紧凑基线与 `cross-bucket-dependencies.json`；结果与边界见[Main／Extras 全量兼容盘点](docs/coverage-report.md)。`tests/real-scoop-versions.ps1` 在明确授权下于选定真实共用根注册固定 `versions` 修订，验证 `versions/terraform011` 真实安装运行、`main/terraform-provider-ibm` 复用依赖后安装、卸载不连带依赖，并还原本轮注册、克隆与用户目录新增文件。`tests/coverage-gaps.ps1`（CTest `coverage_gaps`）把基线中的每个阻塞包对到提议子票或明确的架构边界，防止后续盘点静默丢包或改投，见[缺口闭合与子票](docs/compatibility-gap-closure.md)。
+Coop 以 [MIT 许可证](LICENSE) 发布。随包分发的第三方组件仍按各自许可证分发，来源与全文见 [THIRD_PARTY.md](THIRD_PARTY.md)。
