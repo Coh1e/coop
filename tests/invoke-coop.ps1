@@ -147,10 +147,10 @@ function Get-LinkTarget {
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.PSObject.Properties['LinkTarget'] -and $item.LinkTarget) { return [string]$item.LinkTarget }
     if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $null }
-    $lines = & fsutil.exe reparsepoint query $Path 2>&1
+    # fsutil writes its label to stderr on some systems; the tolerant capture keeps 5.1 from throwing.
+    $lines = Invoke-CoopNative fsutil.exe reparsepoint query $Path
     foreach ($line in $lines) {
         if ($line -match '^\s*Print Name:\s*(?<target>.+?)\s*$') { return $Matches['target'] }
-        if ($line -match '^\s*替代名称:\s*(?<target>.+?)\s*$') { return $Matches['target'] }
     }
     foreach ($line in $lines) {
         if ($line -match '^\s*\S[^:]*:\s*(?<target>[A-Za-z]:\\.*)$') { return $Matches['target'] }

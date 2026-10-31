@@ -19,7 +19,7 @@ if ($Action -in 'test','all') { $steps += ('"{0}" --test-dir "{1}" --output-on-f
 if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --output-on-failure' -f $ctestExe,$buildRoot) }
 # The suite runs under the PowerShell CMake found, which is Windows PowerShell 5.1 by default. A pwsh
 # parent (CI uses `shell: pwsh`) would otherwise hand its own PSModulePath, whose 7.x module directories
-# 5.1 cannot import, down to every test process — Get-FileHash then stops resolving. Rebuild the module
+# 5.1 cannot import, down to every test process: Get-FileHash then stops resolving. Rebuild the module
 # path from the machine and user values so the child gets what a plain 5.1 shell would see.
 $machineModules = [Environment]::GetEnvironmentVariable('PSModulePath','Machine')
 $userModules = [Environment]::GetEnvironmentVariable('PSModulePath','User')

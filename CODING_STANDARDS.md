@@ -2,7 +2,7 @@
 
 本文件给**审查环节**读。实现代理不用逐条背诵：能做确定性检查的都已经变成检查，这里只放做不成检查的判断标准。
 
-当前护栏：`scripts/check-source-hygiene.ps1`（编码、行尾、直接写穿、新测试的变红声明）、CTest `source_hygiene`、pre-commit 钩子、`.github/workflows/ci.yml`（push 与 PR 上跑完整 CTest）。测试总数随套件变化，本文不记录数字。
+当前护栏：`scripts/check-source-hygiene.ps1`（编码、行尾、直接写穿、新测试的变红声明、非 ASCII 脚本必须带 BOM、CTest 测试不得自行 `2>&1`/`2>file`）、CTest `source_hygiene`、pre-commit 钩子、`.github/workflows/ci.yml`（push 与 PR 上跑完整 CTest）。测试总数随套件变化，本文不记录数字。
 
 ## 每条测试必须能变红
 

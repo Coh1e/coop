@@ -50,7 +50,7 @@ Remove-Item (Join-Path $clone 'bucket/*.json') -Force
 $target = Join-Path $clone 'bucket/x.json'
 $bytes = [IO.File]::ReadAllBytes($target)
 if (@($bytes | Where-Object { $_ -eq 13 }).Count -eq 0) { throw 'the fixture did not materialise CRLF' }
-if ((& git -C $clone status --porcelain 2>&1) -join '' -ne '') { throw 'the fixture is not clean for Git' }
+if ((Invoke-CoopNative git -C $clone status --porcelain) -join '' -ne '') { throw 'the fixture is not clean for Git' }
 $refresh = Invoke-CoopNative $CoopExe  --root $installed bucket update probe
 if ($LASTEXITCODE -cne 0) { throw "a CRLF-only difference stopped the refresh: $($refresh -join ' | ')" }
 $index = Join-Path $installed '.coop/index/probe.json'

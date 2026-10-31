@@ -62,16 +62,23 @@ foreach ($relative in $files) {
     $binary = $false
     for ($i = 0; $i -lt $read; $i++) { if ($head[$i] -eq 0) { $binary = $true; break } }
     if ($binary) { continue }
-    if ($read -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
-        # A PowerShell script may carry one on purpose: Windows PowerShell 5.1 reads a BOM-less
-        # script as ANSI, so any non-ASCII literal in it turns into a parse error there. Everywhere
-        # else a BOM is still the invisible-rewrite accident this check exists to catch.
-        if ($relative -like '*.ps1') { continue }
+    $hasBom = ($read -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF)
+    if ($hasBom -and $relative -notlike '*.ps1') {
+        # A PowerShell script may carry one on purpose (see the rule below); everywhere else a BOM is
+        # still the invisible-rewrite accident this check exists to catch.
         [void]$violations.Add("$relative : starts with a UTF-8 byte-order mark")
         continue
     }
 
     $text = [IO.File]::ReadAllText($path)
+
+    # Windows PowerShell 5.1 parses a BOM-less script as ANSI, so every non-ASCII literal in one turns
+    # into mojibake or a parse error. ADR-0008 makes 5.1 the script baseline: such a script needs a BOM.
+    # The Scoop compatibility library is the exception: it is a byte-identical upstream copy, so a BOM
+    # would silently stop it matching the pinned revision.
+    if ($relative -like '*.ps1' -and $relative -notlike 'assets/scoop-lib/*' -and -not $hasBom -and $text -match '[^\x00-\x7F]') {
+        [void]$violations.Add("$relative : non-ASCII script without a UTF-8 BOM; Windows PowerShell 5.1 reads it as ANSI")
+    }
     $crlf = ([regex]::Matches($text,"`r`n")).Count
     $loneLf = ([regex]::Matches($text,"(?<!`r)`n")).Count
     if ($crlf -gt 0 -and $loneLf -gt 0) {
@@ -83,6 +90,23 @@ foreach ($relative in $files) {
     # answerable instead of letting a regression hide behind an uncounted call.
     if ($relative -like '*.cpp' -and $relative -ne 'src/data.cpp' -and $text -match 'FlushFileBuffers') {
         [void]$violations.Add("$relative : calls FlushFileBuffers directly; use durable_flush() from data.hpp")
+    }
+
+    # ADR-0008: a capture goes through tests/invoke-coop.ps1. `2>&1` and `2>file` throw on 5.1 the moment
+    # the child writes a diagnostic, so a CTest test must not use them. The helper itself owns those
+    # primitives, and the manual real-machine scripts are pwsh-7-only per the ADR.
+    if ($relative -like 'tests/*.ps1' -and $relative -ne 'tests/invoke-coop.ps1' -and $relative -notlike 'tests/real-scoop-*') {
+        $lineNumber = 0
+        foreach ($line in ($text -split "`n")) {
+            $lineNumber++
+            if ($line.TrimStart().StartsWith('#')) { continue }
+            if ($line -match '2>&1' -and $line -match '&\s') {
+                [void]$violations.Add("$relative : line $lineNumber captures stderr with 2>&1; use tests/invoke-coop.ps1")
+            }
+            if ($line -match '2>\s*(?!\$null|&)') {
+                [void]$violations.Add("$relative : line $lineNumber redirects stderr to a file; use tests/invoke-coop.ps1")
+            }
+        }
     }
 }
 
