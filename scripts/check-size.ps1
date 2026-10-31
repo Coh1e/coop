@@ -2,12 +2,12 @@
 # docs/adr/0005-binary-size-build-only.md. The download zip is printed when a caller passes one, but
 # it has no threshold: it is a record, not a gate.
 #
-# The limit is the CI measurement taken after /O1 landed, times 1.1. Do not replace it with a local
-# number: the same source builds about 72 KB larger on the local toolchain than on CI.
+# The limit is the CI measurement taken after /O1 landed (4,597,280 B), times 1.1. The CI run is
+# linked from docs/performance-support.md; do not replace it with an unrecorded local number.
 param(
     [string]$BuildRoot = (Join-Path $PSScriptRoot '../.local/build'),
     [string]$ZipPath,
-    [int]$LimitBytes = 4933500
+    [int]$LimitBytes = 5057008
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent

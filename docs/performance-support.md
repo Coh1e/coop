@@ -161,13 +161,28 @@
 
 运行时代价（4 轮 × 每轮 10 次 `search --json git`、10 次 `list --json`、30 次 `--version`，真实根 `C:\Users\Neo\scoop`，1,704 个 Manifest）：基线 29.6 / 31.3 / 12.7 ms，仅 C++ `/O1` 为 30.5 / 31.3 / 12.9 ms，全量 `/O1` 为 29.7 / 31.2 / 13.0 ms。差异落在本页第 20 条记录的同机波动内，不宣称有可测的延迟代价。
 
-- 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节（守卫阈值只能取 CI 实测值）。
+- 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节见下一小节。
 - 链接可复现性（本轮旁证）：同一构建目录连续两次重链接，`coop.exe` 都是 4,732,928 B，SHA256 却不同（`B6C74E6C…`→`3C23237D…`），所以体积守卫要按字节数判定，不能按哈希。
 - 静态检查（本轮）：`gh` 读到的 `v0.2.3` 产物构成、PE 各节大小（`.text` 3,598 KB、`.rdata` 785 KB、`.pdata` 126 KB、`.data` 36 KB、`.rsrc` 0.5 KB）与上述 map 归因一致。
 - 归档能力证据（本轮，只读抽样）：`git clone --depth 1` 取 Main `5630299…`（1,702 份 Manifest）、Extras `fa8327d…`（2,449）、Versions `726377c…`（630），按 Manifest 的 `url`/`architecture.*.url` 扩展名分类：`.zst` 7、`.bz2` 0、`.xz` 12、`.lzma` 8、`.rar` 7、`.cab` 9、`.iso` 0、`.lha` 0；计数与样例在 `.local/size-probe/survey-counts.json`。
 
+### 落地：coop 自身 `/O1` 与安装占用守卫（2026-10-31，CI 实测）
+
+- 方法：同一个 `windows-latest` 运行器、同一棵树连续构建两次。第一次把 `CMakeLists.txt` 换回 `main` 的版本（落地前），第二次恢复改动后的版本（落地后）；两次都用 `scripts/check-size.ps1` 统计 `coop.exe` 与另外 4 类落盘文件，并按发布布局压缩一份 zip。临时工作流 `size-probe.yml` 只用于这次量测，取数后删除；证据为 CI run [41204109962](https://github.com/Coh1e/coop/actions/runs/41204109962)。
+- 结果：
+
+| 指标 | 落地前 | 落地后 | 变化 |
+| --- | ---: | ---: | ---: |
+| `coop.exe` | 4,759,552 | 4,302,848 | −9.6% |
+| 安装占用 | 5,053,984 | 4,597,280 | −9.0% |
+| 下载 zip（只记录） | 2,346,997 | 2,156,551 | −8.1% |
+
+- 守卫：`scripts/check-size.ps1` 的默认阈值 = 落地后安装占用 × 1.1 = **5,057,008 B**。超阈值以非零码退出并打印逐项字节；`scripts/release-check.ps1` 与 `.github/workflows/ci.yml` 调用同一脚本，不各写一份。判定按字节数，不按哈希：同一构建目录连续两次重链接，`coop.exe` 字节数不变而 SHA256 不同（见上一小节）。
+- 门槛：`coop.exe` 降 9.6%（要求 ≥ 9%），安装占用降 9.0%（要求 ≥ 8%）；CI 的完整 `ctest` 与守卫在同一轮通过。
+
 ## 验证状态
 
+- 本轮运行（#90，提交 `9c8f383`，CI run [41204109985](https://github.com/Coh1e/coop/actions/runs/41204109985)）：完整 CTest 82/82 通过（`powershell.exe` 5.1 基线，MSVC 14.51.36231、CMake 4.4.4、Ninja 1.13.2），`check-size.ps1` 随后打印安装占用 4,597,280 B 并通过；本机同一套件 82/82 通过。
 - 本轮运行（2026-10-31）：完整 CTest 在 Windows PowerShell 5.1 基线下 79/79 通过（CI run [41175777083](https://github.com/Coh1e/coop/actions/runs/41175777083)，提交 `a69934a`）。套件默认运行器为 `powershell.exe`；本机沙箱中的 HKCU/junction 限制不再作为通过依据。
 - 本轮运行（#44，被测构建 `d1f8029` = `f9c0fff9…`）：`tests/perf.ps1` 两次通过（含索引命中/失效回退/损坏回退/重建、无变化刷新不重建、变化刷新原地更新共用工作树、查询不修改 bucket 源或注册表），报告 `.local/pi/tasks/44/evidence/perf-report-measured-d1f8029.json` 与 `perf-report-measured2-d1f8029.json`。
 - 本轮运行（#44）：`tests/perf-real.ps1` 通过，真实根查询前后注册表/索引/revision/工作树未变；真实根刷新在本轮先是 `changed`（真实 HTTPS，`3f71320…`→`dcb231e7…`，9 个文件/6,128 字节），随后全部为 `unchanged` 且零对象传输（真实根现为 `dcb231e7…`、`git status` 为空、registry 与索引同步，见 `real-root-after-change.log`）；真实规模副本的有变化刷新每轮断言刷新后工作树内无关 Manifest 的 SHA256 不变（并核对上游副本未被写入）、查询索引重建、新 Manifest 可由 `info` 查到。报告 `.local/pi/tasks/44/evidence/perf-real-head-29c5ea7/perf-real-report.json`（7 轮断言）与 `.local/pi/tasks/44/evidence/perf-real-probe3/perf-real-report.json`（真实 HTTPS `changed` 样本）。
