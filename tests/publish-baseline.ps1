@@ -136,8 +136,12 @@ function Assert-Matches([string]$name,[string]$actual) {
         return $null
     }
     if (-not (Test-Path -LiteralPath $file)) { throw "Missing baseline $file; rerun with -Update" }
-    $expected = (& $normalise (Get-Content -LiteralPath $file -Raw)).TrimEnd("`n")
-    $actualText = (& $normalise $actual).TrimEnd("`n")
+    # ConvertTo-Json indents differently between Windows PowerShell 5.1 and PowerShell 7, so the
+    # snapshots are compared as canonical JSON rather than as text; the files keep whatever shape they
+    # were written in.
+    $canonical = { param($text) if ([string]::IsNullOrWhiteSpace($text)) { return '' } (($text | ConvertFrom-Json) | ConvertTo-Json -Depth 8 -Compress) }
+    $expected = (& $canonical (Get-Content -LiteralPath $file -Raw))
+    $actualText = (& $canonical $actual)
     if ($expected -ne $actualText) { throw "Publish baseline changed for '$name'.`n--- expected ---`n$expected`n--- actual ---`n$actualText" }
     return $null
 }

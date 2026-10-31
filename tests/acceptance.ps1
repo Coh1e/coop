@@ -1,5 +1,6 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 $allowed = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/tests')).TrimEnd('\')+'\'
 $TestRoot = [IO.Path]::GetFullPath($TestRoot)
 if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($allowed,[StringComparison]::OrdinalIgnoreCase)) { throw 'Test root outside project' }
@@ -27,14 +28,20 @@ function Write-JsonFile([string]$path,[object]$value) {
 function Read-JsonFile([string]$path) { return [IO.File]::ReadAllText($path) | ConvertFrom-Json }
 function Convert-JsonOutput([string]$text,[string]$label) {
     if (-not $text.Trim()) { throw "$label returned no JSON output" }
-    try { return $text | ConvertFrom-Json } catch { throw "$label returned invalid JSON: $_`n$text" }
+    try {
+        # 5.1 hands back a JSON array as one object; expand it so callers can count and index it.
+        $value = $text | ConvertFrom-Json
+        if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) { $value | ForEach-Object { $_ }; return }
+        return $value
+    } catch { throw "$label returned invalid JSON: $_`n$text" }
 }
 function Invoke-Coop([string[]]$arguments) {
     $errorFile = Join-Path $TestRoot ('coop-stderr-'+[guid]::NewGuid().ToString('N')+'.log')
-    $output = & $CoopExe @arguments 2> $errorFile
-    $exit = $LASTEXITCODE
-    $errorText = if (Test-Path -LiteralPath $errorFile) { Get-Content -LiteralPath $errorFile -Raw } else { '' }
-    Remove-Item -LiteralPath $errorFile -Force -ErrorAction SilentlyContinue
+    # `2> file` throws on 5.1 when the child writes a diagnostic; capture both streams in-process.
+    $result = Invoke-CoopNativeRaw $CoopExe @arguments
+    $output = $result.out
+    $exit = $result.code
+    $errorText = $result.err
     return @{exit=$exit; text=($output -join "`n"); error=$errorText}
 }
 function Invoke-Guarded([string]$label,[string[]]$arguments,[int]$timeoutMilliseconds = 180000,[bool]$allowChildren = $false) {
@@ -44,7 +51,13 @@ function Invoke-Guarded([string]$label,[string[]]$arguments,[int]$timeoutMillise
     $env:COOP_PROCESS_GUARD_TIMEOUT_MS = [string]$timeoutMilliseconds
     if ($allowChildren) { $env:COOP_PROCESS_GUARD_ALLOW_CHILDREN = '1' }
     $guardArguments = @($CoopExe)+$arguments
-    try { $output = & $guard @guardArguments 2> $errorFile; $exit = $LASTEXITCODE }
+    # `& exe ... 2> file` throws on 5.1 as soon as the guard writes a diagnostic; capture in-process.
+    try {
+        $guardResult = Invoke-CoopNativeRaw $guard @guardArguments
+        [IO.File]::WriteAllText($errorFile, $guardResult.err)
+        $output = $guardResult.out
+        $exit = $guardResult.code
+    }
     finally {
         if ($null -eq $previousTimeout) { Remove-Item Env:COOP_PROCESS_GUARD_TIMEOUT_MS -ErrorAction SilentlyContinue }
         else { $env:COOP_PROCESS_GUARD_TIMEOUT_MS = $previousTimeout }

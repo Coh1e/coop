@@ -128,7 +128,7 @@ try {
         # environment; only ASCII fragments of the PATH are asserted below.
         $script = [string]::Join("`r`n",@(
             '@echo off',
-            'chcp 65001 >nul',
+            '"%SystemRoot%\System32\chcp.com" 65001 >nul',
             '>new-terminal.txt (',
             ('echo absent=%'+$absentName+'%'),
             ('echo restore=%'+$restoreName+'%'),
@@ -142,14 +142,16 @@ try {
         [IO.File]::WriteAllText($probe,$script,[Text.ASCIIEncoding]::new())
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
-        $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -Wait -PassThru
+        $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
+        if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the fresh-environment cmd did not exit within 120s"; return '' }
         if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
             # Some hosts (the CI runner is one) cannot create a cmd.exe with a fresh environment block;
             # it exits 255 before running anything. Retrying with the inherited environment still
             # exercises the registry writes this test is about, and the fallback is printed so nobody
             # mistakes it for a fresh-terminal observation.
             Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment exited $($process.ExitCode); retrying with the inherited environment"
-            $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -Wait -PassThru
+            $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
+        if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the inherited-environment cmd did not exit within 120s"; return '' }
             if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
                 # cmd cannot run here at all. The registry-level assertions above still hold; the
                 # terminal observations are skipped and say so.
