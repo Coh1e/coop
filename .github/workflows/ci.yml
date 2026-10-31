@@ -38,6 +38,12 @@ jobs:
           Write-Output "JAVA_HOME=$env:JAVA_HOME"
           Write-Output "python: $((Get-Command python.exe -ErrorAction SilentlyContinue).Source)"
           Write-Output "tar: $((Get-Command tar.exe -ErrorAction SilentlyContinue).Source)"
+          Write-Output "cmake: $(cmake --version | Select-Object -First 1)"
+          Write-Output "ninja: $(ninja --version)"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $toolset = Get-ChildItem (Join-Path $vs 'VC/Tools/MSVC') -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          Write-Output "msvc toolset: $($toolset.Name)"
 
       - name: Configure, build and test
         shell: pwsh
