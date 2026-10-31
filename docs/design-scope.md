@@ -23,7 +23,7 @@
 - 兼容性报告分开记录能读取、能生成计划、生命周期已验证；已验证范围是证据状态，不能代替上文的目标兼容范围。当前 Main／Extras 全量盘点见[覆盖报告](coverage-report.md)。
 - 性能优先级：本地查询；检查更新与 bucket 更新；安装过程。所有指标需实测。
 - 软件被占用时不强制结束程序：能安全并存并切换则继续，否则保留旧版本并说明重试条件；首版不做后台等待升级。
-- 保持 C++20、Windows 与 Adapter → IR → Plan → Executor 边界。每个抽象由当前真实包需求支撑，不为 Hypha 预先建设通用调度、跨平台或 SDK。
+- 保持 C++23、Windows 与 Adapter → IR → Plan → Executor 边界。每个抽象由当前真实包需求支撑，不为 Hypha 预先建设通用调度、跨平台或 SDK。
 
 - Git 仓库操作直接使用可由 C++ 调用的库，不要求安装 git.exe；不再将 GitHub ZIP 快照作为首选同步方案。libgit2 为首选候选，具体版本、链接方式和构建配置须验证。
 - 显式 `bucket add/update` 直接维护 Scoop 共用的 `<根>/buckets/<名称>` Git 工作树：首次克隆、后续在 `.git` 内增量 fetch 并原地前进；保留实际分支、固定 revision、辅助资源和本地修改。本地修改或不支持的目标树在写入前拒绝，不自动 reset/clean。详细契约见[共用 bucket 的直接刷新](shared-bucket-support.md)。

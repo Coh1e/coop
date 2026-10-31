@@ -50,7 +50,7 @@ coop --arch=64bit install main/ripgrep
 - JSON 结果是数组，每项包含 `package`、`action`、`status`、`reason`（失败时）、该包的 `plan`（预览）或 `result`（执行）；执行项还带 `transaction_scope: per-package...`，不声称跨包全局事务或回滚。
 - `status` 为 `success`、`skipped`（已安装依赖等明确跳过）、`failed`、`blocked`（预览无法执行）或 `partial`（如部分持久化数据删除失败）。
 - 前面的包成功不会阻止后面的包继续；后面的包失败不会回滚已完成的包。任一项失败时总体退出码为 1。
-- 文本模式每个包一行 `<包>: <status>`，失败原因写标准错误，最后一行给出总体计数，例如 `2 package(s): 1 succeeded, 0 skipped, 1 failed`。
+- 文本模式不打印批量表头或尾部汇总。每个包按自己的 Scoop 同形收尾行报告结果，失败原因写标准错误；`update` 在有需更新项时于第一个包之前打印一次 `Updating N outdated apps:`。
 - 批量 `--dry-run` 不写安装状态；某项无法规划时该项为 `blocked`，整体退出码为 1。
 
 ## 5. 系统级根只读
