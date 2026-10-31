@@ -273,13 +273,33 @@ $expandedCurrent = Join-Path $root 'apps/envapp/current'
 if ($expandOutput -notmatch [regex]::Escape("args=--data=$expandedData --dir=$expandedCurrent --original=$expandedCurrent")) { throw "entry arguments were not expanded like Scoop: $expandOutput" }
 if ($showOutput -notmatch [regex]::Escape((Join-Path $root 'apps/envapp/current/bin')) -or $showOutput -notmatch [regex]::Escape("$env:SystemRoot\System32")) { throw 'PATH exposure did not prepend package entries nor keep the existing PATH' }
 $psOutput = ((Invoke-CoopNative "$root/shims/ps-tool.cmd"  one 'two words')) -join "`n"
-if ($LASTEXITCODE -ne 3) { throw "PS1 entry did not propagate the exit code: $psOutput" }
-$psMarker = Get-Content -LiteralPath "$root/apps/envapp/current/ps1-marker.txt" -Raw
-if ($psMarker -notmatch '--flag' -or $psMarker -notmatch 'one' -or $psMarker -notmatch 'two words') { throw "PS1 entry did not forward arguments: $psMarker" }
+$psEntrySkipped = $false
+if ($LASTEXITCODE -ne 3) {
+    # Some Windows security policies (WDAC/AppLocker) refuse to authorize any local .ps1 file even
+    # with -ExecutionPolicy Unrestricted; the host reports AuthorizationManager/UnauthorizedAccess
+    # before the script runs. The .cmd wrapper itself is still exercised above, so report the
+    # environment gap explicitly instead of calling it a product failure.
+    if ($psOutput -match 'AuthorizationManager check failed|UnauthorizedAccess|SecurityError') {
+        Write-Output 'SKIP: this Windows security policy refuses local .ps1 execution; PS1 entry argument/exit forwarding is not covered here'
+        $psEntrySkipped = $true
+    } else {
+        throw "PS1 entry did not propagate the exit code: $psOutput"
+    }
+}
+if (-not $psEntrySkipped) {
+    $psMarker = Get-Content -LiteralPath "$root/apps/envapp/current/ps1-marker.txt" -Raw
+    if ($psMarker -notmatch '--flag' -or $psMarker -notmatch 'one' -or $psMarker -notmatch 'two words') { throw "PS1 entry did not forward arguments: $psMarker" }
+}
 if ((Get-PeSubsystem "$root/shims/gui-tool.exe") -ne 2 -or (Get-PeSubsystem "$root/shims/plain-tool.exe") -ne 3) { throw 'GUI/CLI launcher subsystem selection is wrong' }
-$gui = Start-Process -FilePath "$root/shims/gui-tool.exe" -PassThru
-if (-not $gui.WaitForExit(30000)) { throw 'GUI launcher did not finish' }
-if ($gui.ExitCode -ne 5) { throw "GUI launcher did not propagate the exit code: $($gui.ExitCode)" }
+# Start without ShellExecute: the launcher is a GUI-subsystem program, and ShellExecute can wait
+# on a desktop/COM handshake that has nothing to do with the exit code this assertion checks.
+$guiStart = [Diagnostics.ProcessStartInfo]::new("$root/shims/gui-tool.exe")
+$guiStart.UseShellExecute = $false
+$gui = [Diagnostics.Process]::Start($guiStart)
+try {
+    if (-not $gui.WaitForExit(30000)) { throw 'GUI launcher did not finish' }
+    if ($gui.ExitCode -ne 5) { throw "GUI launcher did not propagate the exit code: $($gui.ExitCode)" }
+} finally { $gui.Dispose() }
 if (-not (Test-Path -LiteralPath "$root/apps/envapp/current/gui-marker.txt")) { throw 'GUI target did not run' }
 if ($jarAvailable) {
     $jarOutput = ((Invoke-CoopNative "$root/shims/jar-tool.cmd"  x 'y z')) -join "`n"
@@ -328,7 +348,10 @@ try {
 }
 
 # Update replaces entries and removes only shortcuts Coop created for the previous version.
-$bin = @($bin | Where-Object { $_[1] -ne 'fail-tool' })
+# Rebuild each surviving bin tuple as a string array: a bare Where-Object pipeline leaves PSObject
+# wrappers, and Windows PowerShell 5.1 serializes those as {"value":...,"Count":...} instead of a
+# JSON array, which the IR correctly rejects as an invalid bin entry.
+$bin = @($bin | Where-Object { $_[1] -ne 'fail-tool' } | ForEach-Object { ,([string[]]@($_)) })
 $shortcuts = @(@('tool.exe',$mainShortcut),@('tool.exe',$subShortcut),@('bin/show.cmd',$expandShortcut,'--data=$persist_dir\data --dir=$dir'))
 Build-EnvironmentPackage $root '2' $jarPath 'declared-v2' $shortcuts $bin
 $update = & $CoopExe --root $root update envapp --json

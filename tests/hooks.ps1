@@ -242,7 +242,12 @@ Check ((Get-Content -LiteralPath "$root/persist/order/etc/gitconfig" -Raw) -eq (
 $restored = Get-Content -LiteralPath "$root/apps/order/2/etc/gitconfig" -Raw
 Check ($restored.Contains('/apps/order/2/mingw64')) 'the real git pre_install hook did not rewrite the restored version path'
 Check (-not $restored.Contains('/apps/order/1/')) 'the real git pre_install hook kept the previous version path'
-$npmrc = Get-Content -LiteralPath "$root/apps/order/2/node_modules/npm/npmrc" -Raw
+$npmrcPath = "$root/apps/order/2/node_modules/npm/npmrc"
+# The Manifest's post_install uses Set-Content without an encoding, so Windows PowerShell 5.1 writes
+# it in the ANSI code page while PowerShell 7 writes UTF-8. Decode with the encoding that produced
+# it: the assertion is about $persist_dir, not about which host ran the hook.
+$npmrc = [IO.File]::ReadAllText($npmrcPath,[Text.Encoding]::UTF8)
+if ($npmrc.Contains([string][char]0xFFFD)) { $npmrc = [IO.File]::ReadAllText($npmrcPath,[Text.Encoding]::Default) }
 $persistText = [IO.Path]::GetFullPath("$root/persist/order")
 Check ($npmrc.TrimEnd() -eq "prefix=$persistText\bin`ncache=$persistText\cache") 'the real nodejs post_install did not receive $persist_dir'
 $orderJournal = Last-Journal 'order'

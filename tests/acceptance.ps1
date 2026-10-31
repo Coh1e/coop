@@ -367,7 +367,11 @@ if (((& "$nodeRoot/apps/nodejs/current/node.exe" --version) -join "`n") -notmatc
     throw 'Installed real node.exe did not run the expected version'
 }
 $persistRoot = [IO.Path]::GetFullPath("$nodeRoot/persist/nodejs")
-$npmrc = [IO.File]::ReadAllText("$nodeRoot/apps/nodejs/current/node_modules/npm/npmrc")
+$npmrcPath = "$nodeRoot/apps/nodejs/current/node_modules/npm/npmrc"
+# Set-Content without -Encoding is ANSI under Windows PowerShell 5.1 and UTF-8 under PowerShell 7.
+# The assertion is about the written $persist_dir, so decode with the encoding the hook actually used.
+$npmrc = [IO.File]::ReadAllText($npmrcPath,[Text.Encoding]::UTF8)
+if ($npmrc.Contains([string][char]0xFFFD)) { $npmrc = [IO.File]::ReadAllText($npmrcPath,[Text.Encoding]::Default) }
 if ($npmrc -notmatch [regex]::Escape("prefix=$persistRoot\bin") -or $npmrc -notmatch [regex]::Escape("cache=$persistRoot\cache")) {
     throw 'Real nodejs post_install did not write the persist paths'
 }
