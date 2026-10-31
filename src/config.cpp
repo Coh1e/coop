@@ -185,7 +185,7 @@ int run_alias_script(const Context& context,const std::string& name,const std::v
     if (!host.interpreter) throw std::runtime_error("A PowerShell runtime is required to run an alias");
     std::vector<std::string> argv{"-NoProfile","-ExecutionPolicy","Bypass","-File",path_text(script)};
     for (const auto& argument : arguments) argv.push_back(utf8(argument));
-    const auto logs = context.root/L".coop"/L"logs";
+    const auto logs = state_directory(context)/L"logs";
     std::error_code error;
     fs::create_directories(logs,error);
     const auto run = run_tool(*host.interpreter,argv,fs::path{},logs/(L"alias-"+wide(name)+L"-stdout.log"),

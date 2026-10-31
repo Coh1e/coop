@@ -91,7 +91,7 @@ std::string directory_fingerprint(const fs::path& directory) {
 }
 fs::path index_path(const Context& context, const std::string& name) {
     validate_component(name);
-    return context.root/L".coop"/L"index"/(wide(name)+L".json");
+    return state_cache_directory(context)/L"index"/(wide(name)+L".json");
 }
 Json read_index(const Context& context, const Json& source, const fs::path& directory) {
     const auto name = source.at("name").get<std::string>();

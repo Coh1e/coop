@@ -111,7 +111,7 @@ function Invoke-FixtureGit([string[]]$Arguments) {
 $mainBucket = Join-Path $ScoopRoot 'buckets/main'
 $mainManifests = @(Get-ChildItem -LiteralPath (Join-Path $mainBucket 'bucket') -File -Filter '*.json')
 $registryPath = Join-Path $ScoopRoot '.coop/buckets.json'
-$indexPath = Join-Path $ScoopRoot '.coop/index/main.json'
+$indexPath = Join-Path $ScoopRoot '.coop/cache/index/main.json'
 $registryBefore = Get-Content -LiteralPath $registryPath -Raw
 $registry = @($registryBefore | ConvertFrom-Json) | Where-Object name -eq 'main'
 $revisionBefore = Invoke-FixtureGit @('-C', $mainBucket, 'rev-parse', 'HEAD')
@@ -243,7 +243,7 @@ for ($index = 0; $index -lt $Runs; $index++) {
     Invoke-FixtureGit @('-C', $upstream, 'add', ('bucket/' + $manifestName + '.json')) | Out-Null
     Invoke-FixtureGit @('-C', $upstream, '-c', 'user.name=CoopPerf', '-c', 'user.email=coop@example.invalid', 'commit', '-m', ("bench change " + $index)) | Out-Null
     $target = Invoke-FixtureGit @('-C', $upstream, 'rev-parse', 'HEAD')
-    $scaleIndex = Join-Path $scaleRoot '.coop/index/main.json'
+    $scaleIndex = Join-Path $scaleRoot '.coop/cache/index/main.json'
     $indexHashBefore = File-HashOrNull $scaleIndex
     Assert ($null -ne $indexHashBefore) 'real-scale changed refresh started without a query index'
     $worktreeHashBefore = (Get-FileHash -LiteralPath $worktreeUnrelated -Algorithm SHA256).Hash

@@ -25,7 +25,7 @@ bool same_source(const std::string& left, const std::string& right) {
     return normalized_source(left) == normalized_source(right);
 }
 fs::path refresh_journal_path(const Context& context, const std::string& name) {
-    return context.root/L".coop"/L"bucket-refresh"/(wide(name)+L".json");
+    return state_directory(context)/L"bucket-refresh"/(wide(name)+L".json");
 }
 void report_source(const Json& source) {
     Json output = source;
@@ -62,7 +62,7 @@ void refresh_index(const Context& context, const Json& source, bool force) {
 }
 int bucket_command(const Context& context, const std::vector<std::wstring>& args, bool quiet_report) {
     if (args.empty()) throw std::runtime_error("bucket requires list/add/remove/update");
-    const auto registry_path = context.root/L".coop"/L"buckets.json";
+    const auto registry_path = state_directory(context)/L"buckets.json";
     if (args[0] == L"list") {
         if (args.size() != 1) throw std::runtime_error("bucket list accepts no arguments");
         Json result = Json::array();
@@ -118,7 +118,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
     }
     if (!revision.empty() && (revision.size() != 40 || !std::all_of(revision.begin(),revision.end(),[](unsigned char c) { return std::isxdigit(c) != 0; })))
         throw std::runtime_error("A fixed revision must be a full commit id");
-    RootLock lock(context.root);
+    RootLock lock(context);
     auto registry = bucket_sources(context);
     auto found = std::find_if(registry.begin(),registry.end(),[&](const Json& source) { return same_name(source,name); });
     if (args[0] == L"add") {

@@ -102,7 +102,7 @@ public:
             } else {
                 git_error_clear();
             }
-            const auto isolated = root/L".coop"/L"disabled-user-config";
+            const auto isolated = state_directory_for_root(root)/L"disabled-user-config";
             require_regular_directory(isolated);
             fs::create_directories(isolated);
             write_isolated_config(isolated,autocrlf,eol,safecrlf);
@@ -364,7 +364,7 @@ std::string timestamp() {
     return text;
 }
 void invalidate_index(const Context& context, const std::string& name) {
-    const auto index = context.root/L".coop"/L"index"/(wide(name)+L".json");
+    const auto index = state_cache_directory(context)/L"index"/(wide(name)+L".json");
     for (int attempt = 0; attempt < 40; ++attempt) {
         if (DeleteFileW(index.c_str())) return;
         const DWORD error = GetLastError();
@@ -384,14 +384,13 @@ void move_directory(const fs::path& source, const fs::path& destination,
         throw std::runtime_error("Unsafe or conflicting shared bucket move");
     require_regular_directory(source);
     require_regular_directory(destination);
-    DWORD error = ERROR_SUCCESS;
-    for (int attempt = 0; attempt < 40; ++attempt) {
-        if (MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH)) return;
-        error = GetLastError();
-        if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
-        Sleep(50);
+    try {
+        // The clone staged under the state directory (usually C:) and the shared bucket lives under
+        // the selected root, so a cross-volume copy is part of publishing. move_tree owns that fallback.
+        move_tree(source,destination);
+    } catch (const std::exception& error) {
+        throw std::runtime_error(std::string("Cannot publish the shared bucket directory: ")+error.what());
     }
-    throw std::runtime_error("Cannot publish the shared bucket directory (Windows error "+std::to_string(error)+")");
 }
 void cleanup_staging(const fs::path& staging, const std::string& name) {
     if (!fs::is_directory(staging)) return;
@@ -453,7 +452,7 @@ Json clone_shared_bucket(const Context& context, const std::string& name, const 
     const auto destination = buckets/wide(name);
     require_regular_directory(destination);
     if (fs::exists(destination)) throw std::runtime_error("Shared bucket directory already exists; use bucket update to adopt it");
-    const auto staging_root = context.root/L".coop"/L"staging";
+    const auto staging_root = state_cache_directory(context)/L"staging";
     require_regular_directory(staging_root);
     fs::create_directories(staging_root);
     cleanup_staging(staging_root,name);

@@ -67,7 +67,7 @@ coop recover
 - 生命周期 Hook、`installer.script` 与安装器程序由真实 PowerShell 执行，需要 PowerShell 与随包的 `scoop-lib/`；脚本不经过文本白名单。
 - MSI 产物按管理镜像提取，不运行 `msiexec`；Inno Setup 与 NSIS 载荷需要已安装在 root 内的 helper，Coop 不下载、不内嵌 helper，厂商安装器不运行。
 - 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除，`cleanup` 才清理旧版本。
-- Coop 自己的写事务记录（崩溃恢复的证据，含脚本输出）留在安装根的 `.coop/` 下，不随卸载消失。`cleanup --transactions` 保留最近 10 条、永不删除未完成的事务，并报告释放的字节；不加这个开关时 Coop 不会自动删除它们。
+- Coop 自己的写事务记录（崩溃恢复的证据，含脚本输出）留在 `%USERPROFILE%\.coop\roots\<根名>-<哈希>/` 下，不随卸载消失；首次运行会把旧的 `<根>\.coop` 迁过去。`cleanup --transactions` 保留最近 10 条、永不删除未完成的事务，并报告释放的字节；不加这个开关时 Coop 不会自动删除它们。
 - arm64 生命周期未验证；32bit 真实包已执行。完整未运行项见[兼容性盘点](docs/coverage-report.md)。
 
 ## 文档

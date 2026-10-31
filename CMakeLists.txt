@@ -206,6 +206,8 @@ if(BUILD_TESTING)
   find_program(POWERSHELL_EXECUTABLE NAMES powershell pwsh REQUIRED)
   add_test(NAME source_hygiene COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/scripts/check-source-hygiene.ps1"
     -Root "${PROJECT_SOURCE_DIR}")
+  add_test(NAME doc_links COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/scripts/check-doc-links.ps1"
+    -Root "${PROJECT_SOURCE_DIR}")
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
   add_test(NAME coverage_gaps COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-gaps.ps1")
   add_test(NAME query COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/query.ps1"
@@ -254,6 +256,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/path-batch 中文 space")
   add_test(NAME initialization COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/initialization.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/initialization 中文 space")
+  add_test(NAME state_layout COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/state-layout.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/state-layout")
   add_test(NAME init_no_children COMMAND process_guard "$<TARGET_FILE:coop>" --root "${PROJECT_SOURCE_DIR}/.local/tests/initialization no children" init)
   foreach(command IN ITEMS list search info)
     set(query_args "--root" "${PROJECT_SOURCE_DIR}/.local/tests/query 中文 space/core" "${command}" "--json")
@@ -371,9 +375,16 @@ if(BUILD_TESTING)
   # The fast lane: the tests that finish in a couple of seconds and cover the output contract, the
   # plan pipeline and the small helpers. `scripts/build.ps1 -Action test-fast` runs exactly these;
   # the full suite stays the closing step.
-  set_property(TEST source_hygiene coverage_features coverage_gaps query plan ir_pipeline ir_reuse
+  set_property(TEST source_hygiene doc_links coverage_features coverage_gaps query plan ir_pipeline ir_reuse
     manifest_shape command_lines update_lines output_gaps progress_coverage suggest_notes ansi_colors
     reinstall_refusal cross_version sync_points perf_attribution publish_contracts publish_write_once
     bucket cleanup cleanup_transactions dependencies path_batch
     PROPERTY LABELS fast)
+
+  # Every test drives its own installation root. `%ROOT%` is expanded by coop for each invocation,
+  # so pinning the state directory once here keeps the existing <root>/.coop assertions addressing
+  # the same tree while the machine-level default is %USERPROFILE%\.coop\roots\<root>-<hash>.
+  # Multi-root tests get the right directory per command instead of one shared state tree.
+  get_property(coop_tests DIRECTORY PROPERTY TESTS)
+  set_tests_properties(${coop_tests} PROPERTIES ENVIRONMENT "COOP_STATE_DIR=%ROOT%\\.coop")
 endif()

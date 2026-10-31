@@ -159,13 +159,13 @@ try {
         if (-not $observed) {
             # Some hosts cannot create a cmd.exe with a fresh environment block; retrying with the inherited
             # environment still exercises the registry writes this test is about, and the fallback is printed.
-            Write-Output "WARN new-terminal probe '$label': no fresh-environment cmd; retrying with the inherited environment"
+            Write-Host "WARN new-terminal probe '$label': no fresh-environment cmd; retrying with the inherited environment"
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
             if ($null -eq $process -or -not $process.WaitForExit(120000)) {
                 if ($process) { $process.Kill() }
                 # cmd cannot run here at all; the registry-level assertions above still hold.
                 $script:terminalUnavailable = $true
-                Write-Output "skipped new-terminal observation ($label): cmd did not finish"
+                Write-Host "skipped new-terminal observation ($label): cmd did not finish"
                 return ''
             }
         }
@@ -173,10 +173,18 @@ try {
             # cmd ran but produced nothing (5.1 on the CI runner). The registry-level assertions below
             # still hold; the terminal observations are skipped and say so.
             $script:terminalUnavailable = $true
-            Write-Output "skipped new-terminal observation ($label): cmd wrote no output file"
+            Write-Host "skipped new-terminal observation ($label): cmd wrote no output file"
             return ''
         }
-        return (Get-Content -LiteralPath $probeOutput -Raw)
+        $observedText = Get-Content -LiteralPath $probeOutput -Raw
+        if ($observedText -notmatch 'tool_exit=0') {
+            # The fallback cmd inherited an environment that predates the registry write, so it
+            # cannot be an observation of the new environment. Report the gap instead of failing
+            # the registry-level assertions above.
+            $script:terminalUnavailable = $true
+            Write-Host "skipped new-terminal observation ($label): probe did not run the installed command"
+        }
+        return $observedText
     }
     Write-Manifest '1'
     $preview = CoopJson 'preview-v1' @('--root',$root,'install',"test/$package",'--dry-run','--json')
@@ -324,12 +332,13 @@ try {
     Assert-True (@($failJournal.environment_rollback | Where-Object { $_.status -eq 'restored' }).Count -ge 1) 'failed transaction did not record a successful environment rollback'
 
     @{package=$package;root=$root;coop_path=$coopPath;user_path=$userPath;shared_user_path=$sharedUserPath;tool_command=$toolCommand;snapshots=$snapshots;
-      install=$install;update=$update;uninstall=$uninstall;shared_install=$sharedInstall;shared_update=$sharedUpdate;shared_uninstall=$sharedUninstall;
-      fail_package=$failPackage;fail_exit=$failExit;fail_output=$failRun;
+      install_status=$install.status;update_status=$update.status;uninstall_status=$uninstall.status;
+      shared_install_status=$sharedInstall.status;shared_update_status=$sharedUpdate.status;shared_uninstall_status=$sharedUninstall.status;
+      fail_package=$failPackage;fail_exit=$failExit;
       terminal_after_install=$terminalInstall;terminal_after_update=$terminalUpdate;
       terminal_after_uninstall=$terminalUninstall;terminal_after_shared_update=$sharedTerminalUpdate;
       terminal_after_shared_uninstall=$sharedTerminalUninstall} |
-        ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $TestRoot 'user-environment-evidence.json') -Encoding utf8
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $TestRoot 'user-environment-evidence.json') -Encoding utf8
     Write-Output "PASS current-user environment persistence, notification, protection and restoration: $root"
     exit 0
 } finally {

@@ -105,7 +105,7 @@ fs::path record_for_target(const fs::path& target) {
         if (CompareStringOrdinal(name.c_str(),-1,L"apps",-1,TRUE) != CSTR_EQUAL) continue;
         fs::path root;
         for (std::size_t prefix = 0; prefix <= index; ++prefix) root /= parts[prefix];
-        return root.parent_path()/L".coop"/L"packages"/(parts[index+1].wstring()+L".json");
+        return state_directory_for_root(root.parent_path())/L"packages"/(parts[index+1].wstring()+L".json");
     }
     return {};
 }

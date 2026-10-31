@@ -108,7 +108,7 @@
 
 ### 历史（#19、#23）
 
-6. **可重建查询索引**（`src/catalog_index.cpp`）：bucket 显式 `add`/`update` 时把 Manifest 的搜索元数据写入 `.coop/index/<名称>.json`（紧凑 JSON），查询只读，不联网、不隐式刷新、不在查询期间写状态。Git 来源以已发布 `path` + `revision` 校验；本地/未注册来源以 `(文件名, 大小, 修改时间)` 指纹校验。索引不匹配、缺失或损坏时回退到 Manifest 扫描，坏 Manifest 的诊断同样进入索引。
+6. **可重建查询索引**（`src/catalog_index.cpp`）：bucket 显式 `add`/`update` 时把 Manifest 的搜索元数据写入 `<状态目录>\cache\index\<名称>.json`（紧凑 JSON），查询只读，不联网、不隐式刷新、不在查询期间写状态。Git 来源以已发布 `path` + `revision` 校验；本地/未注册来源以 `(文件名, 大小, 修改时间)` 指纹校验。索引不匹配、缺失或损坏时回退到 Manifest 扫描，坏 Manifest 的诊断同样进入索引。
 7. **`list` 旧版本证据延迟读取**（`src/versions.cpp`）：当前版本和受保护版本不再在每次查询中读取 Manifest/安装记录/目录树证据。
 8. **复用 CNG SHA256 provider**（`src/crypto.cpp`）：每进程只打开一次算法 provider。
 9. **共用 bucket 的原地刷新**（#23）：`bucket add` 克隆到 Scoop 共用工作树；`bucket update` 在 `.git` 内 fetch、先校验目标树、再原地检出，并在 revision 变化前使索引失效。

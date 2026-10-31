@@ -78,7 +78,7 @@ static void list_scope(Json& result, const Context& context, const fs::path& roo
                 item["persistence"] = persistence_plan_json(context,fact.name,fact.persistence,fact.directory);
         }
         if (scope == "user") {
-            const auto managed = root/L".coop"/L"packages"/(wide(fact.name)+L".json");
+            const auto managed = state_directory(context)/L"packages"/(wide(fact.name)+L".json");
             if (fs::exists(managed)) try {
                 const auto record = read_json(managed);
                 item["management"] = "managed";
@@ -116,7 +116,7 @@ Json installed_packages(const Context& context) {
     list_scope(result,context,context.root, "user", recovery_protected);
     if (context.global_root) list_scope(result,context,*context.global_root, "global", recovery_protected);
     std::map<std::string,std::pair<fs::file_time_type,Json>> operations;
-    const auto transactions = context.root/L".coop"/L"transactions";
+    const auto transactions = state_directory(context)/L"transactions";
     if (fs::is_directory(transactions)) for (const auto& entry : fs::directory_iterator(transactions)) {
         const auto path = entry.path()/L"journal.json";
         if (!fs::is_regular_file(path)) continue;
@@ -182,7 +182,7 @@ Json installed_packages(const Context& context) {
                 // committed management record is still in place. Report that record's version as
                 // the installed fact instead of an intermediate null, and keep the fact reader's
                 // diagnostic that explains the missing link.
-                const auto live = context.root/L".coop"/L"packages"/(wide(item.at("name").get<std::string>())+L".json");
+                const auto live = state_directory(context)/L"packages"/(wide(item.at("name").get<std::string>())+L".json");
                 if (fs::is_regular_file(live)) try {
                     const auto record = read_json(live);
                     if (record.is_object() && equal_name(record.value("name",std::string{}),item.at("name").get<std::string>())) {
@@ -1158,7 +1158,7 @@ static int checkup_command(const Context& context) {
     }
     if (!main_bucket) report("The 'main' bucket is not installed.");
     // A pending transaction blocks new writes; it must be visible here, not only in `list`.
-    const auto transactions = context.root/L".coop"/L"transactions";
+    const auto transactions = state_directory(context)/L"transactions";
     std::error_code error;
     if (fs::is_directory(transactions,error)) for (const auto& entry : fs::directory_iterator(transactions,error)) {
         if (error) break;

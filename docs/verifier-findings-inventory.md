@@ -50,7 +50,7 @@
 | #29/verifier-1-7 | P3 | Evidence / .local/pi/tasks/29/evidence/user-env-after-final-full-3.json | The claim 'the user environment returns to its pre-suite snapshot' rests on before/after JSON artifacts whose comparison… | 保留为已知 P3（本轮未改，不阻塞验收） |
 | #29/verifier-2-1 | P3 | Evidence / src/user_environment.cpp | Declaration-derived ownership (ownership_from_declarations, src/user_environment.cpp:275) deliberately records previous=… | 保留为已知 P3（本轮未改，不阻塞验收） |
 | #29/verifier-2-2 | P3 | Evidence / .local/pi/tasks/29/evidence/environment-journal-install.json | The repair run copied its new journals over the previously cited paths: environment-journal-install.json (10196 -> 10636… | 历史证据标注：文件按原样保留，未回改；不得据此声称已复现 |
-| #30/verifier-1-1 | P3 | Standards / README.md | The added link [持久化数据支持](docs/persistence-support.md#真机验证r09-30) does not match its target heading. docs/persistence-sup… | 本轮修复或核对已解决 |
+| #30/verifier-1-1 | P3 | Standards / README.md | The added link [持久化数据支持](persistence-support.md#真机验证r09-30) does not match its target heading. docs/persistence-sup… | 本轮修复或核对已解决 |
 | #30/verifier-1-2 | P3 | Evidence / docs/persistence-support.md | The not-run bullet claims '测试创建的 store 是空的（本轮首次安装）', but the cited run shows the opposite: persist/mediamtx held a 44-by… | 保留为已知 P3（本轮未改，不阻塞验收） |
 | #31/verifier-1-1 | P2 | Spec / src/execute.cpp | post_uninstall always receives $manifest = $null. staged_manifest() returns empty when manifest_path is not a regular fi… | 同票后续轮已修复，最终 verifier 通过 |
 | #31/verifier-1-2 | P3 | Spec / src/script.cpp | The hook host sets the child working directory to the package directory ($dir, else the management root), while Scoop ne… | 已由后续实现/文档修正（本轮核对） |

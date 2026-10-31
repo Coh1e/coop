@@ -57,7 +57,7 @@ int wmain(int argc, wchar_t** argv) {
                      "  --dry-run  Preview without changing state\n"
                      "  --json     Print machine-readable results\n"
                      "  --timings  Print the network and local time a write command spent, and record it\n"
-                     "             under <root>/.coop/timings/ for later comparison\n"
+                     "             in the Coop state directory (default %USERPROFILE%\\.coop\\roots\\<root>-<hash>)\n"
                      "\nOutput is UTF-8; exit codes: 0 success, 1 operational or partial-batch failure,\n"
                      "2 command-line misuse.\n"
                      "\nCommands:\n  init [--dry-run]\n  list [query]\n  search [query]\n  info [bucket/]package\n"
@@ -118,6 +118,9 @@ int wmain(int argc, wchar_t** argv) {
             // prints.
             if (arguments.size() == 1 && (arguments[0] == L"--help" || arguments[0] == L"-h"))
                 return coop::query(context,L"help",{command});
+            // Move a pre-0.2.5 <root>/.coop into the external state directory once. When
+            // COOP_STATE_DIR already points there this is a no-op, which is how the tests pin state.
+            coop::migrate_legacy_state(context);
             // A write command records what it is doing while it runs, so a process that is killed
             // leaves an explanation behind instead of nothing. A preview writes nothing at all,
             // including this record.

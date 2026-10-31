@@ -21,10 +21,11 @@ std::string timestamp() {
 RunRecord::RunRecord(const Context& context,std::string command,std::vector<std::string> packages) {
     root_ = context.root;
     std::error_code error;
-    // A command that is refused before its first write must not leave a root behind, so the
-    // constructor remembers whether the root already existed.
+    // A command that is refused before its first write must not leave a root behind, even when the
+    // pinned state directory lives inside it.
     root_existed_ = fs::exists(root_,error);
-    const auto directory = root_/L".coop"/L"runs";
+    state_ = state_directory(context);
+    const auto directory = state_/L"runs";
     fs::create_directories(directory,error);
     const auto id = std::to_string(GetCurrentProcessId())+"-"+std::to_string(++g_run_counter)+"-"+
         std::to_string(GetTickCount64());
@@ -41,11 +42,12 @@ RunRecord::~RunRecord() {
     set_phase_sink(nullptr);
     std::error_code error;
     fs::remove(path_,error);
-    // A root that only saw finished runs keeps no trace of them: the record directory goes, and
-    // `.coop` goes with it while it is still empty (the remove fails harmlessly when it is not).
+    // A state directory that only saw finished runs keeps no trace of them. Package records,
+    // transactions or a test-fault file keep it in place.
     if (path_.has_parent_path()) fs::remove(path_.parent_path(),error);
-    if (path_.parent_path().has_parent_path()) fs::remove(path_.parent_path().parent_path(),error);
-    if (!root_existed_) fs::remove(root_,error);
+    if (!state_.empty() && !fs::exists(state_/L"test-faults.json",error)) fs::remove(state_,error);
+    if (!root_existed_ && fs::is_directory(root_,error) && fs::is_empty(root_,error) && !error)
+        fs::remove(root_,error);
 }
 void RunRecord::stage(const std::string& text) {
     if (text.empty()) return;
@@ -63,7 +65,7 @@ void RunRecord::save() {
 }
 
 std::size_t report_abandoned_runs(const Context& context,bool consume) {
-    const auto directory = context.root/L".coop"/L"runs";
+    const auto directory = state_directory(context)/L"runs";
     std::error_code error;
     if (!fs::is_directory(directory,error)) return 0;
     std::size_t count = 0;

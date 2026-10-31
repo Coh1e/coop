@@ -5,7 +5,7 @@
 ## 基准与方法
 
 - **Scoop v0.6.0**，`<SCOOP_SRC> = C:\Users\Neo\scoop\apps\scoop\current`。命令集合取自 `libexec\scoop-*.ps1`（28 个）；用法与选项取自每个文件的 `# Usage:` 与 `#   -` 头注释；裸 `update` 的行为取自 `libexec\scoop-update.ps1:397`（无参数分支）、`:77`（`Updating Scoop...`）、`:159`（`Updating Buckets...`）。
-- **Coop 0.1.0**，命令集合取自 `.local/build/coop.exe --help` 与 [src/main.cpp:115-143](../src/main.cpp)；接受参数取自 `src/*.cpp` 的 `UsageError` 全集（`plan.cpp:1023-1037`、`query.cpp:309-312`、`main.cpp:101`、`bucket.cpp:81-85`）。
+- **Coop 0.1.0**，命令集合取自 `.local/build/coop.exe --help` 与 [src/main.cpp:115-143](../../src/main.cpp)；接受参数取自 `src/*.cpp` 的 `UsageError` 全集（`plan.cpp:1023-1037`、`query.cpp:309-312`、`main.cpp:101`、`bucket.cpp:81-85`）。
 - **文本形状**取自真机同根对照：`scoop list`、`scoop info ripgrep`、`scoop status -l`、`scoop search ripgrep` 对照 `coop list`、`coop info main/ripgrep`、`coop search ripgrep`。
 - 全部只读：本盘点没有执行任何安装、更新或卸载，没有改任何一条用户环境值和 `~\scoop` 下的文件。
 

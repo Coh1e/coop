@@ -44,7 +44,7 @@ bool is_under(const fs::path& path, const fs::path& base) {
 
 Json pending_transactions(const Context& context) {
     Json result = Json::array();
-    const auto directory = context.root/L".coop"/L"transactions";
+    const auto directory = state_directory(context)/L"transactions";
     if (!fs::is_directory(directory)) return result;
     for (const auto& entry : fs::directory_iterator(directory)) {
         if (!entry.is_directory()) continue;
@@ -101,7 +101,7 @@ void save_journal(const fs::path& path, const Json& journal) {
 // A cleanup crash can leave moved version directories inside its transaction. Finishing that
 // operation is idempotent: if the version is still held, put it back where it came from.
 void recover_cleanup_transactions(const Context& context) {
-    const auto directory = context.root/L".coop"/L"transactions";
+    const auto directory = state_directory(context)/L"transactions";
     if (!fs::is_directory(directory)) return;
     for (const auto& entry : fs::directory_iterator(directory)) {
         if (!entry.is_directory()) continue;
@@ -165,8 +165,8 @@ Json cleanup_scope(const Json& inventory, const Json& cleanable) {
 
 CleanupResult cleanup_package(const Context& context, const std::string& package_name, bool dry_run) {
     CleanupResult outcome;
-    const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
-    const auto retained_path = context.root/L".coop"/L"retained"/(wide(package_name)+L".json");
+    const auto managed_path = state_directory(context)/L"packages"/(wide(package_name)+L".json");
+    const auto retained_path = state_directory(context)/L"retained"/(wide(package_name)+L".json");
     std::string current_version;
     fs::path current_directory;
     if (fs::is_regular_file(managed_path)) {
@@ -233,7 +233,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
         outcome.value = std::move(result);
         return outcome;
     }
-    RootLock lock(context.root);
+    RootLock lock(context);
     recover_cleanup_transactions(context);
     pending = pending_transactions(context);
     if (!pending.empty()) {
@@ -277,7 +277,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
             throw std::runtime_error("Retained-version evidence changed during cleanup; no version was deleted");
     };
     verify_evidence();
-    const auto transaction = context.root/L".coop"/L"transactions"/
+    const auto transaction = state_directory(context)/L"transactions"/
         (L"cleanup-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
     Json journal = {{"state","pending"},{"action","cleanup"},{"package",package_name},{"candidates",Json::array()}};
     std::set<std::string> deleted;
@@ -308,14 +308,17 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
             journal["candidates"].push_back({{"version",version},{"from",path_text(from)},
                 {"trash",path_text(trash)},{"moved",false},{"recovery",false}});
             save_journal(transaction/L"journal.json",journal);
-            if (!MoveFileExW(from.c_str(),trash.c_str(),MOVEFILE_WRITE_THROUGH)) {
-                const auto error = GetLastError();
+            try {
+                // The state transaction and the version directory can be on different volumes;
+                // move_tree copies and deletes when a rename is impossible.
+                move_tree(from,trash);
+            } catch (const std::exception& failure) {
                 auto skipped = entry;
                 skipped["status"] = "in-use";
-                skipped["reason"] = "Version directory cannot be moved without forcing a running program (Windows error "+
-                    std::to_string(error)+")";
+                skipped["reason"] = std::string("Version directory cannot be moved without forcing a running program: ")+
+                    failure.what();
                 kept.push_back(skipped); unmanageable.push_back(skipped);
-                journal["candidates"].back()["error"] = error;
+                journal["candidates"].back()["error"] = failure.what();
                 save_journal(transaction/L"journal.json",journal);
                 continue;
             }
@@ -330,14 +333,16 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
             const auto version = candidate.at("version").get<std::string>();
             try { erase_tree(trash); }
             catch (const std::exception& error) {
-                if (GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES &&
-                    MoveFileExW(trash.c_str(),from.c_str(),MOVEFILE_WRITE_THROUGH)) {
-                    auto skipped = Json{{"version",version},{"directory",path_text(from)},{"status","in-use"},
-                        {"reason",std::string("Version is in use; it was restored after deletion failed: ")+error.what()}};
-                    kept.push_back(skipped); unmanageable.push_back(skipped);
-                    candidate["moved"] = false;
-                    save_journal(transaction/L"journal.json",journal);
-                    continue;
+                if (GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                    try {
+                        move_tree(trash,from);
+                        auto skipped = Json{{"version",version},{"directory",path_text(from)},{"status","in-use"},
+                            {"reason",std::string("Version is in use; it was restored after deletion failed: ")+error.what()}};
+                        kept.push_back(skipped); unmanageable.push_back(skipped);
+                        candidate["moved"] = false;
+                        save_journal(transaction/L"journal.json",journal);
+                        continue;
+                    } catch (const std::exception&) { /* Fall through to the manual-recovery record. */ }
                 }
                 candidate["recovery"] = true;
                 save_journal(transaction/L"journal.json",journal);
@@ -402,7 +407,7 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
 
 std::vector<std::string> known_packages(const Context& context) {
     std::set<std::string> names;
-    for (const auto& directory : {context.root/L".coop"/L"packages",context.root/L".coop"/L"retained"}) {
+    for (const auto& directory : {state_directory(context)/L"packages",state_directory(context)/L"retained"}) {
         if (!fs::is_directory(directory)) continue;
         for (const auto& entry : fs::directory_iterator(directory)) {
             if (!entry.is_regular_file() || entry.path().extension() != L".json") continue;
@@ -456,9 +461,12 @@ Json cleanup_recovery_status(const Context& context, const fs::path& journal_pat
                 erase_tree(trash);
                 actions.push_back({{"kind","removed"},{"path",path_text(trash)}});
             } catch (const std::exception&) {
-                if (GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES ||
-                    !MoveFileExW(trash.c_str(),from.c_str(),MOVEFILE_WRITE_THROUGH))
+                if (GetFileAttributesW(from.c_str()) != INVALID_FILE_ATTRIBUTES)
                     throw std::runtime_error("Interrupted cleanup cannot be completed: "+path_text(trash));
+                try { move_tree(trash,from); }
+                catch (const std::exception&) {
+                    throw std::runtime_error("Interrupted cleanup cannot be completed: "+path_text(trash));
+                }
                 actions.push_back({{"kind","restored"},{"from",path_text(from)}});
             }
         }
@@ -600,8 +608,8 @@ Json scan_version_evidence(const fs::path& app_directory) {
 }
 Json recorded_version_evidence(const Context& context, const std::string& package_name) {
     const auto app = context.root/L"apps"/wide(package_name);
-    const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
-    const auto retained_path = context.root/L".coop"/L"retained"/(wide(package_name)+L".json");
+    const auto managed_path = state_directory(context)/L"packages"/(wide(package_name)+L".json");
+    const auto retained_path = state_directory(context)/L"retained"/(wide(package_name)+L".json");
     Json managed = Json::array();
     if (fs::is_regular_file(managed_path)) {
         try { managed = normalize_versions(read_json(managed_path).value("versions",Json::array())); }
@@ -628,7 +636,7 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
 Json version_cleanup_inventory(const Context& context, const std::string& package_name,
                                const std::string& current_version, bool recovery_protected) {
     const auto app = context.root/L"apps"/wide(package_name);
-    const auto managed_path = context.root/L".coop"/L"packages"/(wide(package_name)+L".json");
+    const auto managed_path = state_directory(context)/L"packages"/(wide(package_name)+L".json");
     std::string managed_version;
     fs::path managed_directory;
     if (fs::is_regular_file(managed_path)) {
@@ -806,7 +814,7 @@ static int cache_cleanup(const Context& context, bool dry_run) {
 // touched (it is what `recover` needs), and the newest records are kept so a recent failure can still
 // be inspected: the default keeps ten. Coop-specific, because Scoop keeps no such record.
 int cleanup_transactions(const Context& context, bool dry_run) {
-    const auto directory = context.root/L".coop"/L"transactions";
+    const auto directory = state_directory(context)/L"transactions";
     std::error_code error;
     if (!fs::is_directory(directory,error)) {
         if (context.json_output) std::cout << Json{{"kept",0},{"removed",0},{"bytes",0}}.dump(2) << '\n';

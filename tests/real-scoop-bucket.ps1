@@ -86,7 +86,7 @@ if ($urlAfterFirst -ne $urlBefore -or $first.url -ne $urlBefore) { throw 'Shared
 if ($statusAfterFirst) { throw "Refresh left local changes in the real shared bucket: $statusAfterFirst" }
 if ($first.refresh_kind -notin @('first','changed','unchanged')) { throw 'First refresh did not report its kind' }
 if ($first.changed -ne ($revisionAfterFirst -ne $revisionBefore)) { throw 'Changed flag does not match the actual shared revision' }
-$indexPath = Join-Path $ScoopRoot ".coop/index/$Bucket.json"
+$indexPath = Join-Path $ScoopRoot ".coop/cache/index/$Bucket.json"
 $indexAfterFirst = Get-Hash $indexPath
 if (-not $indexAfterFirst) { throw 'Refresh did not create the search index' }
 $sampleAfterFirst = if ($sampleManifest.Count) { Get-Hash (Join-Path $shared $sampleManifest[0]) } else { $null }

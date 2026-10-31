@@ -37,7 +37,7 @@ Invoke-CoopNative $CoopExe  --root $installed bucket add probe $url | Out-Null
 if ($LASTEXITCODE -cne 0) { throw 'the fixture bucket did not register' }
 
 # The index records the binary names, which is what makes a binary search possible.
-$index = Join-Path $installed '.coop/index/probe.json'
+$index = Join-Path $installed '.coop/cache/index/probe.json'
 if (-not (Test-Path $index)) { throw 'the bucket index was not written' }
 $stored = Get-Content $index -Raw | ConvertFrom-Json
 if ($stored.version -cne 2) { throw "the index format is $($stored.version), not 2" }

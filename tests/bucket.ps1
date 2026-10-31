@@ -59,7 +59,7 @@ if ($first.path -ne $sharedGit -or -not (Test-Path -LiteralPath "$sharedGit/.git
 if ($first.first_refresh -ne $true -or $first.refresh_kind -ne 'first' -or $first.changed -ne $true -or $first.files_count -le 0) { throw 'first refresh evidence is incomplete' }
 if (Test-Path -LiteralPath "$root/.coop/snapshots") { throw 'Git bucket used a private snapshot instead of the shared working tree' }
 if ((Invoke-FixtureGit @('-C',$sharedGit,'rev-parse','HEAD')) -ne $first.revision) { throw 'shared working tree revision differs from the published record' }
-$gitIndexPath = Join-Path $root '.coop/index/git.json'
+$gitIndexPath = Join-Path $root '.coop/cache/index/git.json'
 $firstIndexHash = (Get-FileHash -LiteralPath $gitIndexPath).Hash
 $same = (& $CoopExe --root $root bucket update git --json) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $same.changed -ne $false -or $same.path -ne $first.path -or $same.refresh_kind -ne 'unchanged' -or $same.first_refresh -ne $false) { throw 'unchanged bucket unnecessarily republished' }
@@ -178,6 +178,10 @@ $settled = @(Get-JsonItems (& $CoopExe --root $root bucket list --json)) | Where
 if ($LASTEXITCODE -ne 0 -or $settled.refresh_pending) { throw 'Completed refresh still reports a pending journal' }
 Write-Output ('PASS actual updater process interruption, exit='+$updater.ExitCode+'; journal observed and diagnosed; old record and query retained; retry completed')
 
+# The product removes its lock file after a finished command, so a concurrent-writer fixture must
+# create the file it is about to hold.
+New-Item -ItemType Directory -Path (Join-Path $root '.coop') -Force | Out-Null
+New-Item -ItemType File -Path (Join-Path $root '.coop/write.lock') -Force | Out-Null
 $heldLock = [IO.File]::Open((Join-Path $root '.coop/write.lock'),[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 try {
     Invoke-CoopNativeToFile $CoopExe "$root/busy-error.txt" --root $root bucket update git --json | Out-Null

@@ -26,7 +26,7 @@ Json pending_recovery_report(const Context& context, bool execute,
     Json result = Json::array();
     std::set<std::string> wanted;
     for (const auto& name : requested) if (!name.empty()) wanted.insert(lower_name(name));
-    const auto directory = context.root/L".coop"/L"transactions";
+    const auto directory = state_directory(context)/L"transactions";
     if (!fs::is_directory(directory)) {
         for (const auto& name : wanted)
             result.push_back({{"package",name},{"mode","none"},{"status","not-pending"},
@@ -100,7 +100,7 @@ int recovery_command(const Context& context, const std::vector<std::wstring>& ar
         }
     }
     std::unique_ptr<RootLock> lock;
-    if (!dry_run) lock = std::make_unique<RootLock>(context.root);
+    if (!dry_run) lock = std::make_unique<RootLock>(context);
     // Records left by interrupted runs are consumed by the report: they name what was running, not
     // what to restore, so a dry run prints them and leaves them in place.
     report_abandoned_runs(context,!dry_run);

@@ -225,6 +225,9 @@ void publish_new(const fs::path& source, const fs::path& destination) {
     for (int attempt = 0; attempt < attempts; ++attempt) {
         if (MoveFileExW(source.c_str(),destination.c_str(),MOVEFILE_WRITE_THROUGH)) return;
         error = GetLastError();
+        // State is usually on C: while the Scoop root can be elsewhere. A cross-volume move cannot
+        // rename, so fall back to copy + delete; junctions are rebuilt by move_tree.
+        if (error == ERROR_NOT_SAME_DEVICE) { move_tree(source,destination); return; }
         if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION && error != ERROR_ACCESS_DENIED) break;
         if (attempt % 10 == 9)
             progress_stage("Waiting for a lock on "+path_text(destination)+" ("+std::to_string((attempt+1)/10*5)+"s)");
@@ -286,12 +289,13 @@ bool recovery_path_allowed(const Context& context, const fs::path& path) {
     // Journal paths are only trusted inside the managed subtrees that the execution protocol
     // writes. Requiring the expected depth prevents a corrupt journal from naming "apps" or a
     // whole package directory as a created path and deleting more than one transaction owns.
+    const auto state = state_directory(context);
     const std::vector<std::pair<fs::path,std::size_t>> roots = {
         {context.root/L"apps",2},
         {context.root/L"shims",1},
-        {context.root/L".coop"/L"packages",1},
-        {context.root/L".coop"/L"transactions",2},
-        {context.root/L".coop"/L"retained",1},
+        {state/L"packages",1},
+        {state/L"transactions",2},
+        {state/L"retained",1},
         {shortcut_directory(context),1}};
     fs::path base;
     std::size_t minimum = 0;
@@ -504,7 +508,7 @@ std::string command_entry_blocker(const Context& context, const ir::Package& ins
     const auto shims = context.root/L"shims";
     const auto module_hash = coop_launcher_hash();
     Json record = Json::object();
-    const auto record_path = context.root/L".coop"/L"packages"/(wide(installed.name)+L".json");
+    const auto record_path = state_directory(context)/L"packages"/(wide(installed.name)+L".json");
     if (fs::is_regular_file(record_path)) {
         try { record = read_json(record_path); }
         catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
@@ -645,7 +649,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
     // are verified from the standard apps/<name>/current tree, the saved records and every declared
     // entry target; no private Coop record is a precondition.
     if ((plan.action == ir::Action::uninstall || plan.action == ir::Action::update || plan.action == ir::Action::reset) &&
-        !fs::exists(context.root/L".coop"/L"packages"/(wide(plan.package.name)+L".json"))) {
+        !fs::exists(state_directory(context)/L"packages"/(wide(plan.package.name)+L".json"))) {
         const auto& facts = (plan.action == ir::Action::update || plan.action == ir::Action::reset) && plan.previous ? *plan.previous : plan.package;
         try { verify_shared_artifacts(facts,plan.local.directory); }
         catch (const std::exception& error) { return error.what(); }
@@ -657,7 +661,7 @@ std::string execution_blocker(const Context& context, const Plan& plan) {
         // Shortcuts are verified by the same function the executor uses, so a preview cannot
         // claim that a changed or foreign shortcut will be replaced or removed.
         Json managed = Json::object();
-        const auto record = context.root/L".coop"/L"packages"/(wide(facts.name)+L".json");
+        const auto record = state_directory(context)/L"packages"/(wide(facts.name)+L".json");
         if (fs::is_regular_file(record)) {
             try { managed = read_json(record); }
             catch (const std::exception&) { /* The record is optional evidence; shared facts remain authoritative. */ }
@@ -830,16 +834,16 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     const bool updating = plan.action == ir::Action::update || plan.retain_previous;
     const bool resetting = plan.action == ir::Action::reset;
     const auto& installed = (updating || resetting) ? plan.previous.value() : package;
-    const auto state = context.root/L".coop";
+    const auto state = state_directory(context);
     const auto record_path = state/L"packages"/(wide(package.name)+L".json");
     const auto app = context.root/L"apps"/wide(package.name);
     const auto version = app/wide(package.version);
     const auto shims = context.root/L"shims";
-    ordinary_parents(context.root,state);
+    ordinary_parents(state.parent_path(),state);
     ordinary_parents(context.root,version);
     ordinary_parents(context.root,shims);
-    ordinary_parents(context.root,record_path);
-    RootLock lock(context.root);
+    ordinary_parents(state,record_path);
+    RootLock lock(context);
     recheck_plan(plan);
     if (fs::exists(state/L"transactions")) for (const auto& entry : fs::directory_iterator(state/L"transactions")) {
         if (!entry.is_directory()) continue;
@@ -1084,7 +1088,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         }
     }
     const auto transaction = state/L"transactions"/(std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64()));
-    ordinary_parents(context.root,transaction);
+    ordinary_parents(state,transaction);
     fs::create_directories(transaction);
     // Hook sessions bind $manifest to a byte-identical copy inside the transaction. The live path
     // is not usable for every phase: post_uninstall runs after the version directory (and with it
@@ -1982,7 +1986,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 if (plan.action == ir::Action::uninstall) {
                     if (!kept_versions.empty()) {
                         const auto retained_path = state/L"retained"/(wide(package.name)+L".json");
-                        ordinary_parents(context.root,retained_path);
+                        ordinary_parents(state,retained_path);
                         fs::create_directories(retained_path.parent_path());
                         if (fs::exists(retained_path)) move(retained_path,transaction/L"retained-previous.json");
                         publish_json(retained_path,{{"package",package.name},
@@ -1994,7 +1998,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     if (fs::is_directory(app,error) && fs::is_empty(app,error) && !error)
                         fs::remove(app,error);
                 } else {
-                    ordinary_parents(context.root,record_path.parent_path());
+                    ordinary_parents(state,record_path.parent_path());
                     fs::create_directories(record_path.parent_path());
                     version_history.erase(std::remove_if(version_history.begin(),version_history.end(),[&](const Json& entry) {
                         return entry.is_object() && equal_name(entry.value("version",std::string{}),package.version);
@@ -2130,7 +2134,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
             plan.action == ir::Action::uninstall ? "uninstall" : "reset";
         result["timings"] = record;
         try {
-            const auto directory = context.root/L".coop"/L"timings";
+            const auto directory = state_directory(context)/L"timings";
             fs::create_directories(directory);
             const auto name = std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64())+L".json";
             // Re-derivable: a crash can rebuild this record, so it does not pay for a write-through.
@@ -2318,6 +2322,6 @@ Json package_recovery_status(const Context& context, const fs::path& journal_pat
     }
 }
 bool recovery_record_path_allowed(const Context& context, const fs::path& path) {
-    return path_is_under(path,context.root/L".coop"/L"transactions") && recovery_path_allowed(context,path);
+    return path_is_under(path,state_directory(context)/L"transactions") && recovery_path_allowed(context,path);
 }
 }

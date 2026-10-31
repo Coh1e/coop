@@ -4,6 +4,8 @@ $ErrorActionPreference = 'Stop'
 # --no-verify and then protects nothing.
 & (Join-Path $PSScriptRoot 'check-source-hygiene.ps1') -Staged
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $PSScriptRoot 'check-doc-links.ps1') -Staged
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $Root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Push-Location $Root

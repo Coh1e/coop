@@ -194,7 +194,7 @@ Assert ((Get-FileHash -LiteralPath $queryRegistry).Hash -eq $queryRegistryHash) 
 
 # Index hit: rewriting an entry without touching the source must be served. This proves the
 # query read the index rather than rescanning the manifests.
-$indexPath = Join-Path $indexRoots[1500] '.coop/index/main.json'
+$indexPath = Join-Path $indexRoots[1500] '.coop/cache/index/main.json'
 Assert (Test-Path -LiteralPath $indexPath) 'bucket synchronization did not write a search index'
 $index = Get-Content -LiteralPath $indexPath -Raw | ConvertFrom-Json
 $entry = @($index.entries | Where-Object name -eq 'pkg00777')[0]
@@ -268,10 +268,10 @@ $refreshFirst = Invoke-Measured @('--root', $gitRoot, 'bucket', 'add', 'main', $
 Assert ($refreshFirst.exit -eq 0) "git bucket add failed: $($refreshFirst.error)"
 $firstRecord = $refreshFirst.output | ConvertFrom-Json
 Assert ($firstRecord.changed -eq $true -and $firstRecord.first_refresh -eq $true -and $firstRecord.refresh_kind -eq 'first' -and $firstRecord.revision -eq (Invoke-FixtureGit @('-C', $repository, 'rev-parse', 'HEAD'))) 'git first fetch published the wrong revision or evidence'
-Assert (Test-Path -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')) 'git synchronization did not write a search index'
+Assert (Test-Path -LiteralPath (Join-Path $gitRoot '.coop/cache/index/main.json')) 'git synchronization did not write a search index'
 Assert ($firstRecord.path -eq (Join-Path $gitRoot 'buckets/main') -and (Test-Path -LiteralPath (Join-Path $firstRecord.path '.git'))) 'git bucket is not a shared working tree'
 $gitRegistry = Join-Path $gitRoot '.coop/buckets.json'
-$gitIndexHashBefore = (Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash
+$gitIndexHashBefore = (Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/cache/index/main.json')).Hash
 $registryHashBefore = (Get-FileHash -LiteralPath $gitRegistry).Hash
 $registryBefore = @(Get-Content -LiteralPath $gitRegistry -Raw | ConvertFrom-Json)[0]
 $refreshSame = Invoke-Measured @('--root', $gitRoot, 'bucket', 'update', 'main', '--json')
@@ -279,7 +279,7 @@ Assert ($refreshSame.exit -eq 0) "git no-change refresh failed: $($refreshSame.e
 $sameRecord = $refreshSame.output | ConvertFrom-Json
 $registryAfter = @(Get-Content -LiteralPath $gitRegistry -Raw | ConvertFrom-Json)[0]
 Assert ($sameRecord.changed -eq $false -and $sameRecord.refresh_kind -eq 'unchanged' -and $sameRecord.path -eq $firstRecord.path) 'unchanged revision was republished'
-Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash -eq $gitIndexHashBefore) 'no-change refresh rebuilt the search index'
+Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/cache/index/main.json')).Hash -eq $gitIndexHashBefore) 'no-change refresh rebuilt the search index'
 Assert ($registryAfter.revision -eq $registryBefore.revision -and $registryAfter.path -eq $registryBefore.path -and
     $registryAfter.files_count -eq $registryBefore.files_count) 'no-change refresh changed the shared bucket record'
 $registryMetadataRewritten = (Get-FileHash -LiteralPath $gitRegistry).Hash -ne $registryHashBefore
@@ -292,7 +292,7 @@ Assert ($refreshChanged.exit -eq 0) "git changed refresh failed: $($refreshChang
 $changedRecord = $refreshChanged.output | ConvertFrom-Json
 Assert ($changedRecord.changed -eq $true -and $changedRecord.refresh_kind -eq 'changed' -and $changedRecord.path -eq $firstRecord.path -and $changedRecord.previous_revision -eq $firstRecord.revision -and $changedRecord.changed_files -gt 0) 'new revision was not published in place with evidence'
 Assert ((Invoke-FixtureGit @('-C', $firstRecord.path, 'rev-parse', 'HEAD')) -eq $changedRecord.revision) 'shared working tree did not advance to the new revision'
-Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/index/main.json')).Hash -ne $gitIndexHashBefore) 'changed refresh did not rebuild the search index'
+Assert ((Get-FileHash -LiteralPath (Join-Path $gitRoot '.coop/cache/index/main.json')).Hash -ne $gitIndexHashBefore) 'changed refresh did not rebuild the search index'
 $newPackage = Invoke-Measured @('--root', $gitRoot, 'info', 'main/pkg09999', '--json')
 Assert ($newPackage.exit -eq 0 -and @(Get-JsonItems $newPackage.output)[0].version -eq '3.0.0') 'new revision is not queryable'
 Assert ((Get-FileHash -LiteralPath (Join-Path $firstRecord.path 'bucket/pkg00042.json') -Algorithm SHA256).Hash -eq $unchangedManifestBefore.Hash) 'in-place refresh modified an unrelated manifest'

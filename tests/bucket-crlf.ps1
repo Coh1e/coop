@@ -53,7 +53,7 @@ if (@($bytes | Where-Object { $_ -eq 13 }).Count -eq 0) { throw 'the fixture did
 if ((Invoke-CoopNative git -C $clone status --porcelain) -join '' -ne '') { throw 'the fixture is not clean for Git' }
 $refresh = Invoke-CoopNative $CoopExe  --root $installed bucket update probe
 if ($LASTEXITCODE -cne 0) { throw "a CRLF-only difference stopped the refresh: $($refresh -join ' | ')" }
-$index = Join-Path $installed '.coop/index/probe.json'
+$index = Join-Path $installed '.coop/cache/index/probe.json'
 if (-not (Test-Path $index)) { throw 'the refresh did not rebuild the index' }
 if ((Get-Content $index -Raw | ConvertFrom-Json).entries.Count -cne 2) { throw 'the refresh did not pick up the new package' }
 

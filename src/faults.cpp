@@ -17,7 +17,7 @@ bool environment_allows_faults() {
 // The fault file is an engineering input, never a product state. Unreadable or malformed content
 // disables injection instead of failing the user's operation.
 std::optional<Json> fault_file(const Context& context) {
-    const auto path = context.root/L".coop"/L"test-faults.json";
+    const auto path = state_directory(context)/L"test-faults.json";
     try {
         if (!fs::is_regular_file(path)) return std::nullopt;
         const auto value = read_json(path);

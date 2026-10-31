@@ -53,10 +53,10 @@ int shim_command(const Context& context, const std::vector<std::wstring>& args);
 bool package_is_held(const fs::path& version_directory);
 // `config` and `alias` read and write the Scoop configuration file, which both clients share.
 int config_command(const Context& context, const std::vector<std::wstring>& args);
-// A write command leaves a small record under `<root>/.coop/runs` while it runs. A normal exit removes
-// it; a process that is killed leaves it behind, so `recover` can name the command, the packages and
-// the stage it stopped in. The record is observational: it carries no ownership evidence, never
-// changes an exit code and is never used to restore anything.
+// A write command leaves a small record in the Coop state directory while it runs. A normal exit
+// removes it; a process that is killed leaves it behind, so `recover` can name the command, the
+// packages and the stage it stopped in. The record is observational: it carries no ownership
+// evidence, never changes an exit code and is never used to restore anything.
 class RunRecord {
 public:
     RunRecord(const Context& context, std::string command, std::vector<std::string> packages);
@@ -67,6 +67,7 @@ public:
 private:
     void save();
     fs::path path_;
+    fs::path state_;
     fs::path root_;
     bool root_existed_ = true;
     std::string command_;
