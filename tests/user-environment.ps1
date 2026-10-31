@@ -145,7 +145,8 @@ try {
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
         if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
         if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the fresh-environment cmd did not exit within 120s"; return '' }
-        if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
+        # The observation itself is the success signal: on 5.1 a -UseNewEnvironment process can report no exit code.
+        if (-not (Test-Path -LiteralPath $probeOutput)) {
             # Some hosts (the CI runner is one) cannot create a cmd.exe with a fresh environment block;
             # it exits 255 before running anything. Retrying with the inherited environment still
             # exercises the registry writes this test is about, and the fallback is printed so nobody
@@ -154,7 +155,8 @@ try {
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
         if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
         if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the inherited-environment cmd did not exit within 120s"; return '' }
-            if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
+            # The observation itself is the success signal: on 5.1 a -UseNewEnvironment process can report no exit code.
+        if (-not (Test-Path -LiteralPath $probeOutput)) {
                 # cmd cannot run here at all. The registry-level assertions above still hold; the
                 # terminal observations are skipped and say so.
                 $script:terminalUnavailable = $true
