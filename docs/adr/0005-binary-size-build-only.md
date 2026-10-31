@@ -14,5 +14,5 @@
 ## Consequences
 
 - 本地构建比同源码的 CI 构建大约 72 KB（工具链差异），体积守卫必须在 CI 上取基线，不能拿本机数字写死。
-- 解压吞吐与运行时代价的测量要在 CI 上补齐：本机没有 `pwsh`，`CMakeLists.txt` 的 `find_program(PWsh REQUIRED)` 让带测试的 configure 无法完成，`ctest` 与解压基准都只能在 CI 收口。
+- 解压吞吐仍未有实测；完整 `ctest` 在本会话只到 64/79（项目内 PowerShell 7.6.9，15 个失败是 `HKCU\Environment` 写权限与 junction 目标解析的环境问题），Windows PowerShell 5.1 下只到 21/79（套件依赖 PS 7 语义）。因此体积改动的验收仍需在 CI 上收口。
 - 体积基线、归因与未测量项记录在[本地查询与刷新性能](../performance-support.md)的包体一节；改动本身由独立票 [#90](https://github.com/Coh1e/coop/issues/90) 实现。

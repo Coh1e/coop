@@ -161,7 +161,9 @@
 
 运行时代价（4 轮 × 每轮 10 次 `search --json git`、10 次 `list --json`、30 次 `--version`，真实根 `C:\Users\Neo\scoop`，1,704 个 Manifest）：基线 29.6 / 31.3 / 12.7 ms，仅 C++ `/O1` 为 30.5 / 31.3 / 12.9 ms，全量 `/O1` 为 29.7 / 31.2 / 13.0 ms。差异落在本页第 20 条记录的同机波动内，不宣称有可测的延迟代价。
 
-- 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节（守卫阈值只能取 CI 实测值）；完整 `ctest`——本机没有 `pwsh`，`CMakeLists.txt` 的 `find_program(PWsh REQUIRED)` 使带测试的 configure 直接失败，带测试的构建与全量测试只能在 CI 收口。
+- 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节（守卫阈值只能取 CI 实测值）。
+- 完整 `ctest`（本轮实测，同一棵树）：项目内的 PowerShell 7.6.9 下 79 个用例通过 64 个，15 个失败全部来自本会话环境——`coop: Cannot open HKCU\Environment (Windows error 5)` 与 `coop: Directory junction has a non-absolute target`，没有一个与体积有关；系统自带的 Windows PowerShell 5.1 下只通过 21 个，原因是套件依赖 PowerShell 7 语义：98 处 `$ErrorActionPreference = 'Stop'` 让 5.1 把原生命令的 stderr 变成终止错误（日志 23 处 `NativeCommandError`），脚本是无 BOM 的 UTF-8 而 5.1 按 ANSI 解析（`tests/path-batch.ps1` 直接报语法错误），另有 2 处 `ConvertFrom-Json -AsHashtable` 属 PS 6+ 参数。`CMakeLists.txt` 的 `find_program` 已改为接受 `pwsh` 或 `powershell`，configure 不再强制名字，但 5.1 下跑不完整套件。
+- 链接可复现性（本轮旁证）：同一构建目录连续两次重链接，`coop.exe` 都是 4,732,928 B，SHA256 却不同（`B6C74E6C…`→`3C23237D…`），所以体积守卫要按字节数判定，不能按哈希。
 - 静态检查（本轮）：`gh` 读到的 `v0.2.3` 产物构成、PE 各节大小（`.text` 3,598 KB、`.rdata` 785 KB、`.pdata` 126 KB、`.data` 36 KB、`.rsrc` 0.5 KB）与上述 map 归因一致。
 - 归档能力证据（本轮，只读抽样）：`git clone --depth 1` 取 Main `5630299…`（1,702 份 Manifest）、Extras `fa8327d…`（2,449）、Versions `726377c…`（630），按 Manifest 的 `url`/`architecture.*.url` 扩展名分类：`.zst` 7、`.bz2` 0、`.xz` 12、`.lzma` 8、`.rar` 7、`.cab` 9、`.iso` 0、`.lha` 0；计数与样例在 `.local/size-probe/survey-counts.json`。
 
