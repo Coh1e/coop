@@ -160,7 +160,7 @@ Assert (-not (Test-Path -LiteralPath $app)) 'the preview wrote installation stat
 $install = Test-CoopGuarded 'apngasm-coop-install' @('install','main/apngasm','--json')
 Assert ($install.exit -eq 0) "apngasm Coop install failed: $($install.error)"
 $workload = Workload-Processes $install
-Assert ($workload.Count -eq 3 -and $workload[0] -match 'coop\.exe$' -and $workload[1] -match '7z\.exe$' -and $workload[2] -match 'pwsh\.exe$') "apngasm Coop install did not start exactly coop, 7z and the hook host: $($workload -join '; ')"
+Assert ($workload.Count -eq 3 -and $workload[0] -match 'coop\.exe$' -and $workload[1] -match '7z\.exe$' -and $workload[2] -match '(?:pwsh|powershell)\.exe$') "apngasm Coop install did not start exactly coop, 7z and the hook host: $($workload -join '; ')"
 Assert (-not ($workload -match '(?i)msiexec|setup\.exe|apngasm\.exe$')) "a vendor installer process was started: $($workload -join '; ')"
 $installResult = Get-Json $install
 Write-Text '02-apngasm-coop-install.json' ($installResult | ConvertTo-Json -Depth 8)

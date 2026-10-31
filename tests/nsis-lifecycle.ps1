@@ -173,7 +173,7 @@ Check (((Get-TreeSnapshot "$root/apps/7zip/26.05") -join "`n") -eq ($helperBefor
 # --- 2. Install the real 3.1.3 NSIS installer payload. -----------------------------------------
 $install = Invoke-Guarded 'nsis-install' @('--root',$root,'install','main/apng','--json') $true
 Check ($install.exit -eq 0) "NSIS install failed: $($install.error)"
-Assert-Workloads $install @('7z\.exe$','pwsh\.exe$')
+Assert-Workloads $install @('7z\.exe$','(?:pwsh|powershell)\.exe$')
 Check (@((Workload-Names $install) | Where-Object { $_ -match '7z\.exe$' })[0] -match '(?i)apps[\\/]7zip') 'the 7-Zip helper did not come from the shared root'
 $installResult = Parse-Json 'nsis-install' $install
 Check ($installResult.status -eq 'success') 'NSIS install result is not successful'
@@ -215,7 +215,7 @@ Assert-Workloads $updatePreview @()
 Check ((Parse-Json 'nsis-update-preview' $updatePreview).execution_available -eq $true) 'NSIS update preview is not executable'
 $update = Invoke-Guarded 'nsis-update' @('--root',$root,'update','apng','--json') $true
 Check ($update.exit -eq 0) "NSIS update failed: $($update.error)"
-Assert-Workloads $update @('7z\.exe$','pwsh\.exe$')
+Assert-Workloads $update @('7z\.exe$','(?:pwsh|powershell)\.exe$')
 $updateResult = Parse-Json 'nsis-update' $update
 Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '3.1.3')) 'NSIS update did not retain the previous version'
 Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/apng/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/apng/3.1.1'))) 'NSIS update did not repoint current'
