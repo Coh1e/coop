@@ -144,7 +144,9 @@ try {
         ))
         [IO.File]::WriteAllText($probe,$script,[Text.ASCIIEncoding]::new())
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
-        $arguments = '/d /s /c ""'+$probe+'""'
+        # Run the probe by its file name from the session directory: passing the Unicode path through
+        # Start-Process/ cmd quoting is what broke on 5.1 ("The system cannot find the path specified").
+        $arguments = '/d /s /c "' + (Split-Path -Leaf $probe) + '"'
         $observed = $false
         if ($PSVersionTable.PSVersion.Major -ge 6) {
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
