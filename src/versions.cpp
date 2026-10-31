@@ -802,6 +802,68 @@ static int cache_cleanup(const Context& context, bool dry_run) {
     if (!dry_run) std::cout << "Everything is shiny now!\n";
     return 0;
 }
+// `cleanup --transactions` trims the evidence of finished writes. A pending transaction is never
+// touched (it is what `recover` needs), and the newest records are kept so a recent failure can still
+// be inspected: the default keeps ten. Coop-specific, because Scoop keeps no such record.
+int cleanup_transactions(const Context& context, bool dry_run) {
+    const auto directory = context.root/L".coop"/L"transactions";
+    std::error_code error;
+    if (!fs::is_directory(directory,error)) {
+        if (context.json_output) std::cout << Json{{"kept",0},{"removed",0},{"bytes",0}}.dump(2) << '\n';
+        else std::cout << "No transaction records to clean\n";
+        return 0;
+    }
+    struct Record { fs::path path; fs::file_time_type modified; std::uintmax_t bytes; };
+    std::vector<Record> finished;
+    std::size_t pending = 0;
+    for (const auto& entry : fs::directory_iterator(directory,error)) {
+        if (error || !entry.is_directory()) continue;
+        bool is_pending = false;
+        try {
+            const auto journal = entry.path()/L"journal.json";
+            if (fs::is_regular_file(journal,error))
+                is_pending = read_json(journal).value("state",std::string{}) == "pending";
+        } catch (const std::exception&) { /* An unreadable record is treated as finished evidence. */ }
+        if (is_pending) { ++pending; continue; }
+        std::uintmax_t bytes = 0;
+        for (const auto& file : fs::recursive_directory_iterator(entry.path(),fs::directory_options::skip_permission_denied,error)) {
+            if (error) break;
+            std::error_code size_error;
+            if (file.is_regular_file(size_error)) bytes += file.file_size(size_error);
+        }
+        finished.push_back({entry.path(),entry.last_write_time(error),bytes});
+    }
+    std::sort(finished.begin(),finished.end(),[](const Record& a,const Record& b) { return a.modified > b.modified; });
+    constexpr std::size_t keep = 10;
+    const auto kept = finished.size() < keep ? finished.size() : keep;
+    Json removed = Json::array();
+    std::uintmax_t freed = 0;
+    for (std::size_t index = keep; index < finished.size(); ++index) {
+        if (!dry_run) {
+            try { erase_tree(finished[index].path); }
+            catch (const std::exception& failure) {
+                std::cerr << "coop: cannot remove "<<path_text(finished[index].path)<<": "<<failure.what()<<'\n';
+                continue;
+            }
+        }
+        removed.push_back({{"path",path_text(finished[index].path)},{"bytes",finished[index].bytes}});
+        freed += finished[index].bytes;
+    }
+    if (context.json_output)
+        std::cout << Json{{"kept",kept},{"pending",pending},
+            {"removed",removed},{"bytes",freed},{"dry_run",dry_run}}.dump(2) << '\n';
+    else {
+        std::cout << "Kept "<<kept<<" transaction record(s)";
+        if (pending) std::cout << ", "<<pending<<" pending";
+        std::cout << '\n';
+        for (const auto& entry : removed)
+            std::cout << (dry_run ? "would remove " : "")<<path_text(fs::path(entry.at("path").get<std::string>()))<<'\n';
+        std::cout << (dry_run ? "Would remove " : "Removed ")<<removed.size()<<
+            " record(s), "<<human_bytes(static_cast<std::uint64_t>(freed))<<
+            (dry_run ? " would be freed\n" : " freed\n");
+    }
+    return 0;
+}
 int cleanup_command(const Context& context, const std::vector<std::wstring>& names, bool dry_run, bool cache) {
     if (cache) return cache_cleanup(context,dry_run);
     Json results = Json::array();

@@ -311,6 +311,8 @@ if(BUILD_TESTING)
   endforeach()
   add_test(NAME cleanup COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/cleanup.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup 中文 space")
+  add_test(NAME cleanup_transactions COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/cleanup-transactions.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cleanup-transactions 中文 space")
   add_test(NAME old_versions COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/old-versions.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/old-versions 中文 space")
   add_test(NAME update COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update.ps1"
@@ -372,6 +374,6 @@ if(BUILD_TESTING)
   set_property(TEST source_hygiene coverage_features coverage_gaps query plan ir_pipeline ir_reuse
     manifest_shape command_lines update_lines output_gaps progress_coverage suggest_notes ansi_colors
     reinstall_refusal cross_version sync_points perf_attribution publish_contracts publish_write_once
-    bucket cleanup dependencies path_batch
+    bucket cleanup cleanup_transactions dependencies path_batch
     PROPERTY LABELS fast)
 endif()

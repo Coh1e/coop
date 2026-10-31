@@ -68,7 +68,7 @@ int wmain(int argc, wchar_t** argv) {
                      "  update [package... | *] [--dry-run]\n"
                      "  uninstall <package>... [--purge] [--dry-run]\n"
                      "  reset <package>@<version> [--dry-run]\n"
-                     "  cleanup [package...] [--dry-run]\n"
+                     "  cleanup [package... | --cache | --transactions] [--dry-run]\n"
                      "  recover [package...] [--dry-run]\n";
         return 0;
     }

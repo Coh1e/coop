@@ -1109,6 +1109,7 @@ int package_command(const Context& context, const std::wstring& command, const s
     bool dry_run = false;
     bool purge = false;
     bool cache_cleanup = false;
+    bool transaction_cleanup = false;
     std::vector<std::wstring> names;
     for (const auto& arg : args) {
         if (arg == L"--dry-run") {
@@ -1127,6 +1128,11 @@ int package_command(const Context& context, const std::wstring& command, const s
         } else if (arg == L"-k" || arg == L"--cache") {
             if (command != L"cleanup") throw UsageError("-k/--cache is only supported by cleanup");
             cache_cleanup = true;
+        } else if (arg == L"--transactions") {
+            // Coop-specific: the evidence of finished writes is not Scoop state, so it is cleaned on
+            // request rather than automatically, and a pending transaction is never touched.
+            if (command != L"cleanup") throw UsageError("--transactions is only supported by cleanup");
+            transaction_cleanup = true;
         } else if (arg == L"-g" || arg == L"--global") {
             // A system-level write is a product boundary, not an unknown switch. Scoop users type `-g`
             // and must read the boundary instead of "unknown option".
@@ -1137,6 +1143,7 @@ int package_command(const Context& context, const std::wstring& command, const s
     }
     if (command == L"cleanup") {
         if (purge) throw UsageError("--purge is only supported by uninstall");
+        if (transaction_cleanup) return cleanup_transactions(context,dry_run);
         return cleanup_command(context,names,dry_run,cache_cleanup);
     }
     if (purge && command != L"uninstall") throw UsageError("--purge is only supported by uninstall");

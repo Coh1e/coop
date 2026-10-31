@@ -63,6 +63,17 @@ coop reset 7zip@26.03 --json
 - `current`：已发布当前版本；
 - `scope_summary`：删除、保留和已缺失的数量；
 - 每个版本仍保留完整证据字段（`status`、`reason`、`recorded`、`provenance` 等）。
+### 4.1 写入事务记录：`coop cleanup --transactions`
+
+事务记录是崩溃恢复与追查"这次更新做了什么"的证据（journal 与脚本输出），默认**不自动删除**：失败运行的证据必须留到人能看为止。`coop cleanup --transactions` 按请求裁剪：
+
+- 保留最近 **10** 条已结束的记录；更旧的删除并报告释放的字节；
+- **永不删除** `state` 为 `pending` 的记录——那是 `recover` 要用的；
+- `--dry-run` 只列出将删除的记录，不删除；
+- 根内没有记录时输出 `No transaction records to clean` 并返回 0；
+- `--json` 输出 `kept`、`pending`、`removed`（路径与字节）、`bytes` 和 `dry_run`。
+
+记录位置随状态目录一起迁移（见 ADR-0006）；在当前版本的布局里它是 `<安装根>/.coop/transactions`。
 
 实际执行先恢复中断的清理事务，再重新核对同样的证据，只移动并删除 `delete_scope` 中的目录。清理候选必须同时满足：
 
