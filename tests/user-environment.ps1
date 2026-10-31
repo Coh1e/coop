@@ -1,4 +1,7 @@
 param([Parameter(Mandatory)][string]$CoopExe,[Parameter(Mandatory)][string]$TestRoot)
+        # The observation file is the success signal. On 5.1 a -UseNewEnvironment process can report no
+        # exit code and creating one can block before Start-Process returns, so 5.1 goes straight to the
+        # inherited-environment launch and says so.
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'invoke-coop.ps1')
 Add-Type -AssemblyName System.IO.Compression | Out-Null
@@ -142,14 +145,19 @@ try {
         [IO.File]::WriteAllText($probe,$script,[Text.ASCIIEncoding]::new())
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
-        # The observation file is the success signal: on 5.1 a -UseNewEnvironment process can report no exit
-        # code at all, so the launch is judged by whether cmd wrote its output.
-        $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
-        if ($null -eq $process -or -not $process.WaitForExit(120000)) {
-            if ($process) { $process.Kill() }
+        $observed = $false
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
+            if ($null -ne $process) {
+                $exited = $process.WaitForExit(120000)
+                if (-not $exited) { $process.Kill() }
+                if ($exited -and (Test-Path -LiteralPath $probeOutput)) { $observed = $true }
+            }
+        }
+        if (-not $observed) {
             # Some hosts cannot create a cmd.exe with a fresh environment block; retrying with the inherited
             # environment still exercises the registry writes this test is about, and the fallback is printed.
-            Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment could not run; retrying with the inherited environment"
+            Write-Output "WARN new-terminal probe '$label': no fresh-environment cmd; retrying with the inherited environment"
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
             if ($null -eq $process -or -not $process.WaitForExit(120000)) {
                 if ($process) { $process.Kill() }

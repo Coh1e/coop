@@ -112,19 +112,39 @@ function Get-Snapshot([string]$name) {
         }
         if (Test-Path -LiteralPath $manifestPath) {
             $record = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-            $manifest = [ordered]@{ version = [string]$record.version; bin = [string]($record.bin | ConvertTo-Json -Compress -Depth 8) }
+            # 5.1's ConvertTo-Json renders a nested array inside an array as {"value":[...],"Count":N}.
+            # Serialising the shape by hand keeps both runners on the same text.
+            $manifest = [ordered]@{ version = [string]$record.version; bin = (ConvertTo-JsonShape $record.bin) }
         }
     }
     return [ordered]@{
         package = $name
         versions = @($version | Sort-Object)
-        current = $(if ($currentTarget) { $currentTarget.Substring($root.Length).TrimStart('\').Replace('\','/') } else { $null })
+        # Express the link target from the layout root rather than by trimming $root.Length: the two
+        # runners can return the junction target with a different prefix length.
+        current = $(if ($currentTarget) {
+            $linkText = ([string]$currentTarget).Replace('\','/')
+            $marker = $linkText.IndexOf('/apps/')
+            if ($marker -ge 0) { $linkText.Substring($marker + 1) } else { $linkText }
+        } else { $null })
         install_record = $install
         manifest_record = $manifest
         entries = @(Get-Entries "$apps/$($version[0])")
     } | ConvertTo-Json -Depth 8
 }
 
+function ConvertTo-JsonShape($value) {
+    if ($null -eq $value) { return 'null' }
+    if ($value -is [string]) { return (ConvertTo-Json -InputObject $value -Compress) }
+    if ($value -is [System.Collections.IEnumerable]) {
+        $items = @($value)
+        # A one-element array is what the pipeline form collapses to a bare value.
+        if ($items.Count -eq 1) { return (ConvertTo-JsonShape $items[0]) }
+        $parts = @(foreach ($item in $items) { ConvertTo-JsonShape $item })
+        return '[' + ($parts -join ',') + ']'
+    }
+    return (ConvertTo-Json -InputObject $value -Compress)
+}
 function Assert-Matches([string]$name,[string]$actual) {
     $file = Join-Path $baseline "$name.json"
     # The baseline encodes JSON content, not the bytes of the file it lives in, so both sides are
