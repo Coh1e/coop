@@ -162,15 +162,15 @@
 运行时代价（4 轮 × 每轮 10 次 `search --json git`、10 次 `list --json`、30 次 `--version`，真实根 `C:\Users\Neo\scoop`，1,704 个 Manifest）：基线 29.6 / 31.3 / 12.7 ms，仅 C++ `/O1` 为 30.5 / 31.3 / 12.9 ms，全量 `/O1` 为 29.7 / 31.2 / 13.0 ms。差异落在本页第 20 条记录的同机波动内，不宣称有可测的延迟代价。
 
 - 未运行：解压吞吐（选定方案把 zlib、liblzma、bzip2、zstd 全部留在 `/O2`，因此只影响 coop 自身的 C++ 路径，但仍没有实测）；CI 工具链上的绝对字节（守卫阈值只能取 CI 实测值）。
-- 完整 `ctest`（本轮实测，同一棵树）：项目内的 PowerShell 7.6.9 下 79 个用例通过 64 个，15 个失败全部来自本会话环境——`coop: Cannot open HKCU\Environment (Windows error 5)` 与 `coop: Directory junction has a non-absolute target`，没有一个与体积有关；系统自带的 Windows PowerShell 5.1 下只通过 21 个，原因是套件依赖 PowerShell 7 语义：98 处 `$ErrorActionPreference = 'Stop'` 让 5.1 把原生命令的 stderr 变成终止错误（日志 23 处 `NativeCommandError`），脚本是无 BOM 的 UTF-8 而 5.1 按 ANSI 解析（`tests/path-batch.ps1` 直接报语法错误），另有 2 处 `ConvertFrom-Json -AsHashtable` 属 PS 6+ 参数。`CMakeLists.txt` 的 `find_program` 已改为接受 `pwsh` 或 `powershell`，configure 不再强制名字，但 5.1 下跑不完整套件。
 - 链接可复现性（本轮旁证）：同一构建目录连续两次重链接，`coop.exe` 都是 4,732,928 B，SHA256 却不同（`B6C74E6C…`→`3C23237D…`），所以体积守卫要按字节数判定，不能按哈希。
 - 静态检查（本轮）：`gh` 读到的 `v0.2.3` 产物构成、PE 各节大小（`.text` 3,598 KB、`.rdata` 785 KB、`.pdata` 126 KB、`.data` 36 KB、`.rsrc` 0.5 KB）与上述 map 归因一致。
 - 归档能力证据（本轮，只读抽样）：`git clone --depth 1` 取 Main `5630299…`（1,702 份 Manifest）、Extras `fa8327d…`（2,449）、Versions `726377c…`（630），按 Manifest 的 `url`/`architecture.*.url` 扩展名分类：`.zst` 7、`.bz2` 0、`.xz` 12、`.lzma` 8、`.rar` 7、`.cab` 9、`.iso` 0、`.lha` 0；计数与样例在 `.local/size-probe/survey-counts.json`。
 
 ## 验证状态
 
+- 本轮运行（2026-10-31）：完整 CTest 在 Windows PowerShell 5.1 基线下 79/79 通过（CI run [41175777083](https://github.com/Coh1e/coop/actions/runs/41175777083)，提交 `a69934a`）。套件默认运行器为 `powershell.exe`；本机沙箱中的 HKCU/junction 限制不再作为通过依据。
 - 本轮运行（#44，被测构建 `d1f8029` = `f9c0fff9…`）：`tests/perf.ps1` 两次通过（含索引命中/失效回退/损坏回退/重建、无变化刷新不重建、变化刷新原地更新共用工作树、查询不修改 bucket 源或注册表），报告 `.local/pi/tasks/44/evidence/perf-report-measured-d1f8029.json` 与 `perf-report-measured2-d1f8029.json`。
 - 本轮运行（#44）：`tests/perf-real.ps1` 通过，真实根查询前后注册表/索引/revision/工作树未变；真实根刷新在本轮先是 `changed`（真实 HTTPS，`3f71320…`→`dcb231e7…`，9 个文件/6,128 字节），随后全部为 `unchanged` 且零对象传输（真实根现为 `dcb231e7…`、`git status` 为空、registry 与索引同步，见 `real-root-after-change.log`）；真实规模副本的有变化刷新每轮断言刷新后工作树内无关 Manifest 的 SHA256 不变（并核对上游副本未被写入）、查询索引重建、新 Manifest 可由 `info` 查到。报告 `.local/pi/tasks/44/evidence/perf-real-head-29c5ea7/perf-real-report.json`（7 轮断言）与 `.local/pi/tasks/44/evidence/perf-real-probe3/perf-real-report.json`（真实 HTTPS `changed` 样本）。
-- 本轮运行（#44）：完整 CTest 45/45 通过（`.local/pi/tasks/44/evidence/ctest-full-d1f8029.log`，216.65s），含 `query`、`plan`、`ir_pipeline`、`cleanup`、`old_versions`、`recovery`、`recovery_matrix`、`lifecycle`、`update`、`versions_bucket` 等受影响路径；针对性套件 9/9 见 `ctest-targeted-2.log`。最终 head `b034f18` 在此代码上再次完整运行 45/45（`ctest-full-b034f18.log`，220.74s，构建为 no-op，二进制仍为 `f9c0fff9…`）。
+- 历史结果（#44，当时套件 45 个用例）：完整 CTest 45/45 通过（`.local/pi/tasks/44/evidence/ctest-full-d1f8029.log`，216.65s），含 `query`、`plan`、`ir_pipeline`、`cleanup`、`old_versions`、`recovery`、`recovery_matrix`、`lifecycle`、`update`、`versions_bucket` 等受影响路径；针对性套件 9/9 见 `ctest-targeted-2.log`。最终 head `b034f18` 在此代码上再次完整运行 45/45（`ctest-full-b034f18.log`，220.74s，构建为 no-op，二进制仍为 `f9c0fff9…`）。
 - 静态：Release 构建通过（MSVC `/W4 /WX`）；`catalog()` 及其头文件声明在 `d1f8029` 中删除，查询路径只保留有调用者的 `catalog_item`/`sort_catalog` 辅助。命令与退出码见任务证据。
 - 未运行：管理员清理 Windows 待机列表后的系统级冷缓存；其它机器/规模上的外推。扫描路径（未注册 bucket）在 1500/3000 规模仍超标，尚未优化；真实根 `list` 仍因累计事务历史超标。真实 HTTPS 有变化刷新已本轮实测（见上），固定 revision 刷新与上游前进两种场景分别标注。
