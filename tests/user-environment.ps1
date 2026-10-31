@@ -142,31 +142,22 @@ try {
         [IO.File]::WriteAllText($probe,$script,[Text.ASCIIEncoding]::new())
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
+        # The observation file is the success signal: on 5.1 a -UseNewEnvironment process can report no exit
+        # code at all, so the launch is judged by whether cmd wrote its output.
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
-        if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
-        if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the fresh-environment cmd did not exit within 120s"; return '' }
-        # The observation itself is the success signal: on 5.1 a -UseNewEnvironment process can report no exit code.
-        if (-not (Test-Path -LiteralPath $probeOutput)) {
-            # Some hosts (the CI runner is one) cannot create a cmd.exe with a fresh environment block;
-            # it exits 255 before running anything. Retrying with the inherited environment still
-            # exercises the registry writes this test is about, and the fallback is printed so nobody
-            # mistakes it for a fresh-terminal observation.
-            Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment exited $($process.ExitCode); retrying with the inherited environment"
+        if ($null -eq $process -or -not $process.WaitForExit(120000)) {
+            if ($process) { $process.Kill() }
+            # Some hosts cannot create a cmd.exe with a fresh environment block; retrying with the inherited
+            # environment still exercises the registry writes this test is about, and the fallback is printed.
+            Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment could not run; retrying with the inherited environment"
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
-        if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
-        if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the inherited-environment cmd did not exit within 120s"; return '' }
-            # The observation itself is the success signal: on 5.1 a -UseNewEnvironment process can report no exit code.
-        if (-not (Test-Path -LiteralPath $probeOutput)) {
-                # cmd cannot run here at all. The registry-level assertions above still hold; the
-                # terminal observations are skipped and say so.
+            if ($null -eq $process -or -not $process.WaitForExit(120000)) {
+                if ($process) { $process.Kill() }
+                # cmd cannot run here at all; the registry-level assertions above still hold.
                 $script:terminalUnavailable = $true
-                Write-Output "skipped new-terminal observation ($label): cmd exited $($process.ExitCode) before writing anything"
+                Write-Output "skipped new-terminal observation ($label): cmd did not finish"
                 return ''
             }
-        }
-        if ($null -eq $process -or $process.ExitCode -ne 0) {
-            $observed = if (Test-Path -LiteralPath $probeOutput) { Get-Content -LiteralPath $probeOutput -Raw } else { '<no output file>' }
-            throw "new-terminal probe for $label exited $($process.ExitCode); comspec=$env:ComSpec output=$observed"
         }
         if (-not (Test-Path -LiteralPath $probeOutput)) { throw "new-terminal probe for $label wrote no observation" }
         return (Get-Content -LiteralPath $probeOutput -Raw)

@@ -97,7 +97,12 @@ function Assert-Workloads($result,[string[]]$allowed = @()) {
     Check ($result.error -match ("Observed workload processes: "+$names.Count)) "the guard did not observe the expected process count: $($result.error)"
 }
 function Parse-Json([string]$label,$result) {
-    try { return $result.output | ConvertFrom-Json } catch { throw "$label did not print JSON: $($result.output)" }
+    try {
+        # 5.1 hands a JSON array back as one object; expand it so callers can filter and index it.
+        $value = $result.output | ConvertFrom-Json
+        if ($value -is [System.Collections.IEnumerable] -and $value -isnot [string]) { $value | ForEach-Object { $_ }; return }
+        return $value
+    } catch { throw "$label did not print JSON: $($result.output)" }
 }
 function Last-Journal([string]$package) {
     $journals = @(Get-ChildItem "$root/.coop/transactions" -Recurse -Filter journal.json -ErrorAction SilentlyContinue |
