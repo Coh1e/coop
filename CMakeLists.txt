@@ -194,9 +194,10 @@ if(BUILD_TESTING)
   foreach(option IN ITEMS version help)
     add_test(NAME cli_no_children_${option} COMMAND process_guard "$<TARGET_FILE:coop>" "--${option}")
   endforeach()
-  # Either PowerShell runs the suite: pwsh is preferred, and Windows PowerShell 5.1 (which ships with
-  # Windows) is a valid fallback so a fresh machine needs no extra runtime to configure and test.
-  find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+  # Windows PowerShell 5.1 ships with every supported Windows, so it is the default test runner and a
+  # fresh machine needs no extra runtime; pwsh stays as the fallback for machines that only have that.
+  # The suite is kept green on both (see docs: tests run under either).
+  find_program(POWERSHELL_EXECUTABLE NAMES powershell pwsh REQUIRED)
   add_test(NAME source_hygiene COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/scripts/check-source-hygiene.ps1"
     -Root "${PROJECT_SOURCE_DIR}")
   add_test(NAME coverage_features COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/coverage-features.ps1")
