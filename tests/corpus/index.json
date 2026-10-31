@@ -12,7 +12,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/jq.json",
       "sha256": "d8bcd9e6a4c3e71bb9494de3f45941978476e00feda8b34800ef955940b438d8",
-      "reason": "无脚本单 EXE，三架构，URL fragment 重命名；首条原生生命周期候选",
+      "reason": "三架构单 EXE（#/jq.exe 改名），bin=jq.exe，无安装 Hook",
       "features": [
         "architecture",
         "bin",
@@ -30,7 +30,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/ripgrep.json",
       "sha256": "fe578aef2cfcb6eab48ba76703f400865a8212159ed753b197851381f6f697df",
-      "reason": "ZIP、extract_dir、普通命令入口",
+      "reason": "三架构 ZIP + extract_dir，bin=rg.exe；ZIP 安装/更新/卸载样本",
       "features": [
         "architecture",
         "bin",
@@ -49,7 +49,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/neovim.json",
       "sha256": "0ecc41bfddfcb1fb0b1dafd6b01461353123b773c113471522aa6b2fbd3f3440",
-      "reason": "ZIP 解压目录与普通入口，devkit 实际工具",
+      "reason": "64bit/arm64 ZIP + 架构专属 extract_dir，bin 为 bin\\nvim.exe 与 bin\\xxd.exe",
       "features": [
         "architecture",
         "bin",
@@ -68,7 +68,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/cmake.json",
       "sha256": "44b801fc979c08ffc350bd403787afdc48a142f2d6a55c3ef5bb63ab5739f5a3",
-      "reason": "解压目录、多个命令与快捷方式",
+      "reason": "三架构 ZIP + extract_dir，5 个 bin 与 cmake-gui 快捷方式",
       "features": [
         "architecture",
         "bin",
@@ -88,7 +88,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/git.json",
       "sha256": "25abb8dbb1b7fe96ab61721a74a2b786a9151d4d2b65fd314db76a08bc260852",
-      "reason": "7z 自解压产物，环境、命令、快捷方式、安装卸载脚本",
+      "reason": "PortableGit 7z 自解压（#/dl.7z），bin 覆盖 sh/git/gitk/scalar/gpg，env_set GIT_INSTALL_ROOT，三个快捷方式与安装/卸载脚本",
       "features": [
         "any_install_script",
         "architecture",
@@ -113,7 +113,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/7zip.json",
       "sha256": "a500afa37c46fa04571566dacca691661fdfa5b1be777ef1f96e3eaf6b8c364f",
-      "reason": "MSI/EXE 架构差异、脚本、persist、快捷方式及卸载脚本",
+      "reason": "64/32bit MSI 与 arm64 EXE 的架构差异；extract_dir=Files\\7-Zip，persist Codecs/Formats，两个快捷方式、post_install 注册表与 uninstaller.script",
       "features": [
         "any_install_script",
         "architecture",
@@ -140,7 +140,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/python.json",
       "sha256": "2af8e18fb4a9aeeb454fb181f6413d7d69f93606b4b743a3485f69d710530a40",
-      "reason": "installer.script 与卸载脚本、环境路径、持久化",
+      "reason": "EXE 经 #/setup.exe 下载，installer.script 展开 Dark/MSI；env_add_path Scripts 与 .，persist Scripts/Lib\\site-packages，pre/post_install 与卸载脚本",
       "features": [
         "any_install_script",
         "architecture",
@@ -166,7 +166,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/nodejs.json",
       "sha256": "83987bdd77d65ad50bb6c76480f13b21512c5a722ec2c4b50aec9337b8f8afdc",
-      "reason": "7z 产物、persist、env_add_path、post_install",
+      "reason": "7z + extract_dir，env_add_path bin 与 .，persist bin/cache，post_install 写 npm prefix/cache",
       "features": [
         "any_install_script",
         "architecture",
@@ -187,7 +187,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/wget.json",
       "sha256": "d051177255ace7f0108dc187efabd2c01f3ed9571d588e986666d743b6800613",
-      "reason": "显式依赖和 post_install",
+      "reason": "64/32bit ZIP，depends=cacert，post_install 用 cacert 当前路径写 wget.ini",
       "features": [
         "any_install_script",
         "architecture",
@@ -207,7 +207,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/rclone.json",
       "sha256": "c3575df04ab254b2669ad40efa457aef7ef38fb58a1dedfe2898198d49ba84b3",
-      "reason": "配置持久化、pre_install、uninstaller.script",
+      "reason": "三架构 ZIP + extract_dir，persist rclone.conf，pre_install 初始化配置，uninstaller.script 回拷配置",
       "features": [
         "any_install_script",
         "architecture",
@@ -230,7 +230,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/android-clt.json",
       "sha256": "b99caae57d8acfde926476d0b16a94a05137913ed7f0c171992fef0f49ba0caf",
-      "reason": "extract_to 映射、环境和复杂持久化",
+      "reason": "单 ZIP + extract_to=cmdline-tools，env_add_path 两条，env_set ANDROID_HOME，persist 11 个目录，pre/post_install 与 pre_uninstall 维护 latest",
       "features": [
         "any_install_script",
         "env_add_path",
@@ -253,7 +253,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/azure-cli.json",
       "sha256": "6205e4ea361b7fe95187b8df33c12e702fc182307e172069901f6b34571b08f3",
-      "reason": "ZIP、环境及 pre/post_uninstall",
+      "reason": "64bit ZIP，bin=bin\\az.cmd，env_set AZURE_CLI_PATH 与 AzureCLIPath，pre/post_uninstall 处理 --purge",
       "features": [
         "any_install_script",
         "architecture",
@@ -274,7 +274,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/notepadplusplus.json",
       "sha256": "02e3808a534674832f141c46b3f1f306c070023cd39fcd718aee469e5f6ec997",
-      "reason": "复杂 pre/post_install、uninstaller、persist、快捷方式",
+      "reason": "三架构 ZIP，persist 11 个文件/目录，pre_install 清错误目录、post_install 导入上下文注册表，uninstaller.script 与快捷方式",
       "features": [
         "any_install_script",
         "architecture",
@@ -298,7 +298,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/vscode.json",
       "sha256": "d11f5239f0694ac23558dda4b129a97d33e269e03477e065f244cfc4a43376de",
-      "reason": "本地命名 dl.7z、配置持久化、PATH、快捷方式与卸载脚本",
+      "reason": "64bit/arm64 的 #/dl.7z，env_add_path bin，persist data，post_install 写注册表，uninstaller.script 清三类注册表，快捷方式",
       "features": [
         "any_install_script",
         "architecture",
@@ -321,7 +321,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/everything.json",
       "sha256": "8969ca12ceca2b66247b73a5c55f98df6e4cc6b8349b5e6ff0c84ec2a51e53be",
-      "reason": "GUI、命令入口、快捷方式及 pre_uninstall",
+      "reason": "三架构 ZIP，bin=Everything.exe，pre_install 处理 arm64 改名与 persist ini，post_install 导入上下文注册表，pre_uninstall 停进程/服务，快捷方式",
       "features": [
         "any_install_script",
         "architecture",
@@ -343,7 +343,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/firefox.json",
       "sha256": "9427aec1cd8ef686696d463620fd2783d3727230da0fbe5b148580a4723e3541",
-      "reason": "不同架构、extract_dir、persist、post_install",
+      "reason": "三架构 Setup EXE 改名 dl.7z，extract_dir=core，persist distribution/profile，post_install 建 profile，两个快捷方式",
       "features": [
         "any_install_script",
         "architecture",
@@ -365,7 +365,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/air.json",
       "sha256": "9de9759e8cd8ca6138d497dae8cb92b8d564f57b90d9b9de5b7d2d58d30b63e7",
-      "reason": "tar.gz、三架构、无安装 Hook 的命令行工具",
+      "reason": "三架构 tar.gz，单 bin air.exe，无安装 Hook；tar.gz 生命周期样本",
       "features": [
         "architecture",
         "bin",
@@ -383,7 +383,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/adventuregamestudio.json",
       "sha256": "d32a2b2f8cd481f6e50655c798d4538f1c66ba5fda45b78690fea453bc301966",
-      "reason": "InnoSetup 声明及特殊安装器提取",
+      "reason": "InnoSetup 声明，单 EXE 产物，两个快捷方式；由 innounp helper 提取",
       "features": [
         "innosetup",
         "local_format.exe",
@@ -401,7 +401,7 @@
       "revision": "8b42c8c3140ca34ed718704189d97e1da7b3c315",
       "source": "https://github.com/ScoopInstaller/Extras/blob/8b42c8c3140ca34ed718704189d97e1da7b3c315/bucket/aider-desk.json",
       "sha256": "ad7a44ad982893d5f4df2d77b665140da85203bfdd2dd1ed8356c5712fef48e4",
-      "reason": "架构专属 pre_install、嵌套 7z/NSIS 提取与 post_uninstall",
+      "reason": "64bit NSIS 自解压 setup 改名 dl.7z，pre_install 再解嵌套 $PLUGINSDIR\\app-64.7z，env_set AIDER_DESK_DATA_DIR，post_uninstall 清 %APPDATA%\\aider-desk，快捷方式",
       "features": [
         "any_install_script",
         "architecture",
@@ -422,7 +422,7 @@
       "revision": "9f7439bdb2a361f4ee6eb19a51c62136a3823ca7",
       "source": "https://github.com/ScoopInstaller/Main/blob/9f7439bdb2a361f4ee6eb19a51c62136a3823ca7/bucket/oh-my-posh.json",
       "sha256": "c3ae0f54f501afdf133e586a7fc4e93c6e94b9cceb5f8ad980a41d5d369329f3",
-      "reason": "ZIP+EXE 多下载项、extract_to 与环境变量",
+      "reason": "64bit/arm64 各有 themes.zip + EXE 两个下载项，EXE 改名 oh-my-posh.exe，extract_to=themes，env_set POSH_THEMES_PATH，bin=oh-my-posh.exe",
       "features": [
         "architecture",
         "bin",
