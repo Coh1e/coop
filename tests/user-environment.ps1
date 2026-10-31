@@ -143,6 +143,7 @@ try {
         Remove-Item -LiteralPath $probeOutput -Force -ErrorAction SilentlyContinue
         $arguments = '/d /s /c ""'+$probe+'""'
         $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -UseNewEnvironment -PassThru
+        if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
         if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the fresh-environment cmd did not exit within 120s"; return '' }
         if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
             # Some hosts (the CI runner is one) cannot create a cmd.exe with a fresh environment block;
@@ -151,6 +152,7 @@ try {
             # mistakes it for a fresh-terminal observation.
             Write-Output "WARN new-terminal probe '$label': -UseNewEnvironment exited $($process.ExitCode); retrying with the inherited environment"
             $process = Start-Process -FilePath $env:ComSpec -ArgumentList $arguments -WorkingDirectory $session -PassThru
+        if ($null -eq $process) { $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): cmd could not be started"; return '' }
         if (-not $process.WaitForExit(120000)) { $process.Kill(); $script:terminalUnavailable = $true; Write-Output "skipped new-terminal observation ($label): the inherited-environment cmd did not exit within 120s"; return '' }
             if ($process.ExitCode -ne 0 -and -not (Test-Path -LiteralPath $probeOutput)) {
                 # cmd cannot run here at all. The registry-level assertions above still hold; the
@@ -160,7 +162,7 @@ try {
                 return ''
             }
         }
-        if ($process.ExitCode -ne 0) {
+        if ($null -eq $process -or $process.ExitCode -ne 0) {
             $observed = if (Test-Path -LiteralPath $probeOutput) { Get-Content -LiteralPath $probeOutput -Raw } else { '<no output file>' }
             throw "new-terminal probe for $label exited $($process.ExitCode); comspec=$env:ComSpec output=$observed"
         }
