@@ -157,7 +157,11 @@ configure_file("${PROJECT_SOURCE_DIR}/.local/deps/sources/bzip2-1.0.8/LICENSE"
 target_compile_features(coop PRIVATE cxx_std_23)
 target_compile_definitions(coop PRIVATE UNICODE _UNICODE LIBARCHIVE_STATIC COOP_VERSION="${PROJECT_VERSION}")
 if(MSVC)
-  target_compile_options(coop PRIVATE /W4 /WX /utf-8 /permissive-)
+  # Release builds of coop's own translation units use /O1 for size. The C dependencies (zlib,
+  # liblzma, bzip2, zstd, libarchive, libgit2) keep /O2 so decompression throughput stays where it
+  # is; see docs/adr/0005-binary-size-build-only.md. MSVC reports D9025 for the later switch, and
+  # applies /O1 last, which is the intended result.
+  target_compile_options(coop PRIVATE /W4 /WX /utf-8 /permissive- $<$<CONFIG:Release>:/O1>)
   set_property(TARGET coop PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 include(CTest)
