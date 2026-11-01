@@ -12,7 +12,7 @@
 | zstd | 1.5.7 | zstd 压缩流（`.tar.zst`/`.tzst`） | BSD-3-Clause |
 | bzip2 | 1.0.8 | bzip2 压缩流（`.tar.bz2`/`.tbz`/`.tbz2`） | bzip2 license |
 
-全部依赖以源码固定版本由 `scripts/fetch-deps.ps1` 下载并校验 SHA256，静态链接进 `coop.exe`；构建、许可文本和测试资产只写入项目内 `.local`。普通归档路径不启动 PowerShell、7z.exe、tar.exe、bzip2.exe 或其他外部解压程序。`tests/archive-lifecycle.ps1` 用 `process_guard` 观察真实 tar.zst 与 7z SFX 安装，工作负载只有 `coop.exe`。
+全部依赖以源码固定版本由 `scripts/fetch-deps.ps1` 下载并校验 SHA256，静态链接进 `coop.exe`；构建、许可文本和测试资产只写入项目内 `.local`。ZIP、tar 与普通 7z 由静态链接的读取器解开，不启动 PowerShell、7z.exe、tar.exe、bzip2.exe 或其他外部解压程序；内容识别为 7z 自解压（SFX）的载荷是唯一例外，它交给 root 内已安装的 7-Zip helper，未安装 helper 时回退原生读取，见下文「7z 自解压（SFX）与 LZMA 边界」。`tests/archive-lifecycle.ps1` 用 `process_guard` 观察没有 helper 时的 tar.zst 与 7z SFX 安装，工作负载只有 `coop.exe`；`tests/seven-zip-sfx.ps1` 让 helper 路由与无 helper 回退都实际运行。
 
 ## 覆盖矩阵
 
@@ -23,13 +23,21 @@
 | tar.xz / txz | 已运行 | 已验证 | Main/curl 8.23.0_5 的官方 release tar.xz；`extract_dir` 版本目录、真实 `curl --version`、Scoop reset；项目内 tar.xz 更新用例 |
 | tar.zst / tzst | 已运行 | 已验证 | Main/luajit 2.1.1791988261-1 的 Arch/MSYS2 `.pkg.tar.zst`；嵌套 `extract_dir=mingw64`、真实 `luajit -v`、Scoop reset；坏 tar.zst 更新保留当前版本 |
 | tar.bz2 / tbz / tbz2 / tar.lzma / tlz | 已运行 | 路径已验证 | 项目内真实压缩流夹具：嵌套同名目录、`extract_dir` 提升内容、程序运行与卸载；没有挑选 Main/Extras 中同时满足本票边界的真实包，因此不写成真实生态样本 |
-| 7z | 已运行 | 已验证 | Main/fastfetch 2.68.1 → 2.70.0 的官方 7z；真实 `fastfetch --version`、更新保留旧版本、Scoop reset；Main/unzip 6.00 的真实 `#/dl.7z` 自解压下载改名为 7z 后安装、运行、Scoop reset 与卸载 |
+| 7z | 已运行 | 已验证 | Main/fastfetch 2.68.1 → 2.70.0 的官方 7z；真实 `fastfetch --version`、更新保留旧版本、Scoop reset；Main/unzip 6.00 的真实 `#/dl.7z` 自解压下载改名为 7z 后安装、运行、Scoop reset 与卸载。7z SFX 的内容识别、helper 路由、`LZMA:lc8` 边界与无 helper 回退见下文与 `tests/seven-zip-sfx.ps1` |
 | MSI | 已运行 | 已验证 | 只读 Windows Installer 数据库（`msi.dll`）+ Windows cabinet 解压 API（`cabinet.dll`）生成与 Scoop `Expand-MsiArchive` 相同的管理镜像；真实 7-Zip 26.05 → 26.03 安装/更新/卸载与损坏失败见 `tests/msi-lifecycle.ps1`，真实共用根 kalker/pkgconf 双向交替见 `tests/real-scoop-msi.ps1`；不启动 `msiexec`、不提权、不重启、不写机器缓存 |
 | Inno Setup（`innosetup`） | 已运行 | 已验证 | 通过 root 内已安装的 innounp helper（不内嵌、不下载）按 Scoop `Expand-InnoArchive` 的参数与 `-c` 选择提取声明的 Inno 目录；真实 Units 2.27 → 2.26 安装/更新/卸载、项目内变体的相对 `extract_dir` 与真实 rizin `{app}\bin`、helper 缺失与截断失败见 `tests/inno-lifecycle.ps1`，真实共用根 Main/units 双向交替与逐文件镜像一致见 `tests/real-scoop-inno.ps1`；不启动厂商安装器、不提权、不重启 |
 | NSIS 安装器载荷 | 已运行 | 已验证 | 声明为归档产物的 NSIS 自解压器在摘要校验后按 FirstHeader 签名识别，再由 root 内已安装的 7-Zip helper 按 Scoop `Expand-7zipArchive` 参数解包（不内嵌、不下载、不执行 `setup.exe`）；真实 apngasm 3.1.3 → 3.1.1 安装/更新/卸载、elm 0.19.3 的 `-ir!bin\*` 选择、截断失败与缺失 helper 见 `tests/nsis-lifecycle.ps1`，真实共用根 Main/apngasm 双向交替与逐文件镜像一致见 `tests/real-scoop-nsis.ps1` |
 | WiX/Dark 等其他特殊安装器 | 未启用 | 未启用 | 由 Manifest 诊断或安装器能力拒绝；普通压缩库能力不冒充安装器提取，Inno Setup 与 NSIS 的成功也不外推到这些格式 |
 
-`ir::ArchiveFormat` 的 ZIP、tar 系列、7z、MSI、Inno Setup 与 NSIS 载荷路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper，NSIS 安装器载荷使用单独安装的 7-Zip helper（#35，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#nsis-安装器载荷提取35)），三者都不与普通归档共用解压实现。普通 7z/ZIP/tar 载荷不会因为 NSIS 支持而变成需要 7-Zip：只有摘要校验后内容命中 NSIS 签名时才使用 helper。共享归档安装的更新/卸载与直接文件包使用同一 IR → Plan 路径；R22 已移除只接受直接单文件布局的旧 `adopt` 命令。
+`ir::ArchiveFormat` 的 ZIP、tar 系列、7z、MSI、Inno Setup 与 NSIS 载荷路径都进入真实 CLI 生命周期；MSI 使用独立的只读镜像提取后端（见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#msi-管理镜像提取33)），Inno Setup 使用单独安装的 innounp helper，NSIS 安装器载荷使用单独安装的 7-Zip helper（#35，见 [Installer/Uninstaller 与特殊安装机制](installer-support.md#nsis-安装器载荷提取35)），三者都不与普通归档共用解压实现。普通 7z/ZIP/tar 载荷不会因为 NSIS 支持而变成需要 7-Zip：只有摘要校验后内容命中 NSIS 签名时才使用 helper。7z SFX 是另一类内容命中：`MZ` 头之后的 7z 签名让它走同一个 helper，普通 7z 不受影响。共享归档安装的更新/卸载与直接文件包使用同一 IR → Plan 路径；R22 已移除只接受直接单文件布局的旧 `adopt` 命令。
+
+### 7z 自解压（SFX）与 LZMA 边界
+
+1. **内容识别**：下载产物以 `MZ` 开头，且后续字节出现 7z 签名 `37 7A BC AF 27 1C`，就按 7z SFX 处理。声明的后缀与 `#/` 改名都不参与判定（例如 Main/unzip 的 `#/dl.7z`）。
+2. **helper 路由**：交给 root 内 `apps/7zip/current/7z.exe`；只有该路径不存在时才看可选的 `--global-root`。参数为 `x <产物> -o<目标> -y`，声明 `extract_dir` 时追加 `-ir!<extract_dir>\*`，与 Scoop 0.6.0 的 `Expand-7zipArchive` 一致。helper 只读取归档，下载的 PE stub 不会执行；journal 记录 helper 路径、SHA256、参数、签名偏移、退出码与解出的文件数/字节数。
+3. **格式边界**：liblzma 的 LZMA 解码器要求 `lc + lp <= 4`，7-Zip 允许 `lc` 到 8。git-for-windows 的 PortableGit SFX 多数条目是 `LZMA:28:lc8`，libarchive 因此报 `Lzma library error: Invalid options`；`Delta LZMA BCJ2` 一类复合过滤链也会被原生读取器拒绝。这些流 7-Zip 能正常解开，所以必须走 helper。
+4. **无 helper 时**：回退原生读取。能读的 SFX（例如 Main/unzip 的 `unz600xn.exe`）继续安装；读不了的流失败并保留原生错误（如上面的 `Invalid options`），不静默成功，也不下载、安装或内嵌 helper。
+5. **预览**：预览阶段尚未下载产物，因此不承诺某个 7z 载荷一定需要 helper；执行阶段在摘要校验后按内容决定，这与 NSIS 载荷相同。
 
 ## 目录布局语义
 
@@ -48,7 +56,7 @@
 
 1. 计划先显示 `download`、`verify`、`extract`、发布入口等操作；`detail` 与 `artifacts[].algorithm` 保留来源、实际文件名、`#/` 改名和声明算法。预览不下载、不写安装状态。
 2. 下载到事务目录，按 Manifest 声明的 SHA256/SHA512/SHA1/MD5 校验；全部产物校验通过并重查计划后才解压。多下载项、`#/` 改名和架构覆盖见[多产物、架构与摘要算法支持](multi-artifact-support.md)。
-3. 归档条目只允许普通文件和目录。绝对路径、`..`、盘符、保留名、尾部空格/点、链接条目、设备/FIFO 等特殊类型会被拒绝；已存在的 reparse point 不会被跟随。7z 自解压文件按 7z 容器读取，不执行下载的 PE stub。
+3. 归档条目只允许普通文件和目录。绝对路径、`..`、盘符、保留名、尾部空格/点、链接条目、设备/FIFO 等特殊类型会被拒绝；已存在的 reparse point 不会被跟随。7z 自解压文件按内容识别为 7z 容器：有 helper 时由 helper 读取，否则回退原生读取；两种路径都不执行下载的 PE stub。
 4. 解压、布局提升和入口目标检查都在事务 staging 内完成；失败时当前 `current`、入口和管理记录保持原样。提交后删除临时下载；失败事务保留 pending/rolled-back 日志。
 5. 更新成功后旧版本目录保留；普通卸载不会删除旧版本目录；`coop cleanup` 在版本记录、摘要和恢复前提均可核对时显式清理非当前旧版本。无脚本包的 `persist` 目录/文件映射另按[持久化数据支持](persistence-support.md)处理；归档内部链接条目仍被拒绝。
 6. 条目数量和展开大小有上限；Unicode 条目路径经 UTF-8/宽字符转换后写入项目内测试根。
@@ -94,7 +102,8 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 
 ## 测试
 
-- `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 与 7z SFX 安装由 `process_guard` 观察，不能启动外部解压器。
+- `tests/archive-lifecycle.ps1`（CTest `archive_lifecycle`）：真实 ZIP/tar.gz/tar.xz/tar.zst、嵌套 ZIP、7z SFX、bzip2/lzma、Unicode、多产物 `extract_to`、坏 tar.zst 更新保护；tar.zst 安装由 `process_guard` 观察，不能启动外部解压器；没有 helper 时 Main/unzip 的 7z SFX 仍走原生读取。
+- `tests/seven-zip-sfx.ps1`（CTest `seven_zip_sfx`）：用 root 内 7-Zip 生成 `LZMA:lc8` 的 7z SFX（与 PortableGit 同类边界，liblzma 报 `Invalid options`），断言 helper 解包成功且 journal 记录 helper、签名偏移与退出码；同一 SFX 在没有 helper 的 root 上必须回退原生读取并失败，不能发布任何状态。
 - `tests/archive-safety.ps1`（CTest `archive_safety`）：坏归档、缺失入口、路径穿越、链接/硬链接、损坏 MSI 在数据库阶段失败、中断更新和当前版本保护。
 - `tests/publish-baseline.ps1`（CTest `publish_baseline`）：八份安装夹具（ZIP 带 `extract_dir`、tar.xz、tar.zst、tar.gz、MSI、Inno Setup、NSIS 载荷、7-Zip helper）与两份失败夹具的逐文件快照——路径、摘要、链接类型、`current` 目标，以及两份安装记录的可比对字段（bucket、architecture、version、bin），提交在 `tests/baseline/publish`；`-Update` 重生成，默认模式比对。两条记录本身按**存在**记录、不做逐字节比对：Coop 会把读到的 Manifest 原样写回，而它携带夹具的绝对 `file://` URL，逐字节哈希会随检出路径变化。
 - `tests/publish-contracts.ps1`（CTest `publish_contracts`）：空的 `extract_dir` 选择必须失败并命名目录（声明的与只含目录条目的两种、含未声明 `bin` 的包）、同目标条目碰撞必须失败并给出路径、多产物包第二个产物失败不破坏第一个已发布内容，且不删除前一个产物发布过的空目录。
@@ -110,6 +119,7 @@ Manifest 版本、URL、hash 与 `extract_dir` 取自真实 Main 修订与本机
 ## 未完成与边界
 
 - 本文件只证明这些真实样本与机制路径，不构成 Main/Extras 完整分母、安装器、真实脚本、用户环境或全部入口类型的完成证明。
+- 7z SFX 的可读性取决于 liblzma 接受的 LZMA 属性与过滤器链：`LZMA:lc8`、`Delta LZMA BCJ2` 等超出原生读取范围，需要 root 内已安装的 7-Zip helper；helper 缺失时这类载荷失败并给出原生错误，Coop 不内嵌、不下载 helper。这条 helper 路由只按内容命中 SFX，普通 7z/ZIP/tar 不因此变成外部依赖。
 - MSI 管理镜像提取已启用（#33）；Inno Setup 提取已通过声明的外部 innounp helper 启用（#34）；NSIS 安装器载荷提取已通过声明的外部 7-Zip helper 启用（#35），不内嵌也不静默下载这些工具。外部 cabinet、多段/partial cabinet、WiX/Dark 与厂商 EXE 安装器结构仍未启用；分卷/多部分归档（`.001`、`.partN.rar`）、rar/cab/nupkg 等未作为普通归档生命周期启用。`installer.file/args` 不是归档机制，已由 R11（#32）作为独立安装器程序接入，见[Installer/Uninstaller 与特殊安装机制](installer-support.md)。
 - 共享归档的更新/卸载以标准布局和入口目标为事实；Scoop 不提供解压树摘要，因此用户对版本目录内部的任意修改不会像直接文件摘要那样被逐一发现。需要内容摘要的场景仍应使用可核对产物的包，或后续在卸载/清理前增加显式树摘要记录。
 - R22（#43）已移除旧接管命令与旧预览执行列表：共享归档的更新/卸载一直是 IR 计划路径，现在执行器只消费单一 `Plan`，不再存在接受归档限制的专用旧路径。
