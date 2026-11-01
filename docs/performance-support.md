@@ -166,19 +166,19 @@
 - 静态检查（本轮）：`gh` 读到的 `v0.2.3` 产物构成、PE 各节大小（`.text` 3,598 KB、`.rdata` 785 KB、`.pdata` 126 KB、`.data` 36 KB、`.rsrc` 0.5 KB）与上述 map 归因一致。
 - 归档能力证据（本轮，只读抽样）：`git clone --depth 1` 取 Main `5630299…`（1,702 份 Manifest）、Extras `fa8327d…`（2,449）、Versions `726377c…`（630），按 Manifest 的 `url`/`architecture.*.url` 扩展名分类：`.zst` 7、`.bz2` 0、`.xz` 12、`.lzma` 8、`.rar` 7、`.cab` 9、`.iso` 0、`.lha` 0；计数与样例在 `.local/size-probe/survey-counts.json`。
 
-### 落地：coop 自身 `/O1` 与安装占用守卫（2026-10-31，CI 实测）
+### 落地：coop 自身 `/O1` 与安装后占用守卫（2026-10-31，CI 实测）
 
-- 方法：同一个 `windows-latest` 运行器、同一棵树连续构建两次。第一次把 `CMakeLists.txt` 换回 `main` 的版本（落地前），第二次恢复改动后的版本（落地后）；两次都用 `scripts/check-size.ps1` 统计 `coop.exe` 与另外 4 类落盘文件，并按发布布局压缩一份 zip。临时工作流 `size-probe.yml` 只用于这次量测，取数后删除；证据为 CI run [41204109962](https://github.com/Coh1e/coop/actions/runs/41204109962)。
+- 方法：同一个 `windows-latest` 运行器、同一棵树连续构建两次。第一次把 `CMakeLists.txt` 换回 `main` 的版本（落地前），第二次恢复改动后的版本（落地后）；两次都用 `scripts/check-size.ps1` 统计 `coop.exe` 与另外 4 类落盘文件，并按发布布局压缩一份 zip。测量命令：`./scripts/check-size.ps1 -LimitBytes 9000000 -ZipPath $env:RUNNER_TEMP/coop-pre.zip`，落地后一次把 `coop-pre.zip` 换成 `coop-post.zip`。临时工作流 `size-probe.yml` 只用于这次量测，取数后删除；证据为 CI run [41204109962](https://github.com/Coh1e/coop/actions/runs/41204109962)。下面的数值是历史结果，不能当成本机基线。
 - 结果：
 
 | 指标 | 落地前 | 落地后 | 变化 |
 | --- | ---: | ---: | ---: |
 | `coop.exe` | 4,759,552 | 4,302,848 | −9.6% |
-| 安装占用 | 5,053,984 | 4,597,280 | −9.0% |
+| 安装后占用 | 5,053,984 | 4,597,280 | −9.0% |
 | 下载 zip（只记录） | 2,346,997 | 2,156,551 | −8.1% |
 
-- 守卫：`scripts/check-size.ps1` 的默认阈值 = 落地后安装占用 × 1.1 = **5,057,008 B**。超阈值以非零码退出并打印逐项字节；`scripts/release-check.ps1` 与 `.github/workflows/ci.yml` 调用同一脚本，不各写一份。判定按字节数，不按哈希：同一构建目录连续两次重链接，`coop.exe` 字节数不变而 SHA256 不同（见上一小节）。
-- 门槛：`coop.exe` 降 9.6%（要求 ≥ 9%），安装占用降 9.0%（要求 ≥ 8%）；CI 的完整 `ctest` 与守卫在同一轮通过。
+- 守卫：`scripts/check-size.ps1` 的默认阈值 = 落地后安装后占用 × 1.1 = **5,057,008 B**。超阈值以非零码退出并打印逐项字节；`scripts/release-check.ps1` 与 `.github/workflows/ci.yml` 调用同一脚本，不各写一份。判定按字节数，不按哈希：同一构建目录连续两次重链接，`coop.exe` 字节数不变而 SHA256 不同（见上一小节）。
+- 门槛：`coop.exe` 降 9.6%（要求 ≥ 9%），安装后占用降 9.0%（要求 ≥ 8%），门槛来自 #90 的验收标准；CI 的完整 `ctest` 与守卫在同一轮通过。
 
 ## 验证状态
 
