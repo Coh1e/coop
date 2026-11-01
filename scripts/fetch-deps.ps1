@@ -83,7 +83,10 @@ $testArchives = @(
     @{Name='tidy-5.8.0-win64.zip'; Url='https://github.com/htacg/tidy-html5/releases/download/5.8.0/tidy-5.8.0-win64.zip'; Hash='ffb2f86484c66e70e6a6da369cb8f0f459ad2ffec7c7ca80d09a13445ee51a40'},
     @{Name='unz600xn.exe'; Url='https://raw.githubusercontent.com/ScoopInstaller/Binary/master/unzip/unz600xn.exe'; Hash='7869ee36346b47701ef01efd0bc2889f970266b66c80b30f74303d50bf7fa33d'},
     @{Name='curl-8.23.0_5-win64-mingw.tar.xz'; Url='https://curl.se/windows/dl-8.23.0_5/curl-8.23.0_5-win64-mingw.tar.xz'; Hash='b6ad235d1907d96615334532eab1db0040860e6b5adc3b8749a4331924449c3b'},
-    @{Name='innounp-2.zip'; Url='https://raw.githubusercontent.com/jrathlev/InnoUnpacker-Windows-GUI/refs/heads/master/innounp-2/bin/innounp-2.zip'; Hash='10fce27b6344b7674d5625cc34afca1c88c12183d957c6d93e401097fa2556cd'},
+    # Pinned to the commit that produced the recorded hash. The file used to come from refs/heads/master,
+    # and upstream moved it to 2.71.3 on 2026-10-31, which broke every CI run. Bump the commit and the
+    # hash together; keep the docs' recorded 2.71.2 in step.
+    @{Name='innounp-2.zip'; Url='https://raw.githubusercontent.com/jrathlev/InnoUnpacker-Windows-GUI/032d64c782efc6b36766d8f9c3b1b2f042144a58/innounp-2/bin/innounp-2.zip'; Hash='10fce27b6344b7674d5625cc34afca1c88c12183d957c6d93e401097fa2556cd'},
     @{Name='units-2.26-setup.exe'; Url='https://ftp.gnu.org/gnu/units/windows/units-2.26-setup.exe'; Hash='68b2868ed510562cd0a5ccc3269fc4c3c452d5606ac675eb0712b060651c9a83'},
     @{Name='units-2.27-setup.exe'; Url='https://ftp.gnu.org/gnu/units/windows/units-2.27-setup.exe'; Hash='db7a0bf90a20fcf9ec6a3de8eb10b798f7f61fee1efc4b4bf89f01b4b6d83da2'},
     @{Name='rizin-0.9.1-installer.exe'; Url='https://github.com/rizinorg/rizin/releases/download/v0.9.1/rizin_installer-v0.9.1-x86_64.exe'; Hash='3bfea0e6e4cd3c557fa61e2118805047da73da8907a26007c64d7f32bc113f22'},
