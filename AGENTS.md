@@ -20,10 +20,17 @@
 
 ## Verification
 
-1. Use the project checks that apply to the changes.
-2. For a defect, reproduce the failure before the change when practical.
-3. Report checks that failed or could not run.
-4. State that the task is complete only when the results support this statement.
+1. Use the repository's documented commands and tool versions. Prefer project-local tools.
+2. Add or update tests for changed behavior. For a bug, reproduce the failure before the fix when practical.
+3. Test relevant boundary cases and failure paths. Use the existing test framework.
+4. Run formatting checks, the affected build, and relevant tests after the final code edit.
+5. Run wider checks when required by CI or by the change's impact.
+6. Inspect the final diff for unintended edits, secrets, generated output, and compatibility changes.
+7. Report checks that failed or could not run, and say why. Never present a planned check as completed.
+
+Use sanitizers for relevant memory or concurrency risks when supported.
+For performance changes, record the workload, environment, baseline, and result.
+State that the task is complete only when the results support this statement.
 
 ## Communication
 
@@ -46,21 +53,6 @@
 - Explain non-obvious constraints in comments. Update documentation when behavior changes.
 - Measure before optimizing. Compare correctness and performance under the same conditions.
 
-## Verify
-
-1. Use the repository's documented commands and tool versions. Prefer project-local tools.
-2. Add or update tests for changed behavior. For a bug, reproduce the failure before the fix when practical.
-3. Test relevant boundary cases and failure paths. Use the existing test framework.
-4. Run formatting checks, the affected build, and relevant tests after the final code edit.
-5. Run wider checks when required by CI or by the change's impact.
-6. Inspect the final diff for unintended edits, secrets, generated output, and compatibility changes.
-
-Use sanitizers for relevant memory or concurrency risks when supported.
-For performance changes, record the workload, environment, baseline, and result.
-Run the project's required checks before declaring completion.
-If a check is unavailable, state why and what remains unverified.
-Never present a planned check as a completed check.
-
 ## Finish
 
 Report the result, key changes, checks run with outcomes, and remaining limitations.
@@ -72,6 +64,11 @@ Keep the report concise. Include exact commands when they help reproduce verific
 For coding and directly related work, read docs/agents/next-step.md before
 ending a response. It defines completion notices, human questions, improvement plans,
 and AI continuation prompts.
+
+## Procedures
+
+1. Push with `scripts/push.ps1`; the local git and `gh` quirks are in `docs/agents/environment.md`.
+2. Release steps, including the Scoop bucket update and rollback, are in `docs/release-process.md`.
 
 ## Agent skills
 
