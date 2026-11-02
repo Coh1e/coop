@@ -79,6 +79,7 @@ coop recover
 - 入口与环境：[命令入口与快捷方式](docs/exposure-support.md)、[PowerShell 模块暴露](docs/psmodule-support.md)、[生命周期 Hook](docs/script-support.md)、[依赖安装与保护](docs/dependency-support.md)。
 - 共用 bucket：[共用 bucket 的直接刷新](docs/shared-bucket-support.md)、[没有 Scoop 时的独立初始化](docs/initialization-support.md)。
 - 兼容性与验证：[Main/Extras 全量盘点](docs/coverage-report.md)、[首版真实样本报告](docs/history/compatibility-report.md)、[完整交付验收](docs/history/final-acceptance.md)、[逐项交替验收](docs/history/real-machine-acceptance.md)、[历史验收矩阵](docs/history/acceptance-matrix.md)。
+- 四样本验收：[来源准备、场景断言与报告结构](docs/four-sample-acceptance.md)。
 - 性能与体积：[本地查询与 Git 刷新性能](docs/performance-support.md)、[包体决策](docs/adr/0005-binary-size-build-only.md)。
 - 写作与决策：[写作标准](docs/writing-style.md)、[ADR 目录](docs/adr/)、[研究记录](docs/research/)。
 - 任务与规格：[GitHub Issues](https://github.com/Coh1e/coop/issues)、[正式规格 #21](https://github.com/Coh1e/coop/issues/21)。

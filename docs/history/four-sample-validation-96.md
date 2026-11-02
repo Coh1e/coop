@@ -1,6 +1,6 @@
 # 四样本真实验证（#96）
 
-2026-11-02，本轮运行。整轮未通过，执行票保持未完成。
+2026-11-02。前文保留早期未通过轮次；文末「新基线最终复验」记录最新通过结果。任务收尾以 GitHub 规格 #96 及 #97–#101 的记录为准。
 
 ## 基线与检查
 
@@ -47,3 +47,24 @@ Coop 卸载当前版保留过本轮 jq 旧版本目录；已校验路径、产�
 
 本项修复不自动完成 #96 的其余证据补齐与任务关闭工作。
 修复后的完整构建及 82/82 CTest 通过（474.26 秒），日志为 .local/verification-96/fix-build-all.log。源码规范、文档链接与最终差异检查通过。审查按项目单代理规定在本会话分别核对 Standards 与 Spec，未发现待修项。
+
+## 新基线最终复验（2026-11-02）
+
+本轮四样本有界验收通过。Scoop 首次安装时自行刷新 Main、Extras，触发固定修订漂移停止；用户随后明确接受 Main `08472508c7bbe7abfa059471050e55f226ee3580`、Extras `8ecc43e85330f37380c19cd4d00f94607d875a39` 为新基线。四份 Manifest 的完整内容未变，Scoop 源码仍为 `e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f`。新来源清单为 `.local/four-samples/baseline-20261102-new/sources.json`，旧清单及失败现场记录保留。
+
+最终命令为 Windows PowerShell 5.1 下的 `scripts/verify-four-samples.ps1 -SourceFile .local/four-samples/baseline-20261102-new/sources.json -CoopExe .local/build/coop.exe -EvidenceDir .local/four-samples -ScoopRoot C:\Users\Neo\scoop -RunLifecycle`。本轮证据位于 `.local/four-samples/run-20261102-060321-ce87aff7/`：`report.json` 保存 27 个通过阶段、106 条退出码均为 0 的命令及逐场景证据；`report.md` 为汇总，`report.lifecycle.json` 保留附入最终仓库检查前的原始结果。启动与归属核验脚本在 `.local/four-samples-final-checks/`。四包使用同一 `E289DE10977E2AB724E8CBC8E93E48B97F401DC09FF62EAF0922D236A60855AD` 二进制，代码基点为 `2a71d9f36689b4aa287d71710501fdcdbc91ea9e`，未提交的验收脚本及其摘要另存于最终证据目录的 `final-scripts/` 和 `final-script-hashes.json`。
+
+| 样本 | 本轮结果 |
+| --- | --- |
+| jq | 两个客户端分别发起真实 1.7.1→1.8.2 更新；双方识别、JSON 运算、旧版保留、Coop reset、cleanup、双向卸载及重装均通过。反向更新日志为 `028-jq-scoop-update.log`，不是无操作更新 |
+| wgcf | 安装脚本、带引号的配置参数、真实帮助输出、Scoop reset、测试配置跨普通卸载/重装摘要保持、双向卸载及本轮数据清理均通过；未注册账户或运行 VPN |
+| pdd | 项目内 CPython 3.13.7、dateutil 2.9.0.post0、six 1.17.0；缺宿主预览拒绝，宿主齐备时入口输出固定十天日期差；reset、双向卸载/重装及环境隔离检查通过 |
+| posh-git | 官方产物与真实安装脚本、新 PowerShell 5.1 进程导入 1.1.0、模块 junction 与卸载源码核验、reset、双向卸载/重装及环境恢复均通过 |
+
+本轮仅修正验收脚本，没有修改产品代码：Manifest 比较保留双方原始摘要并按完整 JSON 判断内容；列表先解析再枚举，Scoop 的提示流与 JSON 分开；参数使用数组变量转发。普通本地旧版 Manifest 会让 Scoop 更新继续跟随该文件，不能据此验证真实更新。最终流程只读引用既有 `workspace/jq.json`，先与官方历史 Manifest 完整比对，再使用 Scoop 的 `-f` 历史版本固定解除机制；没有改写该缓存或安装记录。上述脚本问题和未发生版本变化的尝试均作为失败历史保留，不并入通过结果。
+
+最终代码状态下运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Action all`：构建及 **83/83 CTest 通过，473.12 秒**，完整日志为 `.local/four-samples-final-checks/final-build-all.log`，退出码记录为 `final-build-result.json`。这不是引用前面修正脚本前的测试结果。源码规范、脚本解析、文档链接及最终差异另行检查；本轮脚本的列表、参数、来源绑定回归包含在该完整套件内。
+
+验收结束及完整测试之后再次只读核对，四包的安装、入口、持久化与模块对象均不存在，受保护对象和用户环境与基线一致；结果在最终证据目录的 `post-test-state-comparison.json`，最后只读盘点为 `.local/four-samples/readonly-20261102-061512-1a48eb/`。保留共享缓存、Scoop 历史 Manifest、Coop 管理记录/事务及项目内证据，不回退用户 bucket。所有归属清理只处理本轮创建且重新核验过的对象。
+
+边界：日常根不含空格，未实跑含空格根上的 wgcf 生命周期；本机模块目录原本为空，未实跑与其他真实模块并存的场景。外层验收及模块导入探针为 Windows PowerShell 5.1，Coop 实际生命周期 Hook 使用日志记录的 PowerShell 7 宿主，见 `hook-hosts.json`。ARM64、全量 Main/Extras 逐包兼容，以及四个真实样本的性能和故障注入专项均不在本轮通过结论内。验收阶段未发布、提交、推送或关闭任务；后续收尾按用户授权另行记录到 GitHub。

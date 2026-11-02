@@ -376,10 +376,13 @@ if(BUILD_TESTING)
   set_property(TARGET ir_reuse PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_test(NAME ir_reuse COMMAND ir_reuse)
 
+  add_test(NAME four_sample_evidence COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/four-sample-evidence.ps1"
+    -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/four-sample-evidence")
+
   # The fast lane: the tests that finish in a couple of seconds and cover the output contract, the
   # plan pipeline and the small helpers. `scripts/build.ps1 -Action test-fast` runs exactly these;
   # the full suite stays the closing step.
-  set_property(TEST source_hygiene doc_links coverage_features coverage_gaps query plan ir_pipeline ir_reuse
+  set_property(TEST four_sample_evidence source_hygiene doc_links coverage_features coverage_gaps query plan ir_pipeline ir_reuse
     manifest_shape command_lines update_lines output_gaps progress_coverage suggest_notes ansi_colors
     reinstall_refusal cross_version sync_points perf_attribution publish_contracts publish_write_once
     bucket cleanup cleanup_transactions dependencies path_batch
