@@ -82,6 +82,3 @@ For coding and directly related work, read
 `C:/Users/Neo/.agents/skills/pipkit-next-step/SKILL.md` before ending a response.
 Follow its decision on continuing work or selecting a closing mode. If missing or
 unreadable, report the dependency and do not claim the rules were loaded.
-
-Coop follows single-agent execution in [ADR-0003](docs/adr/0003-single-agent-execution.md).
-Implementation, verification, review, commits, and task resolution stay in that session.
