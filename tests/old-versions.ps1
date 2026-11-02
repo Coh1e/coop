@@ -249,4 +249,36 @@ try {
 @{rollback_root=$root;refuse_root=$root2;persistence_root=$root3;hook_root=$root4;local_only_root=$root5;environment_root=$root6;coop=$CoopExe} |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $TestRoot 'old-versions-evidence.json') -Encoding utf8
 Write-Output "PASS local-version rollback, cleanup scope, persisted-link and no-hook behavior: $TestRoot"
+
+# Red when: cleanup trusts a stale Coop current record after another client publishes a valid version.
+$sharedRoot = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path "$sharedRoot/buckets/test/bucket" -Force | Out-Null
+Write-Manifest $sharedRoot 'sharedrefresh' '1' $fixture1
+if ((Run-Json @('--root',$sharedRoot,'install','test/sharedrefresh','--json')).code -ne 0) { throw 'shared refresh install failed' }
+Write-Manifest $sharedRoot 'sharedrefresh' '2' $fixture2
+if ((Run-Json @('--root',$sharedRoot,'update','sharedrefresh','--json')).code -ne 0) { throw 'shared refresh update failed' }
+if ((Run-Json @('--root',$sharedRoot,'reset','sharedrefresh@1','--json')).code -ne 0) { throw 'shared refresh reset failed' }
+# Model Scoop replacing current while leaving Coop-private metadata untouched.
+Remove-Junction "$sharedRoot/apps/sharedrefresh/current"
+New-Item -ItemType Junction -Path "$sharedRoot/apps/sharedrefresh/current" -Target "$sharedRoot/apps/sharedrefresh/2" | Out-Null
+$sharedCleanup = Run-Json @('--root',$sharedRoot,'cleanup','sharedrefresh','--dry-run','--json')
+if ($sharedCleanup.code -ne 0 -or $sharedCleanup.value[0].current.version -ne '2') {
+    throw "cleanup rejected the valid externally published current version: $($sharedCleanup.text)"
+}
+$recordPath = "$sharedRoot/.coop/packages/sharedrefresh.json"
+$recordHash = (Get-FileHash $recordPath).Hash
+$manifestPath = "$sharedRoot/apps/sharedrefresh/2/scoop-manifest.json"
+$manifestText = Get-Content $manifestPath -Raw
+[IO.File]::WriteAllText($manifestPath,'{"version":"wrong"}')
+$invalidCurrent = Run-Json @('--root',$sharedRoot,'cleanup','sharedrefresh','--dry-run','--json')
+if ($invalidCurrent.code -eq 0 -or @($invalidCurrent.value[0].delete_scope).Count -ne 0) {
+    throw 'cleanup trusted external current without matching standard installation evidence'
+}
+[IO.File]::WriteAllText($manifestPath,$manifestText)
+if ((Get-FileHash $recordPath).Hash -ne $recordHash) { throw 'cleanup preview rewrote the private management record' }
+$sharedExecute = Run-Json @('--root',$sharedRoot,'cleanup','sharedrefresh','--json')
+if ($sharedExecute.code -ne 0 -or (Test-Path "$sharedRoot/apps/sharedrefresh/1") -or
+    -not (Test-Path "$sharedRoot/apps/sharedrefresh/2/sharedrefresh.exe")) {
+    throw "shared cleanup failed to remove only the verified old version: $($sharedExecute.text)"
+}
 exit 0

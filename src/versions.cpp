@@ -163,6 +163,20 @@ Json cleanup_scope(const Json& inventory, const Json& cleanable) {
         {"scope_summary",{{"delete",cleanable.size()},{"keep",keep.size()},{"already_absent",absent}}}};
 }
 
+// Shared clients may replace current without updating Coop's private record. Only a local,
+// non-reparse version with matching standard installation evidence can supersede that record.
+std::string published_version(const fs::path& app) {
+    try {
+        const auto directory = operating_path(fs::canonical(app/L"current"));
+        if (!same_identity(directory.parent_path(),app)) return {};
+        const auto version = path_text(directory.filename());
+        if (version == "current") return {};
+        if (version_evidence(directory,version).value("status",std::string{}) == "retained") return version;
+    } catch (const std::exception&) {
+        // Invalid or incomplete external state retains the conservative mismatch protection.
+    }
+    return {};
+}
 CleanupResult cleanup_package(const Context& context, const std::string& package_name, bool dry_run) {
     CleanupResult outcome;
     const auto managed_path = state_directory(context)/L"packages"/(wide(package_name)+L".json");
@@ -173,6 +187,8 @@ CleanupResult cleanup_package(const Context& context, const std::string& package
         try { current_version = read_json(managed_path).value("version",std::string{}); }
         catch (const std::exception&) { /* The inventory reports malformed evidence as blocked. */ }
     }
+    const auto published = published_version(context.root/L"apps"/wide(package_name));
+    if (!published.empty()) current_version = published;
     const auto current_link = context.root/L"apps"/wide(package_name)/L"current";
     if (fs::is_directory(current_link)) {
         try { current_directory = operating_path(fs::canonical(current_link)); }
@@ -650,6 +666,11 @@ Json version_cleanup_inventory(const Context& context, const std::string& packag
             // A malformed management record cannot prove which version is current. Cleanup
             // will not delete anything unless the normal current link and evidence agree.
         }
+    }
+    const auto published = published_version(app);
+    if (!published.empty() && !equal_name(published,managed_version)) {
+        managed_version = published;
+        managed_directory = app/wide(published);
     }
     const bool has_managed_current = !managed_version.empty() || !managed_directory.empty();
     const auto recorded = recorded_version_evidence(context,package_name);
