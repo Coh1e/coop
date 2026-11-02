@@ -69,7 +69,7 @@ Notes       : Scoop persists data since version 0.11.16. ...
 4. **`search` 匹配包名 + bin 名，查询按正则解释**（与 Scoop 无 sqlite 缓存时一致）。bin 名来自 bucket 索引（索引格式 2 起记录），因此升级后第一次搜索会退化为扫描目录，直到下一次 `bucket update` 重写索引。`search` 的匹配文本不再包含描述：`coop search ripgrep` 现在只列 `rga`（bin 名 `ripgrep-all`）与 `ripgrep`，与 `scoop search ripgrep` 一致。
 5. **`info` 的 `Updated at` / `Updated by` 来自 bucket 的 Git 提交**（`libgit2`，首个改动该清单的提交；遍历上限 20000 个提交）。非 Git 目录不打印这两行，而不是编造一个文件时间。实测 `coop info main/ripgrep` 与 `scoop info ripgrep` **逐行相同**。
 6. **`info -v` 提供 `Manifest` 与 `Installed size`**；`Installed size` 只给一个总数（当前版本目录 + 持久化目录），Scoop 会分成 current/old/persisted/cached 四行；`Download size` 需要一次网络探测，未实现。
-7. **尾随空行**：Scoop 的表格结尾多一个空行，Coop 不打。
+7. **尾随空行**：Scoop 的读命令表格结尾多一个空行，Coop 不打；`coop help` 例外——它要与 `scoop help` 逐字相同，因此保留表格后的空行。
 8. **`status` 的更新判定是"清单版本 ≠ 已装版本"**，Scoop 用 `Compare-Version` 排序。Coop 的 `update` 本来以"版本不同"为触发条件，`status` 用同一谓词，避免出现 `status` 说最新而 `update` 仍然动作；代价是清单版本回退时也会列为可更新。
 9. **`which` 未找到退出 1**（Scoop 退出 2），消息与 Scoop 相同。理由同偏离 1：2 在 Coop 的契约里是用法错误。
 10. **`cat` 原样输出存储的清单字节**；Scoop 会 pretty-print，并因此丢失声明顺序。
@@ -101,13 +101,14 @@ demo  1.7.1              1.8.2
 
 `checkup`：只检查 Coop 自己的不变量——长路径开关、`main` bucket 是否存在、已注册 bucket 的目录是否存在、pending 事务、shim 指向的目标是否存在。有问题逐条 `WARN`，结尾 `Found N potential problem(s).` 或 `No problems identified!`，退出码始终 0。
 
-`help [命令]`：命令名、用法串与摘要取自 Scoop 0.6.0 的 help 头，未实现的命令显式标注 `(not implemented yet)` 并在 `coop help <未实现命令>` 时退出 1。`coop <命令> --help` 打印同一段文本。
+`help [命令]`：与 `scoop help` 逐字相同（程序名除外）——`Usage: coop <command> [<args>]`、三行表头、28 行命令表与 Scoop 0.6.0 的摘要。`coop`、`coop --help`、`coop help` 打印同一页，因此不存在两份会漂移的命令清单。`init`、`recover` 是 Coop 独有命令，按 Scoop 的页面口径不进入这一页；它们自己的用法由 `coop help init|recover` 与 `coop init|recover --help` 打印。未实现的命令显式标注 `(not implemented yet)` 并在 `coop help <未实现命令>` 时退出 1。`coop <命令> --help` 打印同一段文本。
 
 ### 这三条的偏离
 
 12. **`export` 不含 `Updated` 与配置项**：Scoop 会写 `Updated`（bucket 的 git 提交时间或目录时间）并可用 `-c` 导出配置。Coop 先不写这两项，`scoop import` 不读它们。
 13. **`checkup` 的检查项是 Coop 的不变量**，不含 Scoop 的 Defender 排除项、7-Zip/innounp/dark helper、NTFS 卷检查。那些项目要么越过包管理器该做的事，要么与 Coop 的核心不依赖外部 helper 这一事实不符。
 14. **`help` 对未实现命令返回 1**，Scoop 对所有命令都返回 0。Coop 用这个退出码表达"这个命令还不存在"。
+15. **`coop help` 不列出 Coop 独有的 `init`、`recover`**：这一页要与 `scoop help` 逐字一致，Coop 不往里加行；两条命令的用法由 `coop help init|recover` 与 `coop init|recover --help` 提供。
 
 
 

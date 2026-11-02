@@ -1,4 +1,5 @@
 #include "catalog_index.hpp"
+#include "commands.hpp"
 #include "data.hpp"
 #include "ir.hpp"
 #include "persist.hpp"
@@ -1006,59 +1007,35 @@ static int home_command(const Context& context, const std::string& name) {
     return 0;
 }
 // ---------------------------------------------------------------------------
-// `help`, `depends`, `export` and `checkup`. Command names, usage strings and summaries follow
-// Scoop 0.6.0's own help headers; the `implemented` flag is Coop's, so help never promises a command
-// that does not exist yet.
+// `help`, `depends`, `export` and `checkup`. The command table lives in commands.cpp so that
+// `coop help` and `coop --help` cannot list different commands; usage strings and summaries follow
+// Scoop 0.6.0's own help headers, and the `implemented` flag is Coop's, so help never promises a
+// command that does not exist yet.
 // ---------------------------------------------------------------------------
-struct HelpEntry { const char* name; const char* usage; const char* summary; bool implemented; };
-static const HelpEntry kHelpEntries[] = {
-    {"alias","<subcommand> [options] [<args>]","Manage scoop aliases",true},
-    {"bucket","add|list|known|rm [<args>]","Manage Scoop buckets",true},
-    {"cache","show|rm [app(s)]","Show or clear the download cache",true},
-    {"cat","<app>","Show content of specified manifest",true},
-    {"checkup","","Check for potential problems",true},
-    {"cleanup","<app> [options]","Cleanup apps by removing old versions",true},
-    {"config","[rm] name [value]","Get or set configuration values",true},
-    {"create","<url>","Create a custom app manifest",true},
-    {"depends","<app>","List dependencies for an app, in the order they'll be installed",true},
-    {"download","<app> [options]","Download apps in the cache folder and verify hashes",true},
-    {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true},
-    {"help","<command>","Show help for a command",true},
-    {"hold","<apps>","Hold an app to disable updates",true},
-    {"home","<app>","Opens the app homepage",true},
-    {"import","<path/url to scoopfile.json>","Imports apps, buckets and configs from a Scoopfile in JSON format",true},
-    {"info","<app> [options]","Display information about an app",true},
-    {"install","<app> [options]","Install apps",true},
-    {"list","[query]","List installed apps",true},
-    {"prefix","<app>","Returns the path to the specified app",true},
-    {"reset","<app>","Reset an app to resolve conflicts",true},
-    {"search","<query>","Search available apps",true},
-    {"shim","<subcommand> [<shim_name>...] [options] [other_args]","Manipulate Scoop shims",true},
-    {"status","","Show status and check for new app versions",true},
-    {"unhold","<app>","Unhold an app to enable updates",true},
-    {"uninstall","<app> [options]","Uninstall an app",true},
-    {"update","<app> [options]","Update apps, or Scoop itself",true},
-    {"virustotal","[* | app1 app2 ...] [options]","Look for app's hash or url on virustotal.com",true},
-    {"which","<command>","Locate a shim/executable",true}
-};
 static int help_command(const std::vector<std::wstring>& args) {
     if (args.size() > 1) throw UsageError("help accepts at most one command");
     if (args.empty()) {
-        std::cout << "Available commands are listed below.\n\n"
+        // Scoop's page, verbatim: `coop help` is compared line by line with `scoop help`, so Coop
+        // adds no rows (init and recover stay out) and rewrites no summary.
+        std::cout << "Usage: coop <command> [<args>]\n\n"
+                     "Available commands are listed below.\n\n"
                      "Type 'coop help <command>' to get more help for a specific command.\n\n";
         std::vector<std::vector<std::string>> rows;
-        for (const auto& entry : kHelpEntries)
-            rows.push_back({entry.name,std::string(entry.summary)+(entry.implemented ? "" : " (not implemented yet)")});
+        for (const auto& command : commands())
+            if (command.scoop_command)
+                rows.push_back({command.name,std::string(command.summary)+(command.implemented ? "" : " (not implemented yet)")});
         print_table({"Command","Summary"},rows);
+        // Scoop's page ends with one blank line after the table; keep it byte for byte.
+        std::cout << "\n\n";
         return 0;
     }
     const auto name = lowercase(utf8(args.front()));
-    for (const auto& entry : kHelpEntries) {
-        if (name != entry.name) continue;
-        std::cout << "Usage: coop " << entry.name;
-        if (*entry.usage) std::cout << ' ' << entry.usage;
-        std::cout << "\n\n" << entry.summary << '\n';
-        if (entry.implemented) return 0;
+    for (const auto& command : commands()) {
+        if (name != command.name) continue;
+        std::cout << "Usage: coop " << command.name;
+        if (*command.usage) std::cout << ' ' << command.usage;
+        std::cout << "\n\n" << command.summary << '\n';
+        if (command.implemented) return 0;
         std::cout << "\nWARN  this Scoop command is not implemented in Coop yet.\n";
         return 1;
     }

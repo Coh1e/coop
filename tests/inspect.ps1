@@ -2,7 +2,8 @@
 # `prefix` stops printing the current path Scoop prints, `cat` stops echoing the stored manifest,
 # `which` stops resolving a shim's target, `home` stops failing on a manifest without a homepage,
 # `depends` stops listing the declared dependency before the app itself, `export` stops listing
-# buckets/apps, `checkup` stops reporting a broken shim, or `help` stops marking what is missing.
+# buckets/apps, `checkup` stops reporting a broken shim, `help` and `--help` stop listing the same
+# commands, or a listed command stops answering `coop <command> --help`.
 param([Parameter(Mandatory)][string]$CoopExe, [Parameter(Mandatory)][string]$TestRoot)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'invoke-coop.ps1')
@@ -88,10 +89,38 @@ $lines = @(& $CoopExe --root $root checkup)
 if ($LASTEXITCODE -cne 0) { throw "checkup exited $LASTEXITCODE" }
 if (($lines -join "`n") -cnotmatch "Shim 'broken' points to a missing target") { throw "checkup said '`n$($lines -join "`n")'" }
 
-# help: the command list and a per-command usage. Every command is implemented now, so the
-# "(not implemented yet)" marker has no target here; it stays in the help code for future gaps.
-$lines = @(& $CoopExe help)
-if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch 'Command\s+Summary') { throw 'help printed no command list' }
+# help: `coop help` is `scoop help` verbatim, program name aside. The two surfaces once held
+# separate lists (`--help` omitted ten implemented commands and `init`/`recover` answered "unknown
+# command"); now `coop`, `coop --help` and `coop help` print the same page, and the rows and
+# summaries are pinned so a rewritten summary or an added Coop-only row fails here.
+$page = @(& $CoopExe help)
+if ($LASTEXITCODE -cne 0) { throw "help exited $LASTEXITCODE" }
+if ($page[0] -cne 'Usage: coop <command> [<args>]') { throw "help started with '$($page[0])'" }
+$pageText = $page -join "`n"
+if ($pageText -cnotmatch 'Available commands are listed below\.' -or
+    $pageText -cnotmatch "Type 'coop help <command>' to get more help for a specific command\.") {
+    throw 'help lost Scoop''s header lines'
+}
+$helpNames = @($page | Where-Object { $_ -cmatch '^[a-z][a-z0-9]*\s+\S' } | ForEach-Object { ($_ -split '\s+')[0] })
+$expectedNames = 'alias','bucket','cache','cat','checkup','cleanup','config','create','depends','download','export','help','hold','home','import','info','install','list','prefix','reset','search','shim','status','unhold','uninstall','update','virustotal','which'
+if (($helpNames -join ',') -cne ($expectedNames -join ',')) { throw "help rows are '$($helpNames -join ',')'" }
+if ($pageText -cnotmatch 'Show content of specified manifest\.') { throw 'help rewrote the cat summary' }
+if ($pageText -cnotmatch "Locate a shim/executable \(similar to 'which' on Linux\)") { throw 'help rewrote the which summary' }
+$other = @(& $CoopExe --help)
+if ($LASTEXITCODE -cne 0 -or (($other -join "`n") -cne $pageText)) { throw '--help and help print different pages' }
+$other = @(& $CoopExe)
+if ($LASTEXITCODE -cne 0 -or (($other -join "`n") -cne $pageText)) { throw 'the bare command and help print different pages' }
+foreach ($name in $expectedNames) {
+    $lines = @(& $CoopExe $name --help)
+    if ($LASTEXITCODE -ne 0 -or $lines[0] -cnotlike "Usage: coop $name*") {
+        throw "coop $name --help exited $LASTEXITCODE with '$($lines -join ' | ')'"
+    }
+}
+# The Coop-only commands are not on Scoop's page, but their own help still resolves.
+$lines = @(& $CoopExe help init)
+if ($LASTEXITCODE -ne 0 -or $lines[0] -cne 'Usage: coop init [--dry-run]') { throw "coop help init printed '$($lines -join ' | ')'" }
+$lines = @(& $CoopExe recover --help)
+if ($LASTEXITCODE -ne 0 -or $lines[0] -cne 'Usage: coop recover [package...] [--dry-run]') { throw "coop recover --help printed '$($lines -join ' | ')'" }
 $lines = @(& $CoopExe --root $root list --help)
 if ($LASTEXITCODE -cne 0 -or $lines[0] -cne 'Usage: coop list [query]') { throw "list --help printed '$($lines -join ' | ')'" }
 
