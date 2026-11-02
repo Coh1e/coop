@@ -222,6 +222,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-bare")
   add_test(NAME cache COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/cache.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/cache")
+  add_test(NAME command_output COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/command-output.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/command-output")
   add_test(NAME inspect COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/inspect.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inspect")
   add_test(NAME config COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/config.ps1"
@@ -385,7 +387,7 @@ if(BUILD_TESTING)
   set_property(TEST four_sample_evidence source_hygiene doc_links coverage_features coverage_gaps query plan ir_pipeline ir_reuse
     manifest_shape command_lines update_lines output_gaps progress_coverage suggest_notes ansi_colors
     reinstall_refusal cross_version sync_points perf_attribution publish_contracts publish_write_once
-    bucket cleanup cleanup_transactions dependencies path_batch
+    bucket cleanup cleanup_transactions dependencies path_batch command_output
     PROPERTY LABELS fast)
 
   # Every test drives its own installation root. `%ROOT%` is expanded by coop for each invocation,

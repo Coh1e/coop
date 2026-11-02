@@ -59,10 +59,8 @@ $expected = @(
     "Updating 'tidy' (5.8.0 -> 5.8.1)"
     'Downloading new version'
     'Loading tidy-5.8.0-win64.zip from cache'
-    "Checking hash of $cyan... "
-    'OK.'
-    "Extracting $cyan... "
-    'Done.'
+    "Checking hash of $cyan... OK."
+    "Extracting $cyan... Done."
     "Uninstalling 'tidy' (5.8.0)"
     "Removing shim 'tidy.shim'."
     "Removing shim 'tidy.exe'."

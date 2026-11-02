@@ -84,7 +84,7 @@ Assert ($badArch.code -eq 2 -and $badArch.err -match '--arch must be') "an inval
 $extraList = Invoke-CoopRaw @('--root=','list','extra')
 Assert ($extraList.code -eq 2) "list with an extra argument was not a usage error: $($extraList.code) $($extraList.text)"
 $noPackage = Invoke-CoopRaw @('--root',(Join-Path $session 'empty'),'install')
-Assert ($noPackage.code -eq 2 -and $noPackage.err -match 'one or more packages') "install without a package was not a usage error: $($noPackage.code) $($noPackage.err)"
+Assert ($noPackage.code -eq 2 -and $noPackage.err -match 'ERROR <app> missing' -and $noPackage.err -match 'Usage: coop install <app>') "install without a package was not a usage error: $($noPackage.code) $($noPackage.err)"
 $badOption = Invoke-CoopRaw @('--root',(Join-Path $session 'empty'),'install','pkg','--bogus')
 Assert ($badOption.code -eq 2 -and $badOption.err -match 'Unknown package option') "an unknown package option was not a usage error: $($badOption.code) $($badOption.err)"
 $badInstall = Invoke-CoopRaw @('--root',(Join-Path $session 'empty'),'install','does-not-exist')

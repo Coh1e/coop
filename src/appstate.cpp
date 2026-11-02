@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <iostream>
 #include <vector>
+#include <set>
 
 namespace coop {
 namespace {
@@ -111,6 +112,41 @@ void publish_launcher(const fs::path& executable) {
     if (!fs::copy_file(fs::path(module.data()),executable,fs::copy_options::overwrite_existing,error))
         throw std::runtime_error("Cannot publish the launcher at "+path_text(executable)+": "+error.message());
 }
+std::string shim_source(const Context& context,const std::string& target) {
+    std::vector<fs::path> roots{context.root};
+    if (context.global_root) roots.push_back(*context.global_root);
+    for (const auto& root : roots) {
+        const auto relative = fs::path(wide(target)).lexically_normal().lexically_relative((root/L"apps").lexically_normal());
+        if (!relative.empty() && *relative.begin() != L"..") return utf8(relative.begin()->wstring());
+    }
+    return "External";
+}
+std::string shim_alternatives(const fs::path& file,const std::string& source) {
+    std::set<std::string> alternatives;
+    std::error_code error;
+    const auto prefix = file.filename().wstring()+L".";
+    for (const auto& entry : fs::directory_iterator(file.parent_path(),error)) {
+        if (error) break;
+        const auto name = entry.path().filename().wstring();
+        if (!name.starts_with(prefix)) continue;
+        const auto extension = entry.path().extension().wstring();
+        if (extension == L".shim" || extension == L".cmd" || extension == L".ps1") continue;
+        alternatives.insert(utf8(extension.substr(1)));
+    }
+    if (alternatives.empty()) return {};
+    auto result = source;
+    for (const auto& alternative : alternatives) result += " "+alternative;
+    return result;
+}
+bool shim_hidden(const fs::path& file) {
+    auto executable = file;
+    executable.replace_extension(L".exe");
+    std::array<wchar_t,32768> found{};
+    const auto length = SearchPathW(nullptr,executable.filename().c_str(),nullptr,static_cast<DWORD>(found.size()),found.data(),nullptr);
+    if (!length || length >= found.size()) return true;
+    std::error_code error;
+    return !fs::equivalent(executable,fs::path(found.data()),error);
+}
 }
 int shim_command(const Context& context,const std::vector<std::wstring>& args) {
     if (args.empty()) throw UsageError("shim requires add, rm, list, info or alter");
@@ -129,13 +165,14 @@ int shim_command(const Context& context,const std::vector<std::wstring>& args) {
             }
             try {
                 const auto metadata = read_shim_metadata(file);
-                rows.push_back({name,metadata.target,metadata.arguments});
+                const auto source = shim_source(context,metadata.target);
+                rows.push_back({name,source,shim_alternatives(file,source),"False",shim_hidden(file) ? "True" : "False"});
             } catch (const std::exception&) {
-                rows.push_back({name,"<BROKEN>",std::string{}});
+                rows.push_back({name,"<BROKEN>",std::string{},"False","True"});
             }
         }
         if (rows.empty()) { std::cout << "No shim found.\n"; return 0; }
-        print_table({"Name","Target","Arguments"},rows);
+        print_table({"Name","Source","Alternatives","IsGlobal","IsHidden"},rows);
         return 0;
     }
     if (command == "info") {
@@ -143,9 +180,15 @@ int shim_command(const Context& context,const std::vector<std::wstring>& args) {
         const auto name = utf8(args[1]);
         const auto metadata_file = directory/(wide(name)+L".shim");
         std::error_code error;
-        if (!fs::is_regular_file(metadata_file,error)) throw std::runtime_error("Shim '"+name+"' not found");
+        if (!fs::is_regular_file(metadata_file,error)) throw std::runtime_error("Local shim not found: "+name);
         const auto metadata = read_shim_metadata(metadata_file);
-        std::cout << "Name    : "<<name<<"\nTarget  : "<<metadata.target<<"\nArguments: "<<metadata.arguments<<"\n";
+        const auto source = shim_source(context,metadata.target);
+        const auto alternatives = shim_alternatives(metadata_file,source);
+        std::cout << "Name         : " << name << "\nPath         : " << path_text(directory/(wide(name)+L".exe"))
+                  << "\nSource       : " << source << "\nType         : Application\n";
+        if (!alternatives.empty()) std::cout << "Alternatives : " << alternatives << '\n';
+        std::cout << "IsGlobal     : False\nIsHidden     : " << (shim_hidden(metadata_file) ? "True" : "False")
+                  << "\nTarget       : " << metadata.target << "\nArguments    : " << metadata.arguments << '\n';
         return 0;
     }
     if (command == "add") {
@@ -176,7 +219,8 @@ int shim_command(const Context& context,const std::vector<std::wstring>& args) {
                 result = 1;
                 continue;
             }
-            std::cout << "Removing shim '"<<name<<"'...\n";
+            std::cout << "Removing shim '"<<name<<".shim'.\n";
+            std::cout << "Removing shim '"<<name<<".exe'.\n";
             fs::remove(metadata,error);
             fs::remove(coop_metadata,error);
             fs::remove(directory/(wide(name)+L".exe"),error);

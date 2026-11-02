@@ -50,9 +50,17 @@ if (($out -join "`n") -cnotmatch 'Downloading file://') { throw "forced download
 
 # cache show prints Scoop's table and total; cache rm requires a target.
 $out = @(& $CoopExe --root $root cache show)
-if ($out[0] -cnotmatch '^Name\s+Version\s+Length\s*$') { throw "cache show header is '$($out[0])'" }
+if ($out[0] -cnotmatch '^Total: 1 file, ') { throw "cache summary must precede its table: $($out -join ' | ')" }
+if ($out[1] -cnotmatch '^Name\s+Version\s+Length\s*$') { throw "cache show header is '$($out[1])'" }
 if (($out -join "`n") -cnotmatch 'probe\s+1\.0\s+\d+') { throw "cache show rows are '$($out -join ' | ')'" }
 if (($out -join "`n") -cnotmatch 'Total: 1 file, ') { throw "cache show total is '$($out -join ' | ')'" }
+$explicit = $out -join "`n"
+foreach ($arguments in @(@('cache'),@('cache','probe'),@('cache','show','*'))) {
+    $out = @(& $CoopExe --root $root @arguments)
+    if ($LASTEXITCODE -ne 0 -or ($out -join "`n") -cne $explicit) {
+        throw "cache default/filter/wildcard differs from show: $($out -join ' | ')"
+    }
+}
 $out = @(& $CoopExe --root $root cache show nosuchapp)
 if (($out -join "`n") -cnotmatch 'Total: 0 files, 0 B') { throw "cache show for an absent app said '$($out -join ' | ')'" }
 Invoke-CoopNative $CoopExe  --root $root cache rm | Out-Null

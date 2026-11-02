@@ -111,7 +111,9 @@ void TextProgress::package(const std::string& text) {
 }
 void TextProgress::stage(const std::string& text) {
     finish_stage();
-    std::cout << text << "\n";
+    std::cout << text;
+    // Hash and extraction announcements are completed by OK./Done. after the operation.
+    if (!text.ends_with("... ")) std::cout << '\n';
     std::cout.flush();
 }
 void TextProgress::bytes(std::uint64_t done, std::uint64_t total) {

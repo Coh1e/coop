@@ -22,10 +22,14 @@ if (-not (Test-Path -LiteralPath "$root/shims/hello.exe")) { throw 'shim add did
 if (-not (Test-Path -LiteralPath "$root/shims/hello.shim")) { throw 'shim add did not write the Scoop metadata' }
 
 $lines = @(& $CoopExe --root $root shim list)
-if ($lines[0] -cnotmatch '^Name\s+Target\s+Arguments\s*$') { throw "shim list header is '$($lines[0])'" }
-if ($lines -join "`n" -cnotmatch 'hello\s+.*cmd\.exe\s+/c echo shim-ok') { throw "shim list rows are '$($lines -join ' | ')'" }
+if ($lines[0] -cnotmatch '^Name\s+Source\s+Alternatives\s+IsGlobal\s+IsHidden\s*$') { throw "shim list header is '$($lines[0])'" }
+if ($lines -join "`n" -cnotmatch 'hello\s+External\s+False\s+(True|False)') { throw "shim list rows are '$($lines -join ' | ')'" }
 $lines = @(& $CoopExe --root $root shim info hello)
-if ($lines -join "`n" -cnotmatch 'Target  : .*cmd\.exe') { throw "shim info said '$($lines -join ' | ')'" }
+if ($lines -join "`n" -cnotmatch 'Target\s+: .*cmd\.exe' -or $lines -join "`n" -cnotmatch 'Arguments\s+: /c echo shim-ok') { throw "shim info said '$($lines -join ' | ')'" }
+Copy-Item -LiteralPath "$root/shims/hello.shim" -Destination "$root/shims/hello.shim.other-app"
+$lines = @(& $CoopExe --root $root shim info hello)
+if (($lines -join "`n") -cnotmatch 'Alternatives\s+: External other-app') { throw "shim alternatives missing: $lines" }
+Remove-Item -LiteralPath "$root/shims/hello.shim.other-app"
 
 # The published shim really executes its target with the recorded arguments.
 $output = & "$root/shims/hello.exe"
@@ -37,7 +41,7 @@ $output = & "$root/shims/hello.exe"
 if (($output -join '|') -cnotmatch '^altered-ok$') { throw "after alter the shim printed '$($output -join ' | ')'" }
 
 $lines = @(& $CoopExe --root $root shim rm hello)
-if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch "Removing shim 'hello'") { throw "shim rm said '$($lines -join ' | ')'" }
+if ($LASTEXITCODE -cne 0 -or ($lines -join "`n") -cnotmatch "Removing shim 'hello.shim'" -or ($lines -join "`n") -cnotmatch "Removing shim 'hello.exe'") { throw "shim rm said '$($lines -join ' | ')'" }
 if ((Test-Path -LiteralPath "$root/shims/hello.exe") -or (Test-Path -LiteralPath "$root/shims/hello.shim")) { throw 'shim rm left a file behind' }
 
 $lines = Invoke-CoopNative $CoopExe  --root $root shim add bad 'D:\no\such\tool.exe'

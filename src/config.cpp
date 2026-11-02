@@ -103,6 +103,7 @@ int config_command(const Context& context,const std::vector<std::wstring>& args)
         if (!coop_owned(key)) throw std::runtime_error("config key '"+key+"' is not managed by Coop; it is preserved and ignored");
         config.erase(key);
         write_config(config);
+        std::cout << "'" << key << "' has been removed\n";
         return 0;
     }
     if (args.size() == 1) {
@@ -114,6 +115,7 @@ int config_command(const Context& context,const std::vector<std::wstring>& args)
     if (!coop_owned(first)) throw std::runtime_error("config key '"+first+"' is not managed by Coop; it is preserved and ignored");
     config[first] = utf8(args[1]);
     write_config(config);
+    std::cout << "'" << first << "' has been set to '" << utf8(args[1]) << "'\n";
     return 0;
 }
 int alias_command(const Context& context,const std::vector<std::wstring>& args) {
@@ -142,7 +144,7 @@ int alias_command(const Context& context,const std::vector<std::wstring>& args) 
         if (args.size() != 2) throw UsageError("alias rm requires one name");
         const auto name = utf8(args[1]);
         if (!aliases.contains(name)) throw std::runtime_error("Alias '"+name+"' doesn't exist.");
-        std::cout << "Removing alias '"<<name<<"'...\n";
+        std::cout << "INFO  Removing alias '"<<name<<"'...\n";
         std::error_code error;
         fs::remove(alias_script_path(context,name),error);
         aliases.erase(name);
@@ -171,7 +173,7 @@ int alias_command(const Context& context,const std::vector<std::wstring>& args) 
             if (verbose) row.push_back(script_summary(content));
             rows.push_back(std::move(row));
         }
-        if (rows.empty()) { std::cout << "No alias found.\n"; return 0; }
+        if (rows.empty()) { std::cout << "INFO  No alias found.\n"; return 0; }
         std::sort(rows.begin(),rows.end());
         if (verbose) print_table({"Name","Command","Summary"},rows);
         else print_table({"Name","Command"},rows);

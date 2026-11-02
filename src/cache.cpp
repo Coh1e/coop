@@ -77,9 +77,9 @@ int cache_show(const Context& context,const std::vector<std::string>& apps) {
     std::vector<std::vector<std::string>> rows;
     for (const auto& entry : selected)
         rows.push_back({entry.app,entry.version,std::to_string(entry.size)});
-    if (!rows.empty()) print_table({"Name","Version","Length"},rows);
     std::cout << "Total: " << plural(selected.size(),"file","files") << ", "
               << human_bytes(total_size(selected)) << '\n';
+    if (!rows.empty()) print_table({"Name","Version","Length"},rows);
     return 0;
 }
 int cache_remove(const Context& context,const std::vector<std::string>& apps,bool all) {
@@ -106,22 +106,19 @@ int cache_remove(const Context& context,const std::vector<std::string>& apps,boo
 }
 }
 int cache_command(const Context& context,const std::vector<std::wstring>& args) {
-    if (args.empty()) throw UsageError("cache requires show or rm");
-    const auto command = utf8(args[0]);
+    const auto command = args.empty() ? std::string("show") : utf8(args[0]);
     std::vector<std::string> apps;
     bool all = false;
-    for (std::size_t index = 1; index < args.size(); ++index) {
+    const bool subcommand = command == "show" || command == "rm";
+    for (std::size_t index = subcommand ? 1 : 0; index < args.size(); ++index) {
         const auto argument = utf8(args[index]);
         if (argument == "*" || argument == "-a" || argument == "--all") { all = true; continue; }
         apps.push_back(argument);
     }
-    if (command == "show") return cache_show(context,apps);
-    if (command == "rm") {
-        // Scoop requires a package or `*`/`--all`: a bare `cache rm` must not empty the cache.
-        if (apps.empty() && !all) throw std::runtime_error("<app(s)> missing");
-        return cache_remove(context,apps,all || apps.empty());
-    }
-    throw UsageError("cache requires show or rm");
+    if (command != "rm") return cache_show(context,apps);
+    // Scoop requires a package or `*`/`--all`: a bare `cache rm` must not empty the cache.
+    if (apps.empty() && !all) throw std::runtime_error("<app(s)> missing\nUsage: coop cache show|rm [app(s)]");
+    return cache_remove(context,apps,all || apps.empty());
 }
 int download_command(const Context& context,const std::vector<std::wstring>& args,const std::string& architecture) {
     bool force = false, skip_hash = false;
@@ -154,7 +151,7 @@ int download_command(const Context& context,const std::vector<std::wstring>& arg
             auto package = parse_package(found->manifest_path,found->name,found->bucket,
                 architecture.empty() ? std::string("64bit") : architecture);
             ir::validate(package);
-            std::cout << "Downloading '"<<package.name<<"' ("<<package.version<<") ["
+            std::cout << "INFO  Downloading '"<<package.name<<"' ["
                       <<(architecture.empty() ? "64bit" : architecture)<<"] from "<<package.bucket<<" bucket\n";
             std::error_code directory_error;
             fs::create_directories(context.root/L"cache",directory_error);
@@ -166,6 +163,7 @@ int download_command(const Context& context,const std::vector<std::wstring>& arg
                 if (!force && fs::is_regular_file(cached,error) &&
                     digest_file(cached,artifact.digest.algorithm) == artifact.digest.value) {
                     std::cout << lines::loading_cache(artifact.filename) << '\n';
+                    std::cout << lines::checking_hash(artifact.filename) << "OK.\n";
                     continue;
                 }
                 // Scoop names the size before the transfer; a local artifact is measured up front and a
@@ -185,7 +183,8 @@ int download_command(const Context& context,const std::vector<std::wstring>& arg
                     throw;
                 }
                 progress_finish_stage();
-                progress_stage(lines::checking_hash(artifact.filename));
+                std::cout << lines::checking_hash(artifact.filename);
+                std::cout.flush();
                 if (!skip_hash && digest_file(cached,artifact.digest.algorithm) != artifact.digest.value) {
                     std::error_code remove_error;
                     fs::remove(cached,remove_error);
@@ -193,6 +192,7 @@ int download_command(const Context& context,const std::vector<std::wstring>& arg
                 }
                 std::cout << "OK.\n";
             }
+            std::cout << "'" << package.name << "' (" << package.version << ") was downloaded successfully!\n";
         } catch (const std::exception& error) {
             std::cerr << "coop: "<<utf8(request)<<": "<<error.what()<<'\n';
             failed = true;

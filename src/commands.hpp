@@ -22,4 +22,6 @@ struct Command {
 std::span<const Command> commands();
 // True when `name` is a command Coop dispatches, including the Coop-only `init` and `recover`.
 bool is_command(std::string_view name);
+std::string_view command_help(std::string_view name);
+std::string_view command_limitations(std::string_view name);
 }

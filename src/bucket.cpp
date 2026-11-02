@@ -1,10 +1,15 @@
 #include "catalog_index.hpp"
 #include "git_bucket.hpp"
+#include "progress.hpp"
+#include <git2.h>
 #include <windows.h>
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <ctime>
+#include <cstdio>
 #include <stdexcept>
 
 namespace coop {
@@ -27,10 +32,57 @@ bool same_source(const std::string& left, const std::string& right) {
 fs::path refresh_journal_path(const Context& context, const std::string& name) {
     return state_directory(context)/L"bucket-refresh"/(wide(name)+L".json");
 }
-void report_source(const Json& source) {
+void report_source(const Context& context,const Json& source) {
+    if (!context.json_output) {
+        std::cout << "'" << source.at("name").get<std::string>() << "' bucket "
+                  << (source.value("changed",true) ? "was updated successfully!" : "is up to date.") << '\n';
+        return;
+    }
     Json output = source;
     output.erase("files");
     std::cout << output.dump(2) << '\n';
+}
+std::vector<std::string> bucket_row(const Json& source) {
+    const fs::path path(wide(source.at("path").get<std::string>()));
+    const auto directory = fs::is_directory(path/L"bucket") ? path/L"bucket" : path;
+    std::error_code error;
+    std::uintmax_t count = 0;
+    for (fs::recursive_directory_iterator item(directory,fs::directory_options::skip_permission_denied,error),end;
+         !error && item != end; item.increment(error)) {
+        std::error_code type_error;
+        if (item->is_regular_file(type_error) && item->path().extension() == L".json") ++count;
+    }
+    std::string updated;
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    FILETIME local{};
+    SYSTEMTIME time{};
+    if (GetFileAttributesExW(directory.c_str(),GetFileExInfoStandard,&data) &&
+        FileTimeToLocalFileTime(&data.ftLastWriteTime,&local) && FileTimeToSystemTime(&local,&time)) {
+        char text[32]{};
+        std::snprintf(text,sizeof text,"%04u-%02u-%02u %02u:%02u:%02u",time.wYear,time.wMonth,time.wDay,time.wHour,time.wMinute,time.wSecond);
+        updated = text;
+    }
+    const auto url = source.value("url",path_text(path));
+    struct Session { Session() { git_libgit2_init(); } ~Session() { git_libgit2_shutdown(); } } session;
+    git_repository* raw_repository = nullptr;
+    if (git_repository_open_ext(&raw_repository,path_text(path).c_str(),GIT_REPOSITORY_OPEN_NO_SEARCH,nullptr) == 0) {
+        const std::unique_ptr<git_repository,decltype(&git_repository_free)> repository(raw_repository,git_repository_free);
+        git_object* raw_head = nullptr;
+        if (git_revparse_single(&raw_head,repository.get(),"HEAD^{commit}") == 0) {
+            const std::unique_ptr<git_object,decltype(&git_object_free)> head(raw_head,git_object_free);
+            const auto* commit = reinterpret_cast<const git_commit*>(head.get());
+            const auto* author = git_commit_author(commit);
+            if (author) {
+                const auto seconds = static_cast<std::time_t>(author->when.time);
+                std::tm calendar{};
+                localtime_s(&calendar,&seconds);
+                char text[32]{};
+                std::strftime(text,sizeof text,"%Y-%m-%d %H:%M:%S",&calendar);
+                updated = text;
+            }
+        }
+    }
+    return {source.at("name").get<std::string>(),url,updated,std::to_string(count)};
 }
 // A refresh journal marks a Git shared-bucket operation while it is in progress. If the process
 // is terminated, the next refresh can overwrite it; the shared working tree and the previously
@@ -76,7 +128,13 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             source.erase("files");
             result.push_back(std::move(source));
         }
-        std::cout << result.dump(2) << '\n';
+        if (context.json_output) std::cout << result.dump(2) << '\n';
+        else if (result.empty()) std::cout << "WARN  No bucket found. Please run 'coop bucket add main' to add the default 'main' bucket.\n";
+        else {
+            std::vector<std::vector<std::string>> rows;
+            for (const auto& source : result) rows.push_back(bucket_row(source));
+            print_table({"Name","Source","Updated","Manifests"},rows);
+        }
         return 0;
     }
     if (args[0] == L"known") {
@@ -103,7 +161,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
     // `rm` is Scoop's documented spelling; `remove` stays as the original Coop form.
     const bool remove = args[0] == L"remove" || args[0] == L"rm";
     if (args[0] != L"add" && !remove && args[0] != L"update")
-        throw std::runtime_error("Unknown bucket operation");
+        throw std::runtime_error("coop bucket: cmd '"+utf8(args[0])+"' not supported\nUsage: coop bucket add|list|known|rm [<args>]");
     if (args[0] == L"add" && args.size() < 3) throw std::runtime_error("bucket add requires name and source");
     if (remove && args.size() != 2) throw std::runtime_error("bucket rm requires one name");
     if (args[0] == L"update" && args.size() > 2) throw std::runtime_error("bucket update accepts at most one name");
@@ -165,7 +223,10 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
         else *found = record;
         write_json(registry_path,registry);
         refresh_index(context,record,false);
-        if (!quiet_report) report_source(record);
+        if (!quiet_report) {
+            if (context.json_output) report_source(context,record);
+            else std::cout << "'" << name << "' bucket was added successfully!\n";
+        }
         return 0;
     }
     if (remove) {
@@ -186,7 +247,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             const auto kind = source.value("kind",std::string{});
             if (kind == "local" || (kind == "unmanaged" && !fs::exists(fs::path(wide(source.at("path").get<std::string>()))/L".git"))) {
                 refresh_index(context,source,false);
-                if (!quiet_report) report_source(source);
+                if (!quiet_report) report_source(context,source);
                 continue;
             }
             const auto bucket_name = source.at("name").get<std::string>();
@@ -202,7 +263,7 @@ int bucket_command(const Context& context, const std::vector<std::wstring>& args
             source = std::move(updated);
             write_json(registry_path,registry);
             refresh_index(context,source,source.value("changed",true));
-            if (!quiet_report) report_source(source);
+            if (!quiet_report) report_source(context,source);
         } catch (const std::exception& error) {
             failed = true;
             std::cerr << "coop: bucket " << source.at("name").get<std::string>() << ": " << error.what() << '\n';

@@ -6,6 +6,8 @@
 #include "progress.hpp"
 #include "recovery.hpp"
 #include "versions.hpp"
+#include "inno.hpp"
+#include "nsis.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -1034,7 +1036,12 @@ static int help_command(const std::vector<std::wstring>& args) {
         if (name != command.name) continue;
         std::cout << "Usage: coop " << command.name;
         if (*command.usage) std::cout << ' ' << command.usage;
-        std::cout << "\n\n" << command.summary << '\n';
+        std::cout << "\n\n";
+        const auto details = command_help(name);
+        if (!details.empty()) std::cout << details << '\n';
+        else if (!command.scoop_command) std::cout << command.summary << '\n';
+        if (const auto limits = command_limitations(name); !limits.empty())
+            std::cout << "\nCoop notes:\n  " << limits << '\n';
         if (command.implemented) return 0;
         std::cout << "\nWARN  this Scoop command is not implemented in Coop yet.\n";
         return 1;
@@ -1122,8 +1129,35 @@ static int checkup_command(const Context& context) {
     DWORD long_paths = 0, size = sizeof(long_paths);
     const auto status = RegGetValueW(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\FileSystem",
         L"LongPathsEnabled",RRF_RT_REG_DWORD,nullptr,&long_paths,&size);
-    if (status != ERROR_SUCCESS || long_paths == 0)
-        report("Long paths are disabled; set HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem\\LongPathsEnabled to 1.");
+    if (status != ERROR_SUCCESS || long_paths == 0) {
+        report("LongPaths support is not enabled.");
+        std::cout << "  You can enable it by running:\n"
+                     "    sudo Set-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name 'LongPathsEnabled' -Value 1\n"
+                     "  (Requires 'sudo' command. Run 'coop install sudo' if you don't have it.)\n";
+    }
+    DWORD developer_mode = 0;
+    size = sizeof(developer_mode);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE,L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+        L"AllowDevelopmentWithoutDevLicense",RRF_RT_REG_DWORD,nullptr,&developer_mode,&size) != ERROR_SUCCESS || developer_mode != 1) {
+        report("Windows Developer Mode is not enabled. Operations relevant to symlinks may fail without proper rights.");
+        std::cout << "  You may read more about the symlinks support here:\n"
+                     "  https://blogs.windows.com/windowsdeveloper/2016/12/02/symlinks-windows-10/\n";
+    }
+    if (nsis_helper(context).path.empty())
+        report("'7-Zip' is not installed! It's required for unpacking NSIS and some self-extracting archives. Please run 'coop install 7zip'.");
+    if (inno_helper(context).path.empty())
+        report("'Inno Setup Unpacker' is not installed! It's required for unpacking InnoSetup files. Please run 'coop install innounp'.");
+    // WiX extraction is not implemented by Coop. Report Scoop's helper requirement for the
+    // shared root without implying that installing the helper enables this mechanism in Coop.
+    bool dark = false;
+    std::vector<fs::path> helper_roots{context.root};
+    if (context.global_root) helper_roots.push_back(*context.global_root);
+    for (const auto& root : helper_roots) for (const auto& relative : {L"apps/dark/current/dark.exe",L"apps/wixtoolset/current/bin/dark.exe"}) {
+        std::error_code helper_error;
+        if (fs::is_regular_file(root/relative,helper_error)) dark = true;
+    }
+    if (!dark)
+        report("'dark' is not installed! Scoop requires it for unpacking installers created with the WiX Toolset. Please run 'coop install dark' or 'coop install wixtoolset'.");
     bool main_bucket = false;
     for (const auto& source : bucket_sources(context)) {
         if (source.value("kind",std::string{}) == "removed") continue;
@@ -1167,7 +1201,7 @@ static int checkup_command(const Context& context) {
         } catch (const std::exception&) { /* A shim that cannot be read is not a problem this check proves. */ }
     }
     if (issues == 0) { std::cout << "No problems identified!\n"; return 0; }
-    std::cout << "Found " << issues << " potential problem" << (issues == 1 ? "" : "s") << ".\n";
+    std::cout << "WARN  Found " << issues << " potential problem" << (issues == 1 ? "" : "s") << ".\n";
     return 0;
 }
 int query(const Context& context, const std::wstring& command, const std::vector<std::wstring>& args) {
@@ -1234,7 +1268,7 @@ int query(const Context& context, const std::wstring& command, const std::vector
             // the query as written, because it is a regular expression.
             result = matching_catalog(context,command,command == L"info" ? lowercase(query_text) : query_text);
         }
-        if (command == L"info" && result.empty()) throw std::runtime_error("Package not found in local buckets");
+        if (command == L"info" && result.empty()) throw std::runtime_error("Could not find manifest for '"+query_text+"' in local buckets.");
         if (command == L"info" && result.size() > 1)
             throw std::runtime_error("Ambiguous package; qualify it with its bucket");
         if (command == L"info") for (auto& item : result) item["validation"] = validation_json(context,item);

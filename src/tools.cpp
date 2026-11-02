@@ -73,7 +73,9 @@ int virustotal_command(const Context& context,const std::vector<std::wstring>& a
         key = utf8(std::wstring(key_buffer,key_length));
     if (key.empty()) key = config_value("virustotal_api_key");
     if (key.empty()) {
-        std::cerr << "coop: the VirusTotal API key is not configured; run 'coop config virustotal_api_key <key>'\n";
+        std::cerr << "coop: VirusTotal API key is not configured\n"
+                     "You could get one from https://www.virustotal.com/gui/my-apikey and set with\n"
+                     "coop config virustotal_api_key <API key>\n";
         return 1;
     }
     std::string base = "https://www.virustotal.com/api/v3";

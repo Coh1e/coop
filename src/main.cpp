@@ -99,6 +99,28 @@ int wmain(int argc, wchar_t** argv) {
             // prints.
             if (arguments.size() == 1 && (arguments[0] == L"--help" || arguments[0] == L"-h"))
                 return coop::query(context,L"help",{command});
+            // Missing arguments should explain the expected invocation, just like Scoop. Keep
+            // Coop's documented usage-error exit code instead of leaking handler exceptions.
+            if (arguments.empty()) {
+                std::string missing;
+                if (command == L"alias" || command == L"shim") missing = "<subcommand> missing";
+                else if (command == L"which") missing = "<command> missing";
+                else if (command == L"cat" || command == L"depends" || command == L"download" ||
+                         command == L"install" || command == L"reset" || command == L"uninstall") missing = "<app> missing";
+                else if (command == L"import") missing = "<path/url to scoopfile.json> missing";
+                else if (command == L"bucket") missing = "coop bucket: cmd '' not supported";
+                const bool usage_only = command == L"hold" || command == L"home" || command == L"info" ||
+                    command == L"prefix" || command == L"unhold" || command == L"virustotal" || command == L"create";
+                if (!missing.empty() || usage_only) {
+                    auto& output = missing.empty() ? std::cout : std::cerr;
+                    if (!missing.empty()) output << "ERROR " << missing << '\n';
+                    for (const auto& entry : coop::commands()) if (command == coop::wide(entry.name)) {
+                        output << "Usage: coop " << entry.name << ' ' << entry.usage << '\n';
+                        if (command == L"create") output << "\nCreate your own custom app manifest\n";
+                    }
+                    return command == L"bucket" ? 1 : 2;
+                }
+            }
             // Move a pre-0.2.5 <root>/.coop into the external state directory once. When
             // COOP_STATE_DIR already points there this is a no-op, which is how the tests pin state.
             coop::migrate_legacy_state(context);

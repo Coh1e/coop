@@ -2,6 +2,8 @@
 
 2026-10-29 建立。`list`、`search`、`info` 默认（不带 `--json`）的输出对齐 Scoop 0.6.0 的形状；`--json` 不变，仍是机读契约。本文件记录形状、刻意偏离与未覆盖项。
 
+2026-11-02 补充的 cache、bucket、shim、缺参用法、详细帮助及诊断反馈，见[逐命令输出对照](command-output-acceptance.md)。
+
 ## 形状
 
 `list`：

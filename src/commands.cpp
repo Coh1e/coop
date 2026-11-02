@@ -15,7 +15,7 @@ constexpr Command kCommands[] = {
     {"create","<url>","Create a custom app manifest",true,true},
     {"depends","<app>","List dependencies for an app, in the order they'll be installed",true,true},
     {"download","<app> [options]","Download apps in the cache folder and verify hashes",true,true},
-    {"export","","Exports installed apps, buckets (and optionally configs) in JSON format",true,true},
+    {"export","> scoopfile.json","Exports installed apps, buckets (and optionally configs) in JSON format",true,true},
     {"help","<command>","Show help for a command",true,true},
     {"hold","<apps>","Hold an app to disable updates",true,true},
     {"home","<app>","Opens the app homepage",true,true},
@@ -41,5 +41,29 @@ std::span<const Command> commands() { return kCommands; }
 bool is_command(std::string_view name) {
     for (const auto& command : kCommands) if (name == command.name) return true;
     return false;
+}
+std::string_view command_help(std::string_view name) {
+    static constexpr struct { std::string_view name; std::string_view text; } help[] = {
+#include "command_help.inc"
+    };
+    for (const auto& entry : help) if (entry.name == name) return entry.text;
+    return {};
+}
+std::string_view command_limitations(std::string_view name) {
+    if (name == "bucket") return "add requires an explicit source. rm removes the registration and retains source files. update refreshes shared buckets.";
+    if (name == "cat") return "The manifest is printed as stored; cat_style and bat are not used.";
+    if (name == "checkup") return "Checks system settings, extraction helpers, buckets, pending transactions and broken shims. Defender exclusions are not inspected or changed.";
+    if (name == "cleanup") return "With no app, cleans all apps. --transactions also trims completed transaction records. Global installations are read-only.";
+    if (name == "config") return "The settings below describe the shared Scoop configuration. Coop only writes ALIAS and virustotal_api_key; other settings are preserved. Coop does not implement every Scoop setting.";
+    if (name == "create") return "Prints an offline manifest skeleton to stdout; no download is made and the hash must be filled in.";
+    if (name == "export") return "Exports user apps and buckets. -c/--config is not supported.";
+    if (name == "import") return "Imports user apps and buckets. Configuration settings and global installations are not imported.";
+    if (name == "install" || name == "uninstall") return "Global installations are read-only. --dry-run previews the operation; --json returns machine-readable output.";
+    if (name == "reset") return "Use <app>@<installed-version> to switch to a retained local version. The current version is rejected; no download or installation hook is run.";
+    if (name == "status") return "Checks local state only; does not fetch Scoop or bucket updates.";
+    if (name == "update") return "Without an app, refreshes buckets only; Coop does not self-update. Global installations are read-only.";
+    if (name == "shim") return "Lists local native shims; info also shows Target and Arguments. alter changes saved arguments; interactive source selection is not supported.";
+    if (name == "virustotal") return "Requires virustotal_api_key or COOP_VIRUSTOTAL_KEY. Uploading for analysis (-s/--scan) is not supported. Uses Coop exit codes 0/1/2, not Scoop's bitmask codes.";
+    return {};
 }
 }
