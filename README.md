@@ -2,7 +2,7 @@
 
 Coop 是 Windows 原生的软件包管理器，与现有用户级 Scoop 共用安装根、bucket、软件、入口、持久化数据和安装记录。它不要求迁移或接管：两个客户端可以先后管理同一批软件。Scoop 的 Manifest 与 bucket 生态可直接使用。
 
-当前为 `v0.3.0`，支持 Windows x64。与 Scoop 的兼容边界、已验证范围和未运行项见[兼容性盘点](docs/coverage-report.md)与[能力边界](#能力边界)。
+当前为 `v0.3.1`，支持 Windows x64。与 Scoop 的兼容边界、已验证范围和未运行项见[兼容性盘点](docs/coverage-report.md)与[能力边界](#能力边界)。
 
 ## 安装
 
