@@ -59,17 +59,6 @@ Report the result, key changes, checks run with outcomes, and remaining limitati
 Claim completion only when the evidence supports the agreed acceptance criteria.
 Keep the report concise. Include exact commands when they help reproduce verification.
 
-### Next-step guidance
-
-For coding and directly related work, read docs/agents/next-step.md before
-ending a response. It defines completion notices, human questions, improvement plans,
-and AI continuation prompts.
-
-## Procedures
-
-1. Push with `scripts/push.ps1`; the local git and `gh` quirks are in `docs/agents/environment.md`.
-2. Release steps, including the Scoop bucket update and rollback, are in `docs/release-process.md`.
-
 ## Agent skills
 
 ### Issue tracker
@@ -86,3 +75,13 @@ and AI continuation prompts.
 
 采用 single-context：根目录 GLOSSARY.md 与 docs/adr/。
 详见 `docs/agents/domain.md`。
+
+### Next-step guidance
+
+For coding and directly related work, read
+`C:/Users/Neo/.agents/skills/pipkit-next-step/SKILL.md` before ending a response.
+Follow its decision on continuing work or selecting a closing mode. If missing or
+unreadable, report the dependency and do not claim the rules were loaded.
+
+Coop follows single-agent execution in [ADR-0003](docs/adr/0003-single-agent-execution.md).
+Implementation, verification, review, commits, and task resolution stay in that session.
