@@ -334,7 +334,11 @@ Notes:
   - '--%' disables PowerShell parsing of the remainder; pass literals as needed.)coophelp"},
 {"status",R"coophelp(Options:
   -l, --local         Checks the status for only the locally installed apps,
-                      and disables remote fetching/checking for coop and buckets)coophelp"},
+                      and disables remote checks for Coop and installed Scoop.
+Notes:
+  Bare status checks Coop releases and the same-root Scoop branch.
+  --json preserves the local package status array; it does not check clients.
+  Checks do not update clients, buckets or installed apps.)coophelp"},
 {"unhold",R"coophelp(To unhold a user-scoped app:
      coop unhold <app>
 

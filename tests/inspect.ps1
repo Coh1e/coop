@@ -27,12 +27,12 @@ Set-Content -LiteralPath $target -Value 'stub' -Encoding ascii
 "path = `"$target`"" | Set-Content "$root/shims/demo.shim" -Encoding utf8
 
 # status reports the outdated package with both versions.
-$lines = @(& $CoopExe --root $root status)
+$lines = @(& $CoopExe --root $root status -l)
 if ($LASTEXITCODE -cne 0) { throw "status failed: $($lines -join ' | ')" }
 if ($lines[0] -cne 'Name Installed Version Latest Version Missing Dependencies Info') { throw "status header is '$($lines[0])'" }
 if ($lines[2] -cnotmatch '^demo\s+1\.7\.1\s+1\.8\.2\s') { throw "status row is '$($lines[2])'" }
-# `-l` is Scoop's "do not fetch" switch and Coop never fetches, so it must be accepted.
-$lines = @(& $CoopExe --root $root status -l)
+# Both spellings of the local-only switch must be accepted.
+$lines = @(& $CoopExe --root $root status --local)
 if ($LASTEXITCODE -cne 0) { throw "status -l failed: $($lines -join ' | ')" }
 
 # prefix prints the same `current` path Scoop prints.
@@ -64,7 +64,7 @@ Copy-Item "$PSScriptRoot/corpus/main/jq.json" "$root/apps/demo/1.8.2/scoop-manif
 '{"bucket":"main","architecture":"64bit"}' | Set-Content "$root/apps/demo/1.8.2/scoop-install.json" -Encoding utf8
 (Get-Item "$root/apps/demo/current").Delete()
 New-Item -ItemType Junction -Path "$root/apps/demo/current" -Target "$root/apps/demo/1.8.2" | Out-Null
-$lines = @(& $CoopExe --root $root status)
+$lines = @(& $CoopExe --root $root status -l)
 if ($LASTEXITCODE -cne 0 -or ($lines -join '|') -cne 'Everything is ok!') { throw "clean status said '$($lines -join ' | ')'" }
 
 # depends lists the declared dependency first and the app itself last, like Scoop.

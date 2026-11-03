@@ -75,7 +75,7 @@ Notes       : Scoop persists data since version 0.11.16. ...
 8. **`status` 的更新判定是"清单版本 ≠ 已装版本"**，Scoop 用 `Compare-Version` 排序。Coop 的 `update` 本来以"版本不同"为触发条件，`status` 用同一谓词，避免出现 `status` 说最新而 `update` 仍然动作；代价是清单版本回退时也会列为可更新。
 9. **`which` 未找到退出 1**（Scoop 退出 2），消息与 Scoop 相同。理由同偏离 1：2 在 Coop 的契约里是用法错误。
 10. **`cat` 原样输出存储的清单字节**；Scoop 会 pretty-print，并因此丢失声明顺序。
-11. **`status` 默认即本地**，接受 `-l`/`--local` 但不改变行为（Coop 从不在这里 fetch）。
+11. **`status` 默认检查客户端更新**：通过官方最新稳定发布检查当前运行的 Coop；同一根存在 `apps/scoop/current` 时，通过该 Git 仓库当前分支配置的远端检查 Scoop。只读取远端引用，不 fetch、不改写引用或工作目录、不更新 bucket。`-l`/`--local` 跳过客户端检查；`--json` 保留现有本地包状态数组，不加入客户端结果。
 
 ## 检查类读命令
 
@@ -87,7 +87,7 @@ Name  Installed Version  Latest Version  Missing Dependencies  Info
 demo  1.7.1              1.8.2
 ```
 
-只列异常项（有更新、缺依赖、Install failed、Deprecated、Manifest removed）；全部正常时只打 `Everything is ok!`。`--json` 给同样的字段。
+只列异常项（有更新、缺依赖、Install failed、Deprecated、Manifest removed）；本地检查全部正常时打 `Everything is ok!`。裸命令先报告 Coop 与已安装 Scoop 的更新状态；有客户端更新或检查失败时不打印总状态正常。失败显示具名 `WARN`，继续检查本地包，退出码仍为 0。Coop 有更新时给出当前版本、最新版本和官方下载页；Scoop 有更新时提示执行 `scoop update`。缺失或无法检查的远端、分离 HEAD、无效发布响应均不视为最新。`--json` 给同样的本地包字段。
 
 `prefix <包>`：打印 `<根>\apps\<包>\current`（与 Scoop 相同，不解析成版本目录）。
 

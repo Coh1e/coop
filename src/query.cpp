@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <cctype>
 #include <map>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <chrono>
@@ -895,7 +896,105 @@ static std::string manifest_version_text(const fs::path& path) {
     try { return read_json(path).value("version",std::string{}); }
     catch (const std::exception&) { return {}; }
 }
-static int status_command(const Context& context) {
+static bool check_coop_update() {
+    try {
+        auto api = environment_text(L"COOP_GITHUB_API");
+        if (api.empty()) api = "https://api.github.com";
+        int status = 0;
+        const auto body = http_get_text(api+"/repos/Coh1e/coop/releases/latest",
+            {{"User-Agent","Coop"},{"Accept","application/vnd.github+json"}},status);
+        if (status != 200) throw std::runtime_error("Release request failed");
+        const auto release = Json::parse(body);
+        const auto tag = release.at("tag_name").get<std::string>();
+        const std::regex version("^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)$");
+        std::smatch latest, current;
+        const std::string running = COOP_VERSION;
+        if (!std::regex_match(tag,latest,version) || !std::regex_match(running,current,version))
+            throw std::runtime_error("Invalid release version");
+        bool newer = false;
+        for (std::size_t index = 1; index <= 3; ++index) {
+            // Compare decimal components without integer overflow, even for untrusted API input.
+            const auto component = [](std::string value) {
+                const auto first = value.find_first_not_of('0');
+                return first == std::string::npos ? std::string("0") : value.substr(first);
+            };
+            const auto left = component(latest[index].str()), right = component(current[index].str());
+            if (left == right) continue;
+            newer = left.size() != right.size() ? left.size() > right.size() : left > right;
+            break;
+        }
+        if (newer) {
+            std::cout << "WARN  Coop update available: " << running << " -> " << tag
+                      << ". See https://github.com/Coh1e/coop/releases/latest\n";
+            return false;
+        }
+        std::cout << "Coop is up to date.\n";
+        return true;
+    } catch (const std::exception&) {
+        std::cout << "WARN  Could not check Coop updates.\n";
+        return false;
+    }
+}
+static bool check_scoop_update(const Context& context) {
+    const auto path = context.root/L"apps"/L"scoop"/L"current";
+    try {
+        if (!fs::exists(path)) return true;
+        struct Session { Session() { git_libgit2_init(); } ~Session() { git_libgit2_shutdown(); } } session;
+        const auto check = [](int result) { if (result < 0) throw std::runtime_error("Scoop remote check failed"); };
+        git_repository* raw_repository = nullptr;
+        check(git_repository_open_ext(&raw_repository,path_text(path).c_str(),GIT_REPOSITORY_OPEN_NO_SEARCH,nullptr));
+        const std::unique_ptr<git_repository,decltype(&git_repository_free)> repository(raw_repository,git_repository_free);
+        git_reference* raw_head = nullptr;
+        check(git_repository_head(&raw_head,repository.get()));
+        const std::unique_ptr<git_reference,decltype(&git_reference_free)> head(raw_head,git_reference_free);
+        if (!git_reference_is_branch(head.get())) throw std::runtime_error("Detached Scoop HEAD");
+        git_config* raw_config = nullptr;
+        check(git_repository_config_snapshot(&raw_config,repository.get()));
+        const std::unique_ptr<git_config,decltype(&git_config_free)> config(raw_config,git_config_free);
+        const std::string branch = git_reference_shorthand(head.get());
+        const char* remote_name = nullptr;
+        const char* merge_name = nullptr;
+        check(git_config_get_string(&remote_name,config.get(),("branch."+branch+".remote").c_str()));
+        check(git_config_get_string(&merge_name,config.get(),("branch."+branch+".merge").c_str()));
+        git_remote* raw_remote = nullptr;
+        check(git_remote_lookup(&raw_remote,repository.get(),remote_name));
+        const std::unique_ptr<git_remote,decltype(&git_remote_free)> remote(raw_remote,git_remote_free);
+        // Advertise refs only: status must never fetch, move a shared ref or change the worktree.
+        check(git_remote_connect(remote.get(),GIT_DIRECTION_FETCH,nullptr,nullptr,nullptr));
+        const git_remote_head** refs = nullptr;
+        std::size_t count = 0;
+        check(git_remote_ls(&refs,&count,remote.get()));
+        bool found = false, newer = false;
+        for (std::size_t index = 0; index < count; ++index) {
+            if (std::string(refs[index]->name) != merge_name) continue;
+            found = true;
+            const auto* local = git_reference_target(head.get());
+            if (!local) throw std::runtime_error("Missing Scoop HEAD");
+            // A locally ahead branch does not need updating. An unseen remote commit, including
+            // a divergent tip, needs attention without downloading objects into the shared repo.
+            newer = !git_oid_equal(local,&refs[index]->oid) &&
+                git_graph_descendant_of(repository.get(),local,&refs[index]->oid) != 1;
+            break;
+        }
+        git_remote_disconnect(remote.get());
+        if (!found) throw std::runtime_error("Missing Scoop remote branch");
+        if (newer) {
+            std::cout << "WARN  Scoop out of date. Run 'scoop update' to get the latest changes.\n";
+            return false;
+        }
+        std::cout << "Scoop is up to date.\n";
+        return true;
+    } catch (const std::exception&) {
+        std::cout << "WARN  Could not check Scoop updates.\n";
+        return false;
+    }
+}
+static int status_command(const Context& context, bool local) {
+    bool clients_ok = true;
+    if (!local && !context.json_output) {
+        clients_ok = check_coop_update();
+        clients_ok = check_scoop_update(context) && clients_ok;
+    }
     std::map<std::string,fs::path> catalogue_paths;
     for (const auto& entry : catalogue(context))
         if (!catalogue_paths.contains(lowercase(entry.name))) catalogue_paths[lowercase(entry.name)] = entry.manifest_path;
@@ -931,7 +1030,10 @@ static int status_command(const Context& context) {
             {"missing_dependencies",missing},{"info",info.empty() ? flags : info}});
     }
     if (context.json_output) { std::cout << json.dump(2,' ',false,Json::error_handler_t::replace) << '\n'; return 0; }
-    if (rows.empty()) { std::cout << "Everything is ok!\n"; return 0; }
+    if (rows.empty()) {
+        if (clients_ok) std::cout << "Everything is ok!\n";
+        return 0;
+    }
     print_table({"Name","Installed Version","Latest Version","Missing Dependencies","Info"},rows);
     return 0;
 }
@@ -1220,11 +1322,9 @@ int query(const Context& context, const std::wstring& command, const std::vector
     }
     if (command == L"status" || command == L"prefix" || command == L"cat" || command == L"which" || command == L"home") {
         if (command == L"status") {
-            // `scoop status -l` only disables remote fetching, and Coop never fetches here, so both
-            // spellings mean the same thing.
             for (const auto& argument : args)
                 if (argument != L"-l" && argument != L"--local") throw UsageError("status accepts only -l/--local");
-            return status_command(context);
+            return status_command(context,!args.empty());
         }
         if (args.size() != 1) throw UsageError(utf8(command)+" requires exactly one package or command");
         const auto name = utf8(args.front());

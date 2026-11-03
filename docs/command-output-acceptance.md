@@ -46,7 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Action te
 | reset | 未指定版本、指定当前版本 | 保留仅回退到指定本地旧版本的约定；成功回退由既有 `old_versions` 测试验证 |
 | search | 本地命中、无匹配 | 所有 known buckets 在测试根注册为空，避免 GitHub 回退 |
 | shim | 空列表、add/info/list/rm、不存在的 shim | 对齐来源和可见性字段；info 额外保留 Target/Arguments；alter 仍只修改参数 |
-| status | 当前与过期版本 | 仅本地状态检查，不执行 Scoop 自更新检查 |
+| status | 当前与过期版本 | 此历史对照使用 `-l`，只证明本地状态；裸命令现检查 Coop 与同根 Scoop 的更新，见[读命令输出](query-output.md) |
 | unhold | 已安装、不存在的软件 | 保留现有行为 |
 | uninstall | 正常卸载、重复卸载 | 保留持久化与安全边界 |
 | update | 缓存升级、不存在的软件 | 不重复宣称读取同一缓存；不自更新；全局只读 |

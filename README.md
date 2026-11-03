@@ -63,7 +63,7 @@ coop recover
 
 - 共用安装根与状态；不承诺两个客户端同时写入。
 - 系统级根只读：`update`、`uninstall`、`reset` 以 `global-scope-readonly` 拒绝写入；`-g`/`--global` 不写入。
-- 不自动同步 bucket、不自动发布；只有显式 `update`、`update *` 或 `bucket update` 刷新共用 bucket。
+- 不自动同步 bucket、不自动发布；只有显式 `update`、`update *` 或 `bucket update` 刷新共用 bucket。裸 `status` 检查 Coop 自身及同根已安装 Scoop 的更新，不执行更新；`status -l` 仅检查本地软件。
 - 生命周期 Hook、`installer.script` 与安装器程序由真实 PowerShell 执行，需要 PowerShell 与随包的 `scoop-lib/`；脚本不经过文本白名单。
 - MSI 产物按管理镜像提取，不运行 `msiexec`；Inno Setup 与 NSIS 载荷需要已安装在 root 内的 helper，Coop 不下载、不内嵌 helper，厂商安装器不运行。
 - 普通卸载保留声明的持久化数据；`uninstall --purge` 才删除，`cleanup` 才清理旧版本。
