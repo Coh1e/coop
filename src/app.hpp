@@ -7,10 +7,12 @@
 
 namespace coop {
 namespace fs = std::filesystem;
+enum class JsonFormat { legacy, full };
 struct Context {
     fs::path root;
     std::optional<fs::path> global_root;
     bool json_output = false;
+    JsonFormat json_format = JsonFormat::legacy;
     // --timings prints the network/local split after a write command. The machine-readable record is
     // written either way, so a human and a harness see the same numbers.
     bool timings = false;

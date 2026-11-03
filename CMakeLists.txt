@@ -127,6 +127,7 @@ set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${PROJECT_SOURCE_DIR}/.local/deps/sources/libarchive-3.7.7" "${PROJECT_BINARY_DIR}/archive" EXCLUDE_FROM_ALL)
 add_dependencies(archive_static coop_bzip2 libzstd_static)
 add_executable(coop src/main.cpp src/commands.cpp src/init.cpp src/data.cpp src/query.cpp src/cache.cpp src/appstate.cpp src/config.cpp src/tools.cpp src/runrecord.cpp src/catalog_index.cpp src/bucket.cpp src/git_bucket.cpp src/crypto.cpp src/ir_adapter.cpp src/ir_validate.cpp src/ir_plan.cpp src/ir_dependencies.cpp src/plan.cpp src/native.cpp src/archive.cpp src/msi.cpp src/inno.cpp src/nsis.cpp src/publish.cpp src/persist.cpp src/execute.cpp src/exposure.cpp src/user_environment.cpp src/shim.cpp src/script.cpp src/versions.cpp src/recovery.cpp src/faults.cpp src/progress.cpp src/timings.cpp)
+target_sources(coop PRIVATE src/operation_result.cpp src/status_local.cpp)
 # Lifecycle hook hosts load the pinned Scoop compatibility library from disk. It is shipped beside
 # the executable so its provenance, version and license stay inspectable instead of being compiled
 # into an opaque blob. The copy runs on every build because the library is data, not a compiled
@@ -230,6 +231,8 @@ if(BUILD_TESTING)
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/inspect")
   add_test(NAME status_remote COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/status-remote.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/status-remote")
+  add_test(NAME status_v2 COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/status-v2.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/status-v2")
   add_test(NAME config COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/config.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/config")
   add_test(NAME import COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/import.ps1"
@@ -383,6 +386,13 @@ if(BUILD_TESTING)
   target_compile_options(ir_reuse PRIVATE /W4 /WX /utf-8 /permissive-)
   set_property(TARGET ir_reuse PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_test(NAME ir_reuse COMMAND ir_reuse)
+  add_executable(operation_result_test tests/operation_result_fixture.cpp src/operation_result.cpp)
+  target_include_directories(operation_result_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
+  target_include_directories(operation_result_test SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/.local/deps/include")
+  target_compile_features(operation_result_test PRIVATE cxx_std_23)
+  target_compile_options(operation_result_test PRIVATE /W4 /WX /utf-8 /permissive-)
+  set_property(TARGET operation_result_test PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  add_test(NAME operation_result COMMAND operation_result_test)
 
   add_test(NAME four_sample_evidence COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/four-sample-evidence.ps1"
     -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/four-sample-evidence")

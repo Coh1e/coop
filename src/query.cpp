@@ -8,6 +8,7 @@
 #include "versions.hpp"
 #include "inno.hpp"
 #include "nsis.hpp"
+#include "status_local.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -990,6 +991,11 @@ static bool check_scoop_update(const Context& context) {
     }
 }
 static int status_command(const Context& context, bool local) {
+    if (context.json_format == JsonFormat::full) {
+        const auto report = local_status_report(context);
+        std::cout << operation_result_json(report).dump(2,' ',false,Json::error_handler_t::replace) << '\n';
+        return operation_result_exit_code(report);
+    }
     bool clients_ok = true;
     if (!local && !context.json_output) {
         clients_ok = check_coop_update();
@@ -1002,8 +1008,8 @@ static int status_command(const Context& context, bool local) {
     std::set<std::string> installed_names;
     for (const auto& item : installed) installed_names.insert(lowercase(field_text(item,"name")));
     const auto deprecated = deprecated_names(context);
-    std::vector<std::vector<std::string>> rows;
-    Json json = Json::array();
+    OperationResult report;
+    report.request.local_only = local || context.json_output;
     for (const auto& item : installed) {
         const auto name = field_text(item,"name");
         const auto current = field_text(item,"version");
@@ -1025,9 +1031,21 @@ static int status_command(const Context& context, bool local) {
                  deprecated.contains(lowercase(name)) ? "Deprecated" : ""})
             if (*flag) flags += (flags.empty() ? "" : ", ")+std::string(flag);
         if (latest.empty() && missing.empty() && flags.empty() && info.empty()) continue;
-        rows.push_back({name,current,latest,missing,info.empty() ? flags : info});
-        json.push_back({{"name",name},{"installed_version",current},{"latest_version",latest},
-            {"missing_dependencies",missing},{"info",info.empty() ? flags : info}});
+        ResultItem finding;
+        finding.name = name; finding.scope = field_text(item,"scope");
+        finding.state = ResultState::attention; finding.reason = "local-issues";
+        finding.data = {{"name",name},{"installed_version",current},{"latest_version",latest},
+            {"missing_dependencies",missing},{"info",info.empty() ? flags : info}};
+        report.apps.push_back(std::move(finding));
+    }
+    Json json = Json::array();
+    std::vector<std::vector<std::string>> rows;
+    const auto encoded = operation_result_json(report);
+    for (const auto& finding : encoded.at("apps")) {
+        const auto& data = finding.at("data");
+        json.push_back(data);
+        rows.push_back({field_text(data,"name"),field_text(data,"installed_version"),field_text(data,"latest_version"),
+            field_text(data,"missing_dependencies"),field_text(data,"info")});
     }
     if (context.json_output) { std::cout << json.dump(2,' ',false,Json::error_handler_t::replace) << '\n'; return 0; }
     if (rows.empty()) {

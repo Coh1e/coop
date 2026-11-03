@@ -5,6 +5,9 @@
 
 namespace coop {
 using Json = nlohmann::json;
+struct OperationResult;
+// Wire adapter for the standard-type operation model; the model header does not depend on JSON.
+Json operation_result_json(const OperationResult& report);
 Json read_json(const fs::path& path);
 fs::path installed_record(const fs::path& directory, const std::wstring& kind);
 Json installed_packages(const Context& context);

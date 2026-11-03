@@ -79,6 +79,8 @@ Notes       : Scoop persists data since version 0.11.16. ...
 
 ## 检查类读命令
 
+`status -l --json=2` 的完整本地报告、未检查状态、诊断及退出码见 [status JSON v2](status-result.md)。此扩展不改变下文旧 JSON 数组和文本形状。
+
 `status`：
 
 ```

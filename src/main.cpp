@@ -143,7 +143,13 @@ int wmain(int argc, wchar_t** argv) {
                 architecture = coop::utf8(option_value(i,arg,L"--arch"));
                 if (architecture != "64bit" && architecture != "32bit" && architecture != "arm64")
                     throw coop::UsageError("--arch must be 64bit, 32bit or arm64");
-            } else if (arg == L"--json") context.json_output = true;
+            } else if (arg == L"--json" || arg.starts_with(L"--json=")) {
+                if (arg != L"--json" && arg != L"--json=2") throw coop::UsageError("Supported JSON formats are --json and --json=2");
+                const auto format = arg == L"--json" ? coop::JsonFormat::legacy : coop::JsonFormat::full;
+                if (context.json_output && context.json_format != format) throw coop::UsageError("Conflicting JSON formats");
+                context.json_output = true;
+                context.json_format = format;
+            }
             else if (arg == L"--timings") context.timings = true;
             else arguments.emplace_back(arg);
         }
@@ -162,6 +168,12 @@ int wmain(int argc, wchar_t** argv) {
             // prints.
             if (arguments.size() == 1 && (arguments[0] == L"--help" || arguments[0] == L"-h"))
                 return coop::query(context,L"help",{command});
+            if (context.json_format == coop::JsonFormat::full) {
+                if (command != L"status") throw std::runtime_error("JSON v2 for this command is not available yet");
+                const bool local = std::any_of(arguments.begin(),arguments.end(),[](const auto& arg) { return arg == L"-l" || arg == L"--local"; });
+                if (!local) throw std::runtime_error("Remote status JSON v2 is not available yet; use -l/--local");
+                for (const auto& arg : arguments) if (arg != L"-l" && arg != L"--local") throw coop::UsageError("status accepts only -l/--local");
+            }
             // Missing arguments should explain the expected invocation, just like Scoop. Keep
             // Coop's documented usage-error exit code instead of leaking handler exceptions.
             if (arguments.empty()) {
@@ -189,7 +201,8 @@ int wmain(int argc, wchar_t** argv) {
                     [](const std::wstring& argument) { return argument == L"--dry-run"; });
             // Move a pre-0.2.5 <root>/.coop into the external state directory once. When
             // COOP_STATE_DIR already points there this is a no-op, which is how the tests pin state.
-            if (command != L"update" || !preview) coop::migrate_legacy_state(context);
+            if ((command != L"update" || !preview) && context.json_format != coop::JsonFormat::full)
+                coop::migrate_legacy_state(context);
             // A write command records what it is doing while it runs, so a process that is killed
             // leaves an explanation behind instead of nothing. A preview writes nothing at all,
             // including this record.

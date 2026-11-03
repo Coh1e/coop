@@ -73,7 +73,7 @@ coop recover
 ## 文档
 
 - 开始使用：[已确认的产品范围](docs/design-scope.md)、[体系结构](docs/architecture.md)、[与 Scoop 共用状态的决定](docs/adr/0002-share-scoop-state.md)。
-- 命令与输出：[CLI 路径、退出码与批量边界](docs/cli-boundaries.md)、[读命令的文本输出](docs/query-output.md)、[CLI 反馈与下载缓存](docs/cli-feedback.md)。
+- 命令与输出：[CLI 路径、退出码与批量边界](docs/cli-boundaries.md)、[读命令的文本输出](docs/query-output.md)、[status JSON v2](docs/status-result.md)、[CLI 反馈与下载缓存](docs/cli-feedback.md)。
 - 逐命令输出验收：[对照脚本、命令清单与保留边界](docs/command-output-acceptance.md)。
 - 包机制：[包管理 IR 与查询/预览路径](docs/ir-pipeline.md)、[Manifest 形状兼容](docs/manifest-shape-support.md)、[归档生命周期](docs/archive-support.md)、[多产物与摘要算法](docs/multi-artifact-support.md)、[Installer 与特殊安装机制](docs/installer-support.md)。
 - 状态与恢复：[跨机制中断恢复](docs/recovery-support.md)、[持久化数据](docs/persistence-support.md)、[旧版本与清理](docs/old-version-support.md)。

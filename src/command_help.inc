@@ -338,6 +338,8 @@ Notes:
 Notes:
   Bare status checks Coop releases and the same-root Scoop branch.
   --json preserves the local package status array; it does not check clients.
+  -l --json=2 reports local clients, buckets and all apps in one document.
+  Remote JSON v2 and update JSON v2 are not available yet.
   Checks do not update clients, buckets or installed apps.)coophelp"},
 {"unhold",R"coophelp(To unhold a user-scoped app:
      coop unhold <app>
