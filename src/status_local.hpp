@@ -1,7 +1,8 @@
 #pragma once
 #include "operation_result.hpp"
-#include "app.hpp"
+#include "data.hpp"
 namespace coop {
 // Reads local installation/source evidence only. Never fetches, migrates state or creates caches.
-OperationResult local_status_report(const Context& context);
+Json status_bucket_sources(const Context& context, std::vector<ResultDiagnostic>& diagnostics);
+void read_local_status(const Context& context, const Json& sources, OperationResult& report);
 }

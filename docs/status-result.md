@@ -2,6 +2,10 @@
 
 任务 [#104](https://github.com/Coh1e/coop/issues/104)，父规格 [#102](https://github.com/Coh1e/coop/issues/102)。本阶段交付 `coop status -l --json=2`；`--local` 与 `-l` 等价。原 `status --json` 继续返回原来的本地异常软件数组，原文本形状与退出码不变。
 
+#107 的远端 `status --json=2` 检查未固定修订的 Git bucket。软件字段仍来自本地清单。bucket 可能落后时，报告 `attention / stale-manifests`、`data.manifests_may_be_stale: true` 和与文本相同的提示。远端 v2 检查 Coop 的安装来源与同根 Scoop 配置的上游。同根有 Coop 安装记录时按该记录的 bucket 检查。Git bucket 的清单可能过期时，Coop 检查失败并报告原因。没有同根 Coop 安装时查询官方稳定发布。检查完成退出 0，即使有更新或清单可能过期。检查失败或版本无法比较时退出 1，并保留其他可读取的结果。版本无法比较报告 `blocked / version-incomparable`，请求失败报告 `failed / remote-check-failed`。用法错误退出 2。
+
+各 `status` 入口直接读取旧根的 `.coop/buckets.json` 作为回退，不触发状态迁移。
+
 ## 检查范围
 
 v2 本地报告读取当前运行的 Coop、同根 Scoop、已登记或共用 bucket，以及用户级和显式系统级根中的安装事实。正常软件也列入 `apps`，系统级项带 `read_only: true`。同根作为软件包安装的 Coop 归入客户端，不重复列为普通软件。

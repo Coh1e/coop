@@ -75,7 +75,7 @@ Notes       : Scoop persists data since version 0.11.16. ...
 8. **`status` 的更新判定是"清单版本 ≠ 已装版本"**，Scoop 用 `Compare-Version` 排序。Coop 的 `update` 本来以"版本不同"为触发条件，`status` 用同一谓词，避免出现 `status` 说最新而 `update` 仍然动作；代价是清单版本回退时也会列为可更新。
 9. **`which` 未找到退出 1**（Scoop 退出 2），消息与 Scoop 相同。理由同偏离 1：2 在 Coop 的契约里是用法错误。
 10. **`cat` 原样输出存储的清单字节**；Scoop 会 pretty-print，并因此丢失声明顺序。
-11. **`status` 默认检查客户端更新**：通过官方最新稳定发布检查当前运行的 Coop；同一根存在 `apps/scoop/current` 时，通过该 Git 仓库当前分支配置的远端检查 Scoop。只读取远端引用，不 fetch、不改写引用或工作目录、不更新 bucket。`-l`/`--local` 跳过客户端检查；`--json` 保留现有本地包状态数组，不加入客户端结果。
+11. **`status` 默认检查客户端更新**：按同根 Coop 的安装 bucket 检查，独立分发使用官方最新稳定发布；同一根存在 `apps/scoop/current` 时，通过该 Git 仓库当前分支配置的远端检查 Scoop。只读取远端引用，不 fetch、不改写引用或工作目录、不更新 bucket。裸 `status` 也只读检查未固定修订的 Git bucket。远端检查失败时保留可取得的结果并退出 1。远端提交不在本地 HEAD 的历史中时，提示软件状态可能基于旧清单。`-l`/`--local` 跳过客户端检查；`--json` 保留现有本地包状态数组，不加入客户端结果。
 
 ## 检查类读命令
 

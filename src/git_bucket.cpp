@@ -563,6 +563,36 @@ Json refresh_shared_bucket(const Context& context, const std::string& name, cons
     return record;
 }
 }
+namespace {
+git_oid advertised_bucket_revision(git_repository* repository, const Json& record) {
+    const auto source = describe_source(repository,record.value("remote",std::string{}),
+        record.value("branch",std::string{}));
+    git_remote* raw = nullptr;
+    check(git_remote_lookup(&raw,repository,source.remote.c_str()),"Open bucket remote");
+    const auto remote = own(raw,git_remote_free);
+    Transfer transfer;
+    const auto options = fetch_options(transfer);
+    check(git_remote_connect(remote.get(),GIT_DIRECTION_FETCH,&options.callbacks,&options.proxy_opts,nullptr),
+        "Read bucket remote revisions");
+    const git_remote_head** heads = nullptr;
+    std::size_t count = 0;
+    check(git_remote_ls(&heads,&count,remote.get()),"List bucket remote revisions");
+    const auto branch = "refs/heads/"+source.branch;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!heads[i]->name || branch != heads[i]->name) continue;
+        return heads[i]->oid;
+    }
+    throw std::runtime_error("Cannot preview using this bucket: remote branch is unavailable");
+}
+}
+bool bucket_manifests_may_be_stale(const Json& record) {
+    GitSession session({},false);
+    auto repository = open_shared_bucket(fs::path(wide(record.at("path").get<std::string>())));
+    const auto head = head_oid(repository.get());
+    const auto remote = advertised_bucket_revision(repository.get(),record);
+    return !git_oid_equal(&head,&remote) &&
+        git_graph_descendant_of(repository.get(),&head,&remote) != 1;
+}
 std::string update_source_revision(const Json& record, bool preview) {
     GitSession session({},false);
     auto repository = open_shared_bucket(fs::path(wide(record.at("path").get<std::string>())));
@@ -575,26 +605,10 @@ std::string update_source_revision(const Json& record, bool preview) {
         if (!git_oid_equal(&head,&pinned)) throw std::runtime_error("Bucket is not at its fixed revision");
     }
     if (!preview || !fixed.empty()) return revision;
-    const auto source = describe_source(repository.get(),record.value("remote",std::string{}),
-        record.value("branch",std::string{}));
-    git_remote* raw = nullptr;
-    check(git_remote_lookup(&raw,repository.get(),source.remote.c_str()),"Open bucket remote");
-    const auto remote = own(raw,git_remote_free);
-    Transfer transfer;
-    const auto options = fetch_options(transfer);
-    check(git_remote_connect(remote.get(),GIT_DIRECTION_FETCH,&options.callbacks,&options.proxy_opts,nullptr),
-        "Read bucket remote revisions");
-    const git_remote_head** heads = nullptr;
-    std::size_t count = 0;
-    check(git_remote_ls(&heads,&count,remote.get()),"List bucket remote revisions");
-    const auto branch = "refs/heads/"+source.branch;
-    for (std::size_t i = 0; i < count; ++i) {
-        if (!heads[i]->name || branch != heads[i]->name) continue;
-        if (!git_oid_equal(&head,&heads[i]->oid))
-            throw std::runtime_error("Cannot preview using this bucket: its remote revision differs from the shared checkout");
-        return revision;
-    }
-    throw std::runtime_error("Cannot preview using this bucket: remote branch is unavailable");
+    const auto remote = advertised_bucket_revision(repository.get(),record);
+    if (!git_oid_equal(&head,&remote))
+        throw std::runtime_error("Cannot preview using this bucket: its remote revision differs from the shared checkout");
+    return revision;
 }
 Json inspect_scoop_bucket(const Context& context, const std::string& name) {
     GitSession session(context.root);

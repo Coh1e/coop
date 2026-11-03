@@ -9,6 +9,8 @@
 #include "inno.hpp"
 #include "nsis.hpp"
 #include "status_local.hpp"
+#include "git_bucket.hpp"
+#include "update_policy.hpp"
 #include "package.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -299,9 +301,9 @@ static Json matching_catalog(const Context& context, const std::wstring& command
     sort_catalog(result);
     return result;
 }
-std::vector<ir::CatalogueEntry> catalogue(const Context& context, bool scan_worktree) {
+static std::vector<ir::CatalogueEntry> catalogue(const Context& context, const Json& sources, bool scan_worktree) {
     std::vector<ir::CatalogueEntry> result;
-    for (const auto& source : bucket_sources(context)) {
+    for (const auto& source : sources) {
         if (source.value("kind",std::string{}) == "removed") continue;
         const fs::path location(wide(source.at("path").get<std::string>()));
         if (!fs::is_directory(location)) continue;
@@ -318,6 +320,9 @@ std::vector<ir::CatalogueEntry> catalogue(const Context& context, bool scan_work
         return a.bucket+"/"+a.name < b.bucket+"/"+b.name;
     });
     return result;
+}
+std::vector<ir::CatalogueEntry> catalogue(const Context& context, bool scan_worktree) {
+    return catalogue(context,bucket_sources(context),scan_worktree);
 }
 // The architecture only selects the manifest variant for one package. Installed facts for the whole
 // root are still read (each package's current manifest and install record), but the old-version
@@ -403,9 +408,9 @@ static std::string record_time(const fs::path& directory) {
 }
 // Deleting a manifest only moves it to the bucket's `deprecated` directory, so the package still
 // resolves but Scoop marks it in `list`/`info`.
-static std::set<std::string> deprecated_names(const Context& context) {
+static std::set<std::string> deprecated_names(const Json& sources) {
     std::set<std::string> names;
-    for (const auto& source : bucket_sources(context)) {
+    for (const auto& source : sources) {
         if (source.value("kind",std::string{}) == "removed") continue;
         std::error_code error;
         const fs::path directory = fs::path(wide(source.at("path").get<std::string>()))/L"deprecated";
@@ -419,6 +424,9 @@ static std::set<std::string> deprecated_names(const Context& context) {
         }
     }
     return names;
+}
+static std::set<std::string> deprecated_names(const Context& context) {
+    return deprecated_names(bucket_sources(context));
 }
 // Scoop's `Info` column carries exceptions only: `Deprecated package`, `Global install`, `Held
 // package` and a non-default architecture. Coop adds its own pending-recovery state there because a
@@ -899,7 +907,11 @@ static std::string manifest_version_text(const fs::path& path) {
     try { return read_json(path).value("version",std::string{}); }
     catch (const std::exception&) { return {}; }
 }
-static bool check_coop_update() {
+static ResultItem coop_version_unknown() {
+    return {"coop","process",ResultState::blocked,"version-incomparable",{},
+        {{"version-incomparable","Could not determine whether Coop has an update: versions cannot be compared."}}};
+}
+static ResultItem check_official_coop_update() {
     try {
         auto api = environment_text(L"COOP_GITHUB_API");
         if (api.empty()) api = "https://api.github.com";
@@ -912,8 +924,9 @@ static bool check_coop_update() {
         const std::regex version("^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)$");
         std::smatch latest, current;
         const std::string running = COOP_VERSION;
+        if (tag.empty()) throw std::runtime_error("Missing release version");
         if (!std::regex_match(tag,latest,version) || !std::regex_match(running,current,version))
-            throw std::runtime_error("Invalid release version");
+            return coop_version_unknown();
         bool newer = false;
         for (std::size_t index = 1; index <= 3; ++index) {
             // Compare decimal components without integer overflow, even for untrusted API input.
@@ -926,22 +939,72 @@ static bool check_coop_update() {
             newer = left.size() != right.size() ? left.size() > right.size() : left > right;
             break;
         }
-        if (newer) {
-            std::cout << "WARN  Coop update available: " << running << " -> " << tag
-                      << ". See https://github.com/Coh1e/coop/releases/latest\n";
-            return false;
-        }
-        std::cout << "Coop is up to date.\n";
-        return true;
+        return {"coop","process",newer ? ResultState::attention : ResultState::ok,
+            newer ? "update-available" : "remote-current",
+            {{"remote_version",tag},{"message",newer ?
+                "Coop update available: "+running+" -> "+tag+". See https://github.com/Coh1e/coop/releases/latest" :
+                "Coop is up to date."}}, {}};
     } catch (const std::exception&) {
-        std::cout << "WARN  Could not check Coop updates.\n";
-        return false;
+        return {"coop","process",ResultState::failed,"remote-check-failed",{},
+            {{"remote-check-failed","Could not check Coop updates."}}};
     }
 }
-static bool check_scoop_update(const Context& context) {
+static ResultItem check_coop_update(const Context& context, const Json& sources) {
+    ResultItem result{"coop","process",ResultState::failed,"remote-check-failed",{}, {}};
+    try {
+        const auto app = context.root/L"apps"/L"coop";
+        if (!fs::exists(app)) {
+            result = check_official_coop_update();
+            result.data["source"] = std::string("official-release");
+            return result;
+        }
+        const auto current = app/L"current";
+        const auto installed = read_json(installed_record(current,L"install"));
+        const auto bucket = installed.at("bucket").get<std::string>();
+        if (bucket.empty()) throw std::runtime_error("Coop install record has no bucket");
+        result.data["source"] = std::string("bucket");
+        result.data["bucket"] = bucket;
+        for (const auto& source : sources) {
+            if (lowercase(source.at("name").get<std::string>()) != lowercase(bucket)) continue;
+            const auto kind = source.value("kind",std::string{});
+            if (kind == "removed") break;
+            const auto path = fs::path(wide(source.at("path").get<std::string>()));
+            if (source.value("fixed_revision",std::string{}).empty() &&
+                (kind == "git" || fs::exists(path/L".git")) &&
+                bucket_manifests_may_be_stale(source)) {
+                throw std::runtime_error("Coop's installation bucket may have stale manifests");
+            }
+            const auto directory = fs::is_directory(path/L"bucket") ? path/L"bucket" : path;
+            const auto candidate = manifest_version_text(directory/L"coop.json");
+            const auto version = manifest_version_text(installed_record(current,L"manifest"));
+            const auto order = compare_update_versions(version,candidate);
+            if (version.empty() || candidate.empty())
+                throw std::runtime_error("Cannot compare installed Coop and its source manifest");
+            if (order == VersionOrder::unknown) {
+                const auto unknown = coop_version_unknown();
+                result.state = unknown.state;
+                result.reason = unknown.reason;
+                result.diagnostics = unknown.diagnostics;
+                return result;
+            }
+            const bool newer = order == VersionOrder::higher;
+            result.state = newer ? ResultState::attention : ResultState::ok;
+            result.reason = newer ? "update-available" : "remote-current";
+            result.data["source_version"] = candidate;
+            result.data["message"] = newer ? "Coop update available from bucket "+bucket+": "+version+" -> "+candidate :
+                "Coop is up to date in bucket "+bucket+".";
+            return result;
+        }
+        throw std::runtime_error("Coop's installation bucket is unavailable");
+    } catch (const std::exception& error) {
+        result.diagnostics.push_back({result.reason,"Could not check Coop updates: "+std::string(error.what())});
+        return result;
+    }
+}
+static ResultItem check_scoop_update(const Context& context) {
     const auto path = context.root/L"apps"/L"scoop"/L"current";
     try {
-        if (!fs::exists(path)) return true;
+        if (!fs::exists(path)) return {"scoop","user",ResultState::not_applicable,"not-installed",{}, {}};
         struct Session { Session() { git_libgit2_init(); } ~Session() { git_libgit2_shutdown(); } } session;
         const auto check = [](int result) { if (result < 0) throw std::runtime_error("Scoop remote check failed"); };
         git_repository* raw_repository = nullptr;
@@ -981,38 +1044,113 @@ static bool check_scoop_update(const Context& context) {
         }
         git_remote_disconnect(remote.get());
         if (!found) throw std::runtime_error("Missing Scoop remote branch");
-        if (newer) {
-            std::cout << "WARN  Scoop out of date. Run 'scoop update' to get the latest changes.\n";
-            return false;
-        }
-        std::cout << "Scoop is up to date.\n";
-        return true;
+        return {"scoop","user",newer ? ResultState::attention : ResultState::ok,
+            newer ? "update-available" : "remote-current",{{"message",newer ?
+                "Scoop out of date. Run 'scoop update' to get the latest changes." : "Scoop is up to date."}}, {}};
     } catch (const std::exception&) {
-        std::cout << "WARN  Could not check Scoop updates.\n";
-        return false;
+        return {"scoop","user",ResultState::failed,"remote-check-failed",{},
+            {{"remote-check-failed","Could not check Scoop updates."}}};
     }
 }
+static std::vector<ResultItem> remote_bucket_status(const Json& sources) {
+    std::vector<ResultItem> results;
+    for (const auto& source : sources) {
+        const auto kind = source.value("kind",std::string{});
+        if (kind != "git" && kind != "unmanaged") continue;
+        if (!source.value("fixed_revision",std::string{}).empty()) continue;
+        ResultItem item;
+        item.name = source.at("name").get<std::string>();
+        try {
+            const auto path = fs::path(wide(source.at("path").get<std::string>()));
+            if (kind == "unmanaged" && !fs::exists(path/L".git")) continue;
+            const bool stale = bucket_manifests_may_be_stale(source);
+            item.state = stale ? ResultState::attention : ResultState::ok;
+            item.reason = stale ? "stale-manifests" : "remote-current";
+            item.data["manifests_may_be_stale"] = stale;
+            if (stale) item.data["message"] =
+                "Bucket "+item.name+" differs from its remote. Software status may be based on stale manifests.";
+        } catch (const std::exception&) {
+            item.state = ResultState::failed;
+            item.reason = "bucket-remote-check-failed";
+            item.diagnostics.push_back({item.reason,"Could not check remote status for bucket "+item.name+"."});
+        }
+        results.push_back(std::move(item));
+    }
+    return results;
+}
 static int status_command(const Context& context, bool local) {
+    OperationResult report;
+    const auto sources = context.json_output && context.json_format == JsonFormat::legacy ? bucket_sources(context) :
+        status_bucket_sources(context,report.diagnostics);
     if (context.json_format == JsonFormat::full) {
-        const auto report = local_status_report(context);
+        read_local_status(context,sources,report);
+        if (!local) {
+            report.request.local_only = false;
+            for (const auto& remote : {check_coop_update(context,sources),check_scoop_update(context)}) {
+                for (auto& client : report.clients) {
+                    if (client.name != remote.name) continue;
+                    if (client.state != ResultState::failed) {
+                        client.state = remote.state;
+                        client.reason = remote.reason;
+                    }
+                    client.data.insert(remote.data.begin(),remote.data.end());
+                    client.diagnostics.insert(client.diagnostics.end(),remote.diagnostics.begin(),remote.diagnostics.end());
+                }
+            }
+            try {
+                for (const auto& remote : remote_bucket_status(sources)) {
+                    for (auto& bucket : report.buckets) {
+                        if (bucket.name != remote.name) continue;
+                        if (bucket.state == ResultState::not_checked) {
+                            bucket.state = remote.state;
+                            bucket.reason = remote.reason;
+                        }
+                        bucket.data.insert(remote.data.begin(),remote.data.end());
+                        bucket.diagnostics.insert(bucket.diagnostics.end(),remote.diagnostics.begin(),remote.diagnostics.end());
+                    }
+                }
+            } catch (const std::exception& error) {
+                report.diagnostics.push_back({"bucket-remote-sources-unreadable",error.what()});
+            }
+            for (auto& bucket : report.buckets)
+                if (bucket.state == ResultState::not_checked) bucket.reason = "no-remote-check";
+        }
         std::cout << operation_result_json(report).dump(2,' ',false,Json::error_handler_t::replace) << '\n';
         return operation_result_exit_code(report);
     }
-    bool clients_ok = true;
+    const bool source_discovery_failed = !report.diagnostics.empty();
+    for (const auto& diagnostic : report.diagnostics)
+        std::cout << "WARN  " << diagnostic.code << ": " << diagnostic.message << '\n';
+    bool remote_checks_ok = !source_discovery_failed;
+    bool remote_checks_failed = source_discovery_failed;
     if (!local && !context.json_output) {
-        clients_ok = check_coop_update();
-        clients_ok = check_scoop_update(context) && clients_ok;
+        for (const auto& client : {check_coop_update(context,sources),check_scoop_update(context)}) {
+            if (const auto message = client.data.find("message"); message != client.data.end())
+                std::cout << (client.state == ResultState::ok ? "" : "WARN  ") << std::get<std::string>(message->second) << '\n';
+            for (const auto& diagnostic : client.diagnostics)
+                std::cout << (client.state == ResultState::ok ? "" : "WARN  ") << diagnostic.message << '\n';
+            remote_checks_failed = remote_checks_failed || client.state == ResultState::failed ||
+                client.state == ResultState::blocked;
+            remote_checks_ok = (client.state == ResultState::ok || client.state == ResultState::not_applicable) && remote_checks_ok;
+        }
+        for (const auto& remote : remote_bucket_status(sources)) {
+            if (const auto message = remote.data.find("message"); message != remote.data.end())
+                std::cout << "WARN  " << std::get<std::string>(message->second) << '\n';
+            for (const auto& diagnostic : remote.diagnostics)
+                std::cout << "WARN  " << diagnostic.message << '\n';
+            remote_checks_failed = remote_checks_failed || remote.state == ResultState::failed;
+            remote_checks_ok = remote.state == ResultState::ok && remote_checks_ok;
+        }
     }
     std::map<std::string,fs::path> catalogue_paths;
-    for (const auto& entry : catalogue(context)) {
+    for (const auto& entry : catalogue(context,sources,true)) {
         if (!catalogue_paths.contains(lowercase(entry.name))) catalogue_paths[lowercase(entry.name)] = entry.manifest_path;
         catalogue_paths[lowercase(entry.bucket)+"/"+lowercase(entry.name)] = entry.manifest_path;
     }
     const auto installed = installed_packages(context);
     std::set<std::string> installed_names;
     for (const auto& item : installed) installed_names.insert(lowercase(field_text(item,"name")));
-    const auto deprecated = deprecated_names(context);
-    OperationResult report;
+    const auto deprecated = deprecated_names(sources);
     report.request.local_only = local || context.json_output;
     for (const auto& item : installed) {
         const auto name = field_text(item,"name");
@@ -1060,11 +1198,11 @@ static int status_command(const Context& context, bool local) {
     }
     if (context.json_output) { std::cout << json.dump(2,' ',false,Json::error_handler_t::replace) << '\n'; return 0; }
     if (rows.empty()) {
-        if (clients_ok) std::cout << "Everything is ok!\n";
-        return 0;
+        if (remote_checks_ok) std::cout << "Everything is ok!\n";
+        return remote_checks_failed ? 1 : 0;
     }
     print_table({"Name","Installed Version","Latest Version","Missing Dependencies","Info"},rows);
-    return 0;
+    return remote_checks_failed ? 1 : 0;
 }
 static const Json& single_catalog_item(const Context& context, const std::string& needle) {
     static Json item;

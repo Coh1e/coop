@@ -333,14 +333,20 @@ Notes:
   - In PowerShell, '--' should be quoted to avoid parsing.
   - '--%' disables PowerShell parsing of the remainder; pass literals as needed.)coophelp"},
 {"status",R"coophelp(Options:
-  -l, --local         Checks the status for only the locally installed apps,
-                      and disables remote checks for Coop and installed Scoop.
+  -l, --local         Disable remote checks and use local installation data.
+  --json=2            Report clients, buckets and software in one JSON document.
+                      Combine with --local for a local-only report.
+  --json              Return the legacy array of local software findings only.
 Notes:
-  Bare status checks Coop releases and the same-root Scoop branch.
-  --json preserves the local package status array; it does not check clients.
-  -l --json=2 reports local clients, buckets and all apps in one document.
-  Remote JSON v2 and update JSON v2 are not available yet.
-  Checks do not update clients, buckets or installed apps.)coophelp"},
+  Bare status and remote --json=2 check Coop using its installation bucket,
+  or the official stable release for a standalone installation. They check
+  same-root Scoop using its configured upstream.
+  Git bucket checks read remote revisions without fetching or refreshing the
+  shared worktree. A stale bucket can leave software results based on old manifests.
+Exit codes:
+  0  Checks completed, including when updates are available.
+  1  A check could not be completed. Available results are still reported.
+  2  Invalid usage.)coophelp"},
 {"unhold",R"coophelp(To unhold a user-scoped app:
      coop unhold <app>
 

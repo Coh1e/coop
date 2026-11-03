@@ -170,8 +170,6 @@ int wmain(int argc, wchar_t** argv) {
                 return coop::query(context,L"help",{command});
             if (context.json_format == coop::JsonFormat::full) {
                 if (command != L"status") throw std::runtime_error("JSON v2 for this command is not available yet");
-                const bool local = std::any_of(arguments.begin(),arguments.end(),[](const auto& arg) { return arg == L"-l" || arg == L"--local"; });
-                if (!local) throw std::runtime_error("Remote status JSON v2 is not available yet; use -l/--local");
                 for (const auto& arg : arguments) if (arg != L"-l" && arg != L"--local") throw coop::UsageError("status accepts only -l/--local");
             }
             // Missing arguments should explain the expected invocation, just like Scoop. Keep
@@ -201,7 +199,8 @@ int wmain(int argc, wchar_t** argv) {
                     [](const std::wstring& argument) { return argument == L"--dry-run"; });
             // Move a pre-0.2.5 <root>/.coop into the external state directory once. When
             // COOP_STATE_DIR already points there this is a no-op, which is how the tests pin state.
-            if ((command != L"update" || !preview) && context.json_format != coop::JsonFormat::full)
+            if (command != L"status" && (command != L"update" || !preview) &&
+                context.json_format != coop::JsonFormat::full)
                 coop::migrate_legacy_state(context);
             // A write command records what it is doing while it runs, so a process that is killed
             // leaves an explanation behind instead of nothing. A preview writes nothing at all,

@@ -156,7 +156,6 @@ try {
     $invalid = Invoke-CoopNativeRaw -Exe $CoopExe -Arguments @('--root',$root,'status','-l','--json=3')
     Check ($invalid.code -eq 2) 'Unsupported JSON version was accepted'
     foreach ($case in @(
-        @{args=@('status','--json=2');code=1},
         @{args=@('update','--json=2');code=1},
         @{args=@('status','-l','--json','--json=2');code=2},
         @{args=@('status','-l','--json=2','--json');code=2}

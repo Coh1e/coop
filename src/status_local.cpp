@@ -41,8 +41,10 @@ ResultData git_facts(const fs::path& path) {
     if (git_reference_is_branch(head.get())) facts["branch"] = std::string(git_reference_shorthand(head.get()));
     return facts;
 }
-std::vector<Json> sources(const Context& context, OperationResult& report) {
-    std::vector<Json> result;
+struct LocalFact { ir::InstalledFact fact; std::string scope; };
+}
+Json status_bucket_sources(const Context& context, std::vector<ResultDiagnostic>& diagnostics) {
+    Json result = Json::array();
     std::set<std::string> removed;
     try {
         const auto state = state_directory(context);
@@ -58,11 +60,13 @@ std::vector<Json> sources(const Context& context, OperationResult& report) {
                         source.at("name").get<std::string>().empty()) throw std::runtime_error("Invalid bucket registry entry");
                     if (source.value("kind",std::string{}) == "removed") { removed.insert(key(source.at("name").get<std::string>())); continue; }
                     if (!source.contains("path") || !source.at("path").is_string()) throw std::runtime_error("Bucket path must be a string");
+                    if (source.contains("fixed_revision") && !source.at("fixed_revision").is_string())
+                        throw std::runtime_error("Bucket fixed_revision must be a string");
                     result.push_back(source);
-                } catch (const std::exception& error) { report.diagnostics.push_back({"bucket-registry-entry-invalid",error.what()}); }
+                } catch (const std::exception& error) { diagnostics.push_back({"bucket-registry-entry-invalid",error.what()}); }
             }
         }
-    } catch (const std::exception& error) { report.diagnostics.push_back({"bucket-registry-unreadable",error.what()}); }
+    } catch (const std::exception& error) { diagnostics.push_back({"bucket-registry-unreadable",error.what()}); }
     // Shared directories remain visible even if optional private registry data cannot be read.
     try {
         const auto directory = context.root/L"buckets";
@@ -73,14 +77,11 @@ std::vector<Json> sources(const Context& context, OperationResult& report) {
             if (std::none_of(result.begin(),result.end(),[&](const auto& source) { return key(source.at("name").template get<std::string>()) == key(name); }))
                 result.push_back({{"name",name},{"path",path_text(entry.path())},{"kind","unmanaged"}});
         }
-    } catch (const std::exception& error) { report.diagnostics.push_back({"bucket-directory-unreadable",error.what()}); }
+    } catch (const std::exception& error) { diagnostics.push_back({"bucket-directory-unreadable",error.what()}); }
     std::sort(result.begin(),result.end(),[](const auto& a,const auto& b) { return a.at("name").template get<std::string>() < b.at("name").template get<std::string>(); });
     return result;
 }
-struct LocalFact { ir::InstalledFact fact; std::string scope; };
-}
-OperationResult local_status_report(const Context& context) {
-    OperationResult report;
+void read_local_status(const Context& context, const Json& sources, OperationResult& report) {
     report.request.local_only = true;
     ResultItem coop;
     coop.name = "coop"; coop.scope = "process"; coop.reason = "local-only";
@@ -104,7 +105,7 @@ OperationResult local_status_report(const Context& context) {
     std::map<std::string,std::map<std::string,fs::path>> manifests;
     std::set<std::string> deprecated;
     std::set<std::string> unreadable_sources;
-    for (const auto& source : sources(context,report)) {
+    for (const auto& source : sources) {
         ResultItem bucket;
         bucket.name = source.at("name").get<std::string>(); bucket.scope = "user"; bucket.reason = "local-only";
         bucket.data = {{"path",source.at("path").get<std::string>()},{"kind",source.value("kind",std::string("local"))},
@@ -211,6 +212,5 @@ OperationResult local_status_report(const Context& context) {
     stage.state = operation_result_exit_code(report) == 0 ? ResultState::ok : ResultState::failed;
     stage.reason = stage.state == ResultState::ok ? "local-facts-read" : "local-inspection-incomplete";
     report.stages.push_back(std::move(stage));
-    return report;
 }
 }

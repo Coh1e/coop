@@ -183,7 +183,8 @@ RootLock::~RootLock() {
 }
 Json bucket_sources(const Context& context) {
     Json sources = Json::array();
-    const auto registry = state_directory(context)/L"buckets.json";
+    auto registry = state_directory(context)/L"buckets.json";
+    if (!fs::exists(registry)) registry = context.root/L".coop"/L"buckets.json";
     if (fs::exists(registry)) sources = read_json(registry);
     if (!sources.is_array()) throw std::runtime_error("Invalid bucket registry");
     const auto buckets = context.root/L"buckets";

@@ -25,6 +25,14 @@ $json = (& $CoopExe --root $root bucket list --json) -join "`n" | ConvertFrom-Js
 if (@($json).Count -ne 1 -or $json[0].name -ne 'main' -or $json[0].kind -ne 'unmanaged') { throw 'Bucket JSON contract changed' }
 $help = (& $CoopExe help cache) -join "`n"
 if ($help -notmatch 'coop cache rm \*' -or $help -notmatch 'coop cache show') { throw "Cache examples missing: $help" }
+$statusHelp = (& $CoopExe help status) -join "`n"
+foreach ($pattern in @('installation bucket','official stable release','configured upstream',
+    'without fetching or refreshing','--json=2\s+Report clients, buckets and software',
+    '--json\s+Return the legacy array of local software findings only',
+    '(?m)^  0  Checks completed','(?m)^  1  A check could not be completed','(?m)^  2  Invalid usage')) {
+    if ($statusHelp -notmatch $pattern) { throw "Status help missing: $pattern" }
+}
+if (((& $CoopExe status --help) -join "`n") -cne $statusHelp) { throw 'Status help aliases disagree' }
 $help = (& $CoopExe help alias) -join "`n"
 if ($help -notmatch 'Available subcommands: add, rm, list' -or $help -notmatch 'coop alias add') { throw 'Alias examples missing' }
 function Check-Warnings {
