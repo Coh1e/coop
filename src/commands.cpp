@@ -61,7 +61,7 @@ std::string_view command_limitations(std::string_view name) {
     if (name == "install" || name == "uninstall") return "Global installations are read-only. --dry-run previews the operation; --json returns machine-readable output.";
     if (name == "reset") return "Use <app>@<installed-version> to switch to a retained local version. The current version is rejected; no download or installation hook is run.";
     if (name == "status") return "Checks Coop and same-root Scoop updates unless -l is used. Does not update clients or buckets. JSON reports local packages only.";
-    if (name == "update") return "Without an app, refreshes buckets only; Coop does not self-update. Global installations are read-only.";
+    if (name == "update") return "Without an app, refreshes buckets only; Coop does not self-update. Package options require app names or */-a/--all. --dry-run is read-only; bare and manifest-URL previews are not available yet. Global installations are read-only.";
     if (name == "shim") return "Lists local native shims; info also shows Target and Arguments. alter changes saved arguments; interactive source selection is not supported.";
     if (name == "virustotal") return "Requires virustotal_api_key or COOP_VIRUSTOTAL_KEY. Uploading for analysis (-s/--scan) is not supported. Uses Coop exit codes 0/1/2, not Scoop's bitmask codes.";
     return {};

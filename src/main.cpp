@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include <string_view>
 #include "app.hpp"
 #include "commands.hpp"
@@ -12,6 +13,66 @@
 #include <windows.h>
 
 namespace {
+void validate_update_package(const std::wstring& argument) {
+    const auto request = coop::utf8(argument);
+    if (request.find("://") != std::string::npos) return;
+    std::error_code error;
+    const auto path = coop::fs::path(argument);
+    if (coop::fs::is_regular_file(path,error) && path.extension() == L".json") return;
+    auto name = request;
+    try {
+        if (const auto at = name.find('@'); at != std::string::npos) {
+            coop::validate_component(name.substr(at+1));
+            name.resize(at);
+        }
+        if (const auto slash = name.find('/'); slash != std::string::npos) {
+            coop::validate_component(name.substr(0,slash));
+            name.erase(0,slash+1);
+        }
+        coop::validate_component(name);
+    } catch (const std::exception& failure) {
+        throw coop::UsageError("Invalid update package: "+request+": "+failure.what());
+    }
+}
+// Validate before legacy-state migration or a RunRecord: even rejected updates must be read-only.
+// The bare and wildcard dispatch paths otherwise bypass package_command's option validation.
+bool validate_update_arguments(const std::vector<std::wstring>& args) {
+    bool preview = false, all = false, named = false, package_option = false, manifest_url = false;
+    for (const auto& arg : args) {
+        if (arg == L"--dry-run") {
+            if (preview) throw coop::UsageError("--dry-run was specified more than once");
+            preview = true;
+        } else if (arg == L"*" || arg == L"-a" || arg == L"--all") {
+            all = true;
+        } else if (arg == L"-g" || arg == L"--global") {
+            throw std::runtime_error("global-scope-readonly: Coop does not write a system-level installation; "
+                                     "use --global-root to read one");
+        } else if (arg == L"-p" || arg == L"--purge") {
+            throw coop::UsageError("--purge is only supported by uninstall");
+        } else if (arg == L"-q" || arg == L"--quiet" || arg == L"-u" || arg == L"--no-update-scoop") {
+            // Presentation and the already-supported no-self-update switch apply to either form.
+        } else if (arg == L"-f" || arg == L"--force" || arg == L"-k" || arg == L"--no-cache" ||
+                   arg == L"-s" || arg == L"--skip-hash-check" || arg == L"-i" || arg == L"--independent") {
+            package_option = true;
+        } else if (arg.starts_with(L"-")) {
+            throw coop::UsageError("Unknown update option: "+coop::utf8(arg));
+        } else {
+            if (arg.empty()) throw coop::UsageError("update requires a non-empty package name");
+            validate_update_package(arg);
+            named = true;
+            manifest_url = manifest_url || arg.find(L"://") != std::wstring::npos;
+        }
+    }
+    if (all && named) throw coop::UsageError("update cannot combine package names with */-a/--all");
+    if (!all && !named && package_option) throw coop::UsageError("update package options require package names or */-a/--all");
+    // Full source/client previews belong to subsequent work. Never fall through to a real refresh
+    // or materialize a URL in the private state directory when only a preview was requested.
+    if (preview && !all && !named)
+        throw std::runtime_error("Bare update preview is not available yet; no sources were refreshed");
+    if (preview && manifest_url)
+        throw std::runtime_error("Update preview for manifest URLs is not available yet; use an installed package name");
+    return preview;
+}
 // Coop writes UTF-8 to stdout/stderr so redirected output and JSON stay stable. When attached to a
 // real console, the console must interpret those bytes as UTF-8 too; the previous code page is
 // restored before the process exits so the invoking shell is not changed permanently.
@@ -121,14 +182,15 @@ int wmain(int argc, wchar_t** argv) {
                     return command == L"bucket" ? 1 : 2;
                 }
             }
+            const bool preview = command == L"update" ? validate_update_arguments(arguments) :
+                std::any_of(arguments.begin(),arguments.end(),
+                    [](const std::wstring& argument) { return argument == L"--dry-run"; });
             // Move a pre-0.2.5 <root>/.coop into the external state directory once. When
             // COOP_STATE_DIR already points there this is a no-op, which is how the tests pin state.
-            coop::migrate_legacy_state(context);
+            if (command != L"update" || !preview) coop::migrate_legacy_state(context);
             // A write command records what it is doing while it runs, so a process that is killed
             // leaves an explanation behind instead of nothing. A preview writes nothing at all,
             // including this record.
-            const bool preview = std::any_of(arguments.begin(),arguments.end(),
-                [](const std::wstring& argument) { return argument == L"--dry-run"; });
             std::optional<coop::RunRecord> run_record;
             if (!preview && (command == L"install" || command == L"update" || command == L"uninstall" ||
                 command == L"reset" || command == L"cleanup" || command == L"import")) {

@@ -22,6 +22,14 @@ coop --arch=64bit install main/ripgrep
 
 用法错误只写标准错误，不写标准输出；包操作的正常结果写标准输出，诊断写标准错误。`--json` 结果始终写标准输出。
 
+### update 参数与预览
+
+修复任务 [#103](https://github.com/Coh1e/coop/issues/103) 要求在状态迁移、运行记录和来源刷新之前完成 update 参数校验。未知长短选项、空包名、重复 `--dry-run`、包名与 `*/-a/--all` 混用，以及 update 的 `--purge` 等无效参数退出 2；系统级写请求保持 `global-scope-readonly`，退出 1。`--force`、`--no-cache`、`--skip-hash-check`、`--independent` 必须带包名或全部软件选择，不能在裸更新中被静默丢弃。
+
+指定本地软件或全部软件的 `update --dry-run` 不迁移旧状态、不写运行记录、不刷新来源、不修改软件。当前尚不能完成裸更新和清单 URL 的完整预览：这两种预览明确退出 1，说明能力不足，不执行刷新，也不把 URL 清单写入私有缓存。完整客户端和来源预览仍属于 [status/update 总规格 #102](https://github.com/Coh1e/coop/issues/102) 的后续任务，本修复不宣称已实现。
+
+回归入口为 CTest `update_safety`：使用项目内 Git 来源及独立安装根，对比安装根、共享 Git、遗留状态和外部状态的内容与文件时间，同时验证退出码。该测试也覆盖正常软件文本/JSON 预览及空软件集合。
+
 ## 2. 根路径归一化
 
 `--root`/`--global-root` 在进入命令前被归一化：
