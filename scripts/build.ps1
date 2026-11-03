@@ -14,9 +14,11 @@ New-Item -ItemType Directory -Path $buildRoot,$tempRoot -Force | Out-Null
 $steps = @()
 if ($Action -in 'configure','all') { $steps += ('"{0}" -S "{1}" -B "{2}" -G Ninja -DCMAKE_BUILD_TYPE=Release' -f $cmakeExe,$projectRoot,$buildRoot) }
 if ($Action -in 'build','all') { $steps += ('"{0}" --build "{1}"' -f $cmakeExe,$buildRoot) }
-if ($Action -in 'test','all') { $steps += ('"{0}" --test-dir "{1}" --output-on-failure' -f $ctestExe,$buildRoot) }
+# Bound concurrent test processes to limit contention on shared CI runners.
+$testJobs = [Math]::Min(4, [Environment]::ProcessorCount)
+if ($Action -in 'test','all') { $steps += ('"{0}" --test-dir "{1}" --parallel {2} --output-on-failure' -f $ctestExe,$buildRoot,$testJobs) }
 # The inner loop: only the tests labelled fast, which finish in a couple of seconds each.
-if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --output-on-failure' -f $ctestExe,$buildRoot) }
+if ($Action -eq 'test-fast') { $steps += ('"{0}" --test-dir "{1}" -L fast --parallel {2} --output-on-failure' -f $ctestExe,$buildRoot,$testJobs) }
 # The suite runs under the PowerShell CMake found, which is Windows PowerShell 5.1 by default. A pwsh
 # parent (CI uses `shell: pwsh`) would otherwise hand its own PSModulePath, whose 7.x module directories
 # 5.1 cannot import, down to every test process: Get-FileHash then stops resolving. Rebuild the module
