@@ -7,6 +7,8 @@
 
 转录由 `scripts/acceptance-matrix.ps1` 生成，写入 `.local/acceptance/`（被忽略，不随仓库分发）；本文摘录关键行，读者按命令可自行重跑。
 
+这三个脚本（`acceptance-matrix.ps1`、`scoop-baseline.ps1`、`perf-compare.ps1`）要求输出路径尚不存在。重复运行时请用 `-Output` 指定新的目录。
+
 ## 本轮运行环境
 
 | 项 | 值 |

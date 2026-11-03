@@ -8,8 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not (Test-Path -LiteralPath $ScoopShim)) { throw "No Scoop installation at $ScoopShim; the Scoop column needs one." }
 $Output = [IO.Path]::GetFullPath($Output)
-Remove-Item $Output -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path $Output -Force | Out-Null
+if (Test-Path -LiteralPath $Output) { throw "Output path already exists: $Output. Choose a new path with -Output." }
+New-Item -ItemType Directory -Path $Output | Out-Null
 $archives = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../.local/deps/test-archives'))
 $tidy = Join-Path $archives 'tidy-5.8.0-win64.zip'
 if (-not (Test-Path -LiteralPath $tidy)) { throw "Missing fixed test input: $tidy; run scripts/fetch-deps.ps1" }
