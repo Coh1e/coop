@@ -50,6 +50,16 @@ function Install-Fact([string]$Name,[string]$Version) {
     ('{"version":"' + $Version + '"}') | Set-Content "$directory/scoop-manifest.json" -Encoding ascii
     '{"bucket":"main","architecture":"64bit"}' | Set-Content "$directory/scoop-install.json" -Encoding ascii
 }
+function Write-GitIndex([string]$Revision,[string[]]$Names) {
+    $bucketPath = [IO.Path]::GetFullPath("$root/buckets/main")
+    $directory = [IO.Path]::GetFullPath("$root/buckets/main/bucket")
+    ConvertTo-Json -Depth 8 -InputObject @(@{name='main';path=$bucketPath;kind='git';revision=$Revision;url=$remote}) |
+        Set-Content "$state/buckets.json" -Encoding utf8
+    $entries = @($Names | ForEach-Object { @{name=$_;version='1';description='';homepage='';bin=@();diagnostics=@()} })
+    New-Item -ItemType Directory -Force -Path "$state/cache/index" | Out-Null
+    ConvertTo-Json -Depth 8 -InputObject @{version=2;bucket='main';kind='git';path=$directory;revision=$Revision;entries=$entries} |
+        Set-Content "$state/cache/index/main.json" -Encoding utf8
+}
 try {
     $empty = Read-V2
     Check (@($empty.apps).Count -eq 0 -and @($empty.buckets).Count -eq 0 -and $empty.summary.complete) 'Empty root is not a complete local report'
@@ -156,6 +166,27 @@ try {
     }
     $alias = Invoke-CoopNativeRaw -Exe $CoopExe -Arguments @('--root',$root,'status','--local','--json=2')
     Check ($alias.code -eq 0 -and ($alias.out | ConvertFrom-Json).scope -eq 'local') 'Local long switch lost v2 support'
+    # Simulate a valid Coop index, followed by a Scoop-side commit while private metadata stays old.
+    & git -C "$root/buckets/main" add .
+    & git -C "$root/buckets/main" -c user.name=fixture -c user.email=fixture@example.invalid commit -q -m cached-baseline
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot commit cache baseline' }
+    $cachedHead = & git -C "$root/buckets/main" rev-parse HEAD
+    Write-GitIndex $cachedHead @('demo','broken')
+    '{"version":"1"}' | Set-Content "$root/buckets/main/bucket/fresh.json" -Encoding ascii
+    & git -C "$root/buckets/main" add .
+    & git -C "$root/buckets/main" -c user.name=fixture -c user.email=fixture@example.invalid commit -q -m scoop-side-update
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot simulate Scoop-side update' }
+    $actualHead = & git -C "$root/buckets/main" rev-parse HEAD
+    Install-Fact fresh 1
+    $advanced = Read-V2
+    $fresh = @($advanced.apps | Where-Object name -eq 'fresh')[0]
+    Check ($fresh.state -eq 'ok' -and -not $fresh.data.manifest_removed) 'Old registered Git index hid a Scoop-side manifest'
+    Check (@($advanced.buckets | Where-Object name -eq 'main')[0].data.revision -eq $actualHead) 'Cached revision replaced actual HEAD'
+    Write-GitIndex $actualHead @('demo','broken','fresh')
+    '{bad' | Set-Content "$root/buckets/main/bucket/dirty.json" -Encoding ascii
+    $dirty = Read-V2 1
+    Check (@($dirty.buckets | Where-Object state -eq 'failed').Count -eq 1) 'Same-HEAD cache hid a corrupt worktree manifest'
+    [IO.File]::Delete("$root/buckets/main/bucket/dirty.json")
     Write-Output 'PASS local status v2 facts, diagnostics, legacy JSON compatibility and no remote/state effects'
 } finally {
     $listener.Stop()

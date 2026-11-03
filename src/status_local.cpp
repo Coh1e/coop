@@ -113,7 +113,7 @@ OperationResult local_status_report(const Context& context) {
             if (!fs::is_directory(path)) throw std::runtime_error("Bucket directory is missing");
             for (const auto& [name,value] : git_facts(path)) bucket.data[name] = value;
             const auto directory = fs::is_directory(path/L"bucket") ? path/L"bucket" : path;
-            const auto entries = catalog_entries(context,source);
+            const auto entries = scan_catalog_entries(source);
             bucket.data["manifest_count"] = entries.size();
             for (const auto& entry : entries) {
                 const auto name = entry.at("name").get<std::string>();

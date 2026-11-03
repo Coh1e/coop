@@ -118,6 +118,9 @@ Json catalog_entries(const Context& context, const Json& source) {
     }
     return scan_entries(directory);
 }
+Json scan_catalog_entries(const Json& source) {
+    return scan_entries(catalog_directory(source));
+}
 bool catalog_index_valid(const Context& context, const Json& source) {
     try {
         return !read_index(context,source,catalog_directory(source)).is_null();
