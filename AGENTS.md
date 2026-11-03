@@ -79,6 +79,6 @@ Keep the report concise. Include exact commands when they help reproduce verific
 ### Next-step guidance
 
 For coding and directly related work, read
-`C:/Users/Neo/.agents/skills/pipkit-next-step/SKILL.md` before ending a response.
+`C:/Users/Neo/.agents/skills/grill-agent/SKILL.md` before ending a response.
 Follow its decision on continuing work or selecting a closing mode. If missing or
 unreadable, report the dependency and do not claim the rules were loaded.
