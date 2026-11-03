@@ -142,7 +142,7 @@ $unitsManifest = {
 }
 
 # --- 1. Preview states the declared helper, the layout and the vendor-installer boundary. --------
-Write-Manifest 'units' (& $unitsManifest '2.27' $units227 $hash227)
+Write-Manifest 'units' (& $unitsManifest '2.26' $units226 $hash226)
 $preview = Invoke-Guarded 'inno-preview' @('--root',$root,'install','main/units','--dry-run','--json') $false
 Check ($preview.exit -eq 0) "Inno preview failed: $($preview.error)"
 Assert-Workloads $preview $false
@@ -169,22 +169,22 @@ Check ((@($plan.ir_operations | ForEach-Object { $_.operation }) -join ',') -eq 
 Check (-not (Test-Path -LiteralPath "$root/apps/units") -and -not (Test-Path -LiteralPath "$root/.coop/transactions")) 'Inno preview wrote installation state'
 Check ((Helper-Snapshot) -join "`n" -eq ($helperBefore -join "`n")) 'the preview changed the helper package'
 
-# --- 2. Install the real 2.27 Inno Setup artifact. ----------------------------------------------
+# --- 2. Install the real 2.26 Inno Setup artifact. ----------------------------------------------
 $install = Invoke-Guarded 'inno-install' @('--root',$root,'install','main/units','--json') $true
 Check ($install.exit -eq 0) "Inno install failed: $($install.error)"
 Assert-Workloads $install $true
 $installResult = Parse-Json 'inno-install' $install
 Check ($installResult.status -eq 'success') 'Inno install result is not successful'
-$versionDirectory = Join-Path $root 'apps/units/2.27'
+$versionDirectory = Join-Path $root 'apps/units/2.26'
 foreach ($relative in @('units.exe','definitions.units','units_cur.py','elements.units','currency.units','License.txt','Readme.txt')) {
     Check (Test-Path -LiteralPath (Join-Path $versionDirectory $relative)) "Inno layout is missing $relative"
 }
-Check (-not (Test-Path -LiteralPath "$versionDirectory/units-2.27-setup.exe")) 'Inno install copied the vendor installer into the version directory'
+Check (-not (Test-Path -LiteralPath "$versionDirectory/units-2.26-setup.exe")) 'Inno install copied the vendor installer into the version directory'
 Check (-not (Test-Path -LiteralPath "$versionDirectory/unins000.exe")) 'the vendor uninstaller was installed'
 Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/units/current").Target) -eq [IO.Path]::GetFullPath($versionDirectory)) 'Inno current link points at the wrong version'
 Check (Test-Path -LiteralPath "$root/shims/units.exe") 'Inno install did not create the Scoop-compatible command entry'
 $installedVersion = Program-Version "$root/shims/units.exe"
-Check ($installedVersion.exit -eq 0 -and $installedVersion.output -match 'GNU Units version 2\.27') "the installed program reports the wrong version: $($installedVersion.output)"
+Check ($installedVersion.exit -eq 0 -and $installedVersion.output -match 'GNU Units version 2\.26') "the installed program reports the wrong version: $($installedVersion.output)"
 $conversion = Invoke-Process 'units-convert' "$root/shims/units.exe" @('1 mile','km')
 if ($conversion.exit -ne 0 -and [string]::IsNullOrWhiteSpace($conversion.output)) {
     # GNU Units loads its conversion table from a data file next to the executable or from UNITSFILE.
@@ -212,10 +212,10 @@ Check ($innoRecord.stdout_tail -match 'Inno Setup version detected:  6\.6\.0' -a
 Check ((Helper-Snapshot) -join "`n" -eq ($helperBefore -join "`n")) 'the install changed the helper package'
 $installedList = Invoke-Coop 'inno-list' @('--root',$root,'list','--json')
 Check ($installedList.exit -eq 0 -and $installedList.output -match 'units') 'Coop list does not see the Inno installation'
-$image227 = Get-TreeSnapshot $versionDirectory
+$image226 = Get-TreeSnapshot $versionDirectory
 
-# --- 3. Update to the real 2.26 artifact and keep the old version. ------------------------------
-Write-Manifest 'units' (& $unitsManifest '2.26' $units226 $hash226)
+# --- 3. Update to the real 2.27 artifact and keep the old version. ------------------------------
+Write-Manifest 'units' (& $unitsManifest '2.27' $units227 $hash227)
 $updatePreview = Invoke-Guarded 'inno-update-preview' @('--root',$root,'update','units','--dry-run','--json') $false
 Check ($updatePreview.exit -eq 0) "Inno update preview failed: $($updatePreview.error)"
 Assert-Workloads $updatePreview $false
@@ -224,27 +224,27 @@ $update = Invoke-Guarded 'inno-update' @('--root',$root,'update','units','--json
 Check ($update.exit -eq 0) "Inno update failed: $($update.error)"
 Assert-Workloads $update $true
 $updateResult = Parse-Json 'inno-update' $update
-Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '2.27')) 'Inno update did not retain the previous version'
-Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/units/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/units/2.26'))) 'Inno update did not repoint current'
+Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '2.26')) 'Inno update did not retain the previous version'
+Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/units/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/units/2.27'))) 'Inno update did not repoint current'
 $updatedVersion = Program-Version "$root/shims/units.exe"
-Check ($updatedVersion.exit -eq 0 -and $updatedVersion.output -match 'GNU Units version 2\.26') "Inno update did not switch the real program version: $($updatedVersion.output)"
-Check ((Test-Path -LiteralPath "$root/apps/units/2.27/units.exe") -and (Test-Path -LiteralPath "$root/apps/units/2.26/units.exe")) 'Inno update did not keep both version directories'
+Check ($updatedVersion.exit -eq 0 -and $updatedVersion.output -match 'GNU Units version 2\.27') "Inno update did not switch the real program version: $($updatedVersion.output)"
+Check ((Test-Path -LiteralPath "$root/apps/units/2.26/units.exe") -and (Test-Path -LiteralPath "$root/apps/units/2.27/units.exe")) 'Inno update did not keep both version directories'
 Check ((Get-Content -LiteralPath "$root/apps/units/current/settings/probe.txt" -Raw).Trim() -eq 'inno-persist-probe') 'Inno update did not reuse the persisted data'
 $updateJournal = Last-Journal 'units'
 Check ($updateJournal.state -eq 'committed' -and @($updateJournal.inno_extractions).Count -eq 1) 'Inno update journal is incomplete'
 Check ((@($updateJournal.inno_extractions)[0].selection) -eq '-c{app}') 'Inno update used a different Inno selection'
-$image226 = Get-TreeSnapshot "$root/apps/units/2.26"
-Check (($image226 -join "`n") -ne ($image227 -join "`n")) 'Inno update did not actually replace the extracted files'
+$image227 = Get-TreeSnapshot "$root/apps/units/2.27"
+Check (($image227 -join "`n") -ne ($image226 -join "`n")) 'Inno update did not actually replace the extracted files'
 
 # --- 4. A truncated artifact fails accurately and protects the installed version. --------------
 $broken = Join-Path $root 'build/broken-units.exe'
-[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($units227)[0..7999])
+[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($units226)[0..7999])
 Write-Manifest 'units' @{version='2.28';url=(File-Uri $broken);hash=(File-Hash $broken);innosetup=$true;bin='units.exe';persist='settings'}
 $failedUpdate = Invoke-Guarded 'inno-broken-update' @('--root',$root,'update','units','--json') $true
 Check ($failedUpdate.exit -ne 0) 'Truncated Inno update unexpectedly succeeded'
 Check ($failedUpdate.error -match 'innounp could not unpack') "Truncated Inno failure was not reported by the helper: $($failedUpdate.error)"
 Assert-Workloads $failedUpdate $true
-Check ((Program-Version "$root/shims/units.exe").output -match 'GNU Units version 2\.26') 'Truncated Inno update changed the working program'
+Check ((Program-Version "$root/shims/units.exe").output -match 'GNU Units version 2\.27') 'Truncated Inno update changed the working program'
 Check (-not (Test-Path -LiteralPath "$root/apps/units/2.28")) 'Truncated Inno update published a version directory'
 $failedJournal = Last-Journal 'units'
 Check ($failedJournal.state -eq 'rolled-back') 'Truncated Inno update journal does not show rollback'
@@ -321,11 +321,11 @@ Check ((Helper-Snapshot) -join "`n" -eq ($helperBefore -join "`n")) 'the lifecyc
         @{path=$units227;sha256=$hash227;reported_version='GNU Units 2.27'},
         @{path=$units226;sha256=$hash226;reported_version='GNU Units 2.26'},
         @{path=$rizin;sha256=$hashRizin;reported_version='rizin 0.9.1'},
-        @{path=$broken;sha256=(File-Hash $broken);reported_version='truncated copy of units 2.27'}
+        @{path=$broken;sha256=(File-Hash $broken);reported_version='truncated copy of units 2.26'}
     )
     plan=@{operations=@($plan.ir_operations | ForEach-Object { $_.operation });mechanism=$facts.mechanism;elevation=$facts.elevation;reboot=$facts.reboot;selection=$facts.selection}
-    install=@{files=$innoRecord.files;bytes=$innoRecord.bytes;selection=$innoRecord.selection;stdout='GNU Units version 2.27';conversion=$conversion.output.Trim()}
-    update=@{reported_version='GNU Units 2.26';retained_versions=@($updateResult.retained_versions);persist_data_reused=$true}
+    install=@{files=$innoRecord.files;bytes=$innoRecord.bytes;selection=$innoRecord.selection;stdout='GNU Units version 2.26';conversion=$conversion.output.Trim()}
+    update=@{reported_version='GNU Units 2.27';retained_versions=@($updateResult.retained_versions);persist_data_reused=$true}
     subdirectory=@{selection=$rzRecord.selection;files=$rzRecord.files;reported_version=($rzVersion.output -replace "`r?`n",' ').Trim()}
     failure=@{exit=$failedUpdate.exit;error=$failedUpdate.error.Trim();journal=$failedJournal.state}
     missing_helper=@{preview_execution_available=$missingPlan.execution_available;install_exit=$missing.exit;helper_downloaded=$false}

@@ -102,7 +102,7 @@ $manifest2603 = @{version='26.03';url=(File-Uri $msi2603);hash=$hash2603;extract
 $script:installerCacheBefore = @(Get-WindowsInstallerCacheState)
 
 # --- 1. Preview states the real mechanism, permissions and reboot facts. -------
-Write-Manifest 'main' 'seven' $manifest2605
+Write-Manifest 'main' 'seven' $manifest2603
 $preview = Invoke-Guard 'msi-preview' @('--root',$root,'install','main/seven','--dry-run','--json')
 Check ($preview.exit -eq 0) "MSI preview failed: $($preview.error)"
 Check ($preview.error -match 'Observed workload processes: 1') 'MSI preview started msiexec or PowerShell'
@@ -128,23 +128,23 @@ Check ($plan.lifecycle_checks.msi_extraction -match 'no elevation, reboot, msiex
 Check (-not (Test-Path -LiteralPath "$root/apps/seven") -and -not (Test-Path -LiteralPath "$root/.coop/transactions")) 'MSI preview wrote installation state'
 Assert-CacheUnchanged 'the MSI preview'
 
-# --- 2. Install the real 7-Zip 26.05 MSI artifact. ---------------------------
+# --- 2. Install the real 7-Zip 26.03 MSI artifact. ---------------------------
 $install = Invoke-Guard 'msi-install' @('--root',$root,'install','main/seven','--json')
 Check ($install.exit -eq 0) "MSI install failed: $($install.error)"
 Check ($install.error -match 'Observed workload processes: 1') 'MSI install started msiexec or PowerShell'
 $installResult = Parse-Json 'msi-install' $install
 Check ($installResult.status -eq 'success') 'MSI install result is not successful'
-$versionDirectory = Join-Path $root 'apps/seven/26.05'
+$versionDirectory = Join-Path $root 'apps/seven/26.03'
 foreach ($relative in @('7z.exe','7z.dll','7zFM.exe','7-zip.chm','Lang\en.ttt','descript.ion')) {
     Check (Test-Path -LiteralPath (Join-Path $versionDirectory $relative)) "MSI image is missing $relative"
 }
-Check (-not (Test-Path -LiteralPath "$versionDirectory/7z2605-x64.msi")) 'MSI image copied the installer file into the version directory'
+Check (-not (Test-Path -LiteralPath "$versionDirectory/7z2603-x64.msi")) 'MSI image copied the installer file into the version directory'
 Check (@(Get-ChildItem -LiteralPath "$versionDirectory/Lang" -File).Count -gt 50) 'MSI subdirectory layout was not preserved'
 $currentTarget = [IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/seven/current").Target)
 Check ($currentTarget -eq [IO.Path]::GetFullPath($versionDirectory)) 'MSI current link points at the wrong version'
 Check (Test-Path -LiteralPath "$root/shims/7z.exe") 'MSI install did not create the Scoop-compatible command entry'
 $sevenVersion = Get-ProgramVersion "$root/shims/7z.exe"
-Check ($sevenVersion.output -match '7-Zip 26\.05') "MSI-installed program reports the wrong version: $($sevenVersion.output)"
+Check ($sevenVersion.output -match '7-Zip 26\.03') "MSI-installed program reports the wrong version: $($sevenVersion.output)"
 foreach ($store in @('Codecs','Formats')) {
     Check (Test-Path -LiteralPath "$root/persist/seven/$store") "MSI persist store $store was not created"
     $link = Get-Item -LiteralPath "$versionDirectory/$store"
@@ -160,16 +160,16 @@ Check ($msiRecord.elevation -match 'not requested' -and $msiRecord.reboot -match
     $msiRecord.machine_cache -match 'not written') 'MSI journal does not record the permission, reboot and cache facts'
 Check ((@($msiRecord.cabinets) -join ',') -eq 'product.cab' -and $msiRecord.cabinet_files -eq 106 -and
     $msiRecord.files -eq 106 -and $msiRecord.uncompressed_streams -eq 0) 'MSI journal does not record the cabinet contents it read'
-Check ($msiRecord.bytes -eq 5903862) 'MSI journal byte count does not match the extracted image'
+Check ($msiRecord.bytes -eq 5900528) 'MSI journal byte count does not match the extracted image'
 $installedList = Invoke-Coop 'msi-list' @('--root',$root,'list','--json')
 Check ($installedList.exit -eq 0 -and $installedList.output -match 'seven') 'Coop list does not see the MSI installation'
 Assert-CacheUnchanged 'the MSI install'
 Set-Content -LiteralPath "$root/persist/seven/Codecs/probe.txt" -Value 'msi-persist-probe' -Encoding ascii
 Check ((Get-Content -LiteralPath "$root/apps/seven/current/Codecs/probe.txt" -Raw).Trim() -eq 'msi-persist-probe') 'MSI persist store is not visible through current'
-$image2605 = Get-TreeSnapshot $versionDirectory
+$image2603 = Get-TreeSnapshot $versionDirectory
 
-# --- 3. Update to the real 7-Zip 26.03 MSI artifact and keep the old version. --
-Write-Manifest 'main' 'seven' $manifest2603
+# --- 3. Update to the real 7-Zip 26.05 MSI artifact and keep the old version. --
+Write-Manifest 'main' 'seven' $manifest2605
 $updatePreview = Invoke-Guard 'msi-update-preview' @('--root',$root,'update','seven','--dry-run','--json')
 Check ($updatePreview.exit -eq 0 -and $updatePreview.error -match 'Observed workload processes: 1') 'MSI update preview failed or started an external process'
 $updatePlan = Parse-Json 'msi-update-preview' $updatePreview
@@ -178,26 +178,26 @@ $update = Invoke-Guard 'msi-update' @('--root',$root,'update','seven','--json')
 Check ($update.exit -eq 0) "MSI update failed: $($update.error)"
 Check ($update.error -match 'Observed workload processes: 1') 'MSI update started msiexec or PowerShell'
 $updateResult = Parse-Json 'msi-update' $update
-Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '26.05')) 'MSI update did not retain the previous version'
-Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/seven/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/seven/26.03'))) 'MSI update did not repoint current'
+Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '26.03')) 'MSI update did not retain the previous version'
+Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/seven/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/seven/26.05'))) 'MSI update did not repoint current'
 $updatedVersion = Get-ProgramVersion "$root/shims/7z.exe"
-Check ($updatedVersion.output -match '7-Zip 26\.03') "MSI update did not switch the real program version: $($updatedVersion.output)"
-Check ((Test-Path -LiteralPath "$root/apps/seven/26.05/7z.exe") -and (Test-Path -LiteralPath "$root/apps/seven/26.03/7z.exe")) 'MSI update did not keep both version directories'
+Check ($updatedVersion.output -match '7-Zip 26\.05') "MSI update did not switch the real program version: $($updatedVersion.output)"
+Check ((Test-Path -LiteralPath "$root/apps/seven/26.03/7z.exe") -and (Test-Path -LiteralPath "$root/apps/seven/26.05/7z.exe")) 'MSI update did not keep both version directories'
 Check ((Get-Content -LiteralPath "$root/apps/seven/current/Codecs/probe.txt" -Raw).Trim() -eq 'msi-persist-probe') 'MSI update did not reuse the persisted data'
 $updateJournal = Last-Journal 'seven'
 Check ($updateJournal.state -eq 'committed' -and @($updateJournal.msi_extractions).Count -eq 1) 'MSI update journal is incomplete'
-$image2603 = Get-TreeSnapshot "$root/apps/seven/26.03"
-Check (($image2603 -join "`n") -ne ($image2605 -join "`n")) 'MSI update did not actually replace the image contents'
+$image2605 = Get-TreeSnapshot "$root/apps/seven/26.05"
+Check (($image2605 -join "`n") -ne ($image2603 -join "`n")) 'MSI update did not actually replace the image contents'
 Assert-CacheUnchanged 'the MSI update'
 
 # --- 4. A corrupt MSI update fails accurately and protects the current version. ----
 $broken = Join-Path $root 'build/broken-7z.msi'
-[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($msi2605)[0..999])
+[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($msi2603)[0..999])
 Write-Manifest 'main' 'seven' @{version='26.06';url=(File-Uri $broken);hash=(File-Hash $broken);extract_dir='Files\7-Zip';bin='7z.exe';persist=@('Codecs','Formats')}
 $failedUpdate = Invoke-Guard 'msi-broken-update' @('--root',$root,'update','seven','--json')
 Check ($failedUpdate.exit -ne 0) 'Corrupt MSI update unexpectedly succeeded'
 Check ($failedUpdate.error -match 'MSI database' -and $failedUpdate.error -match 'Observed workload processes: 1') "Corrupt MSI failure was not reported at the database stage: $($failedUpdate.error)"
-Check ((Get-ProgramVersion "$root/shims/7z.exe").output -match '7-Zip 26\.03') 'Corrupt MSI update changed the working program'
+Check ((Get-ProgramVersion "$root/shims/7z.exe").output -match '7-Zip 26\.05') 'Corrupt MSI update changed the working program'
 Check (-not (Test-Path -LiteralPath "$root/apps/seven/26.06")) 'Corrupt MSI update published a version directory'
 $failedJournal = Last-Journal 'seven'
 Check ($failedJournal.state -eq 'rolled-back') 'Corrupt MSI update journal does not show rollback'
@@ -229,11 +229,11 @@ $cacheAfter = @(Get-WindowsInstallerCacheState)
     artifacts=@(
         @{path=$msi2605;sha256=$hash2605;reported_version='26.05'},
         @{path=$msi2603;sha256=$hash2603;reported_version='26.03'},
-        @{path=$broken;sha256=(File-Hash $broken);reported_version='corrupt copy of the 26.05 artifact'}
+        @{path=$broken;sha256=(File-Hash $broken);reported_version='corrupt copy of the 26.03 artifact'}
     )
     plan=@{operations=@($plan.ir_operations | ForEach-Object { $_.operation }); elevation=$facts.elevation; reboot=$facts.reboot; mechanism=$facts.mechanism}
-    install=@{files=$msiRecord.files;bytes=$msiRecord.bytes;cabinet_files=$msiRecord.cabinet_files;cabinets=@($msiRecord.cabinets);stdout='7-Zip 26.05'}
-    update=@{reported_version='7-Zip 26.03';retained_versions=@($updateResult.retained_versions)}
+    install=@{files=$msiRecord.files;bytes=$msiRecord.bytes;cabinet_files=$msiRecord.cabinet_files;cabinets=@($msiRecord.cabinets);stdout='7-Zip 26.03'}
+    update=@{reported_version='7-Zip 26.05';retained_versions=@($updateResult.retained_versions)}
     uninstall=@{persist_data_retained=$true;current_removed=$true;entries_removed=$true}
     failure=@{exit=$failedUpdate.exit;error=$failedUpdate.error.Trim();journal=$failedJournal.state}
     windows_installer_cache=@{

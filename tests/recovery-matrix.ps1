@@ -358,12 +358,12 @@ exit /b 0
     $msi2603 = Join-Path $archives '7z2603-x64.msi'
     if ((Test-Path -LiteralPath $msi2605) -and (Test-Path -LiteralPath $msi2603)) {
         $rootD = New-Root 'msi'
-        Write-Manifest $rootD 'seven' @{version='26.05';url=(File-Uri $msi2605);hash=(File-Hash $msi2605);
+        Write-Manifest $rootD 'seven' @{version='26.03';url=(File-Uri $msi2603);hash=(File-Hash $msi2603);
             extract_dir='Files\7-Zip';bin='7z.exe'}
         Coop-Json 'd-install' $rootD @('install','test/seven','--json') | Out-Null
-        $v2605 = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
-        Check ($v2605 -match '26\.05') 'D real MSI install did not produce a runnable 26.05 program'
-        Write-Manifest $rootD 'seven' @{version='26.03';url=(File-Uri $msi2603);hash=(File-Hash $msi2603);
+        $v2603 = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
+        Check ($v2603 -match '26\.03') 'D real MSI install did not produce a runnable 26.03 program'
+        Write-Manifest $rootD 'seven' @{version='26.05';url=(File-Uri $msi2605);hash=(File-Hash $msi2605);
             extract_dir='Files\7-Zip';bin='7z.exe'}
         Use-Fault $rootD 'crash' 'after-extract'
         $msiCrash = Invoke-Coop 'd-msi-crash' $rootD @('update','seven','--json')
@@ -372,16 +372,16 @@ exit /b 0
         $pendingD = Single-Pending $rootD 'update'
         Check (@($pendingD.Value.msi_extractions).Count -eq 1) 'D journal did not record the real MSI extraction'
         $msiDuring = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
-        Check ($msiDuring -match '26\.05') 'D current MSI program stopped working during the pending update'
+        Check ($msiDuring -match '26\.03') 'D current MSI program stopped working during the pending update'
         $msiDry = Coop-Json 'd-msi-dry' $rootD @('recover','--dry-run','--json')
         Check ($msiDry[0].status -eq 'recoverable' -and @($msiDry[0].actions).Count -eq 0) 'D MSI staging-only transaction was not discardable'
         $msiRecovered = Coop-Json 'd-msi-recover' $rootD @('recover','--json')
         Check ($msiRecovered[0].status -eq 'recovered') 'D MSI staging recovery failed'
         $msiAfter = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
-        Check ($msiAfter -match '26\.05') 'D recovery changed the current MSI program'
+        Check ($msiAfter -match '26\.03') 'D recovery changed the current MSI program'
         Coop-Json 'd-msi-retry' $rootD @('update','seven','--json') | Out-Null
         $msiUpdated = (Invoke-CoopNative "$rootD/apps/seven/current/7z.exe" ) | Out-String
-        Check ($msiUpdated -match '26\.03') 'D retried MSI update did not publish 26.03'
+        Check ($msiUpdated -match '26\.05') 'D retried MSI update did not publish 26.05'
     } else {
         throw "Missing real MSI artifacts in $archives; run scripts/fetch-deps.ps1"
     }
@@ -403,12 +403,12 @@ exit /b 0
             Set-Content -LiteralPath "$rootE/apps/innounp/current/scoop-manifest.json" -Encoding utf8
         @{architecture='64bit';bucket='main'} | ConvertTo-Json |
             Set-Content -LiteralPath "$rootE/apps/innounp/current/scoop-install.json" -Encoding utf8
-        Write-Manifest $rootE 'units' @{version='2.27';url=(File-Uri $units227);hash=(File-Hash $units227);
+        Write-Manifest $rootE 'units' @{version='2.26';url=(File-Uri $units226);hash=(File-Hash $units226);
             innosetup=$true;bin='units.exe';persist='settings'}
         Coop-Json 'e-inno-install' $rootE @('install','test/units','--json') | Out-Null
-        $innoV227 = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
-        Check ($innoV227 -match '2\.27') 'E real Inno install did not produce a runnable 2.27 program'
-        Write-Manifest $rootE 'units' @{version='2.26';url=(File-Uri $units226);hash=(File-Hash $units226);
+        $innoV226 = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
+        Check ($innoV226 -match '2\.26') 'E real Inno install did not produce a runnable 2.26 program'
+        Write-Manifest $rootE 'units' @{version='2.27';url=(File-Uri $units227);hash=(File-Hash $units227);
             innosetup=$true;bin='units.exe';persist='settings'}
         Use-Fault $rootE 'crash' 'after-extract'
         $innoCrash = Invoke-Coop 'e-inno-crash' $rootE @('update','units','--json')
@@ -417,14 +417,14 @@ exit /b 0
         $pendingInno = Single-Pending $rootE 'update'
         Check (@($pendingInno.Value.inno_extractions).Count -eq 1) 'E journal did not record the real Inno extraction'
         $innoDuring = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
-        Check ($innoDuring -match '2\.27') 'E current Inno program stopped working during the pending update'
+        Check ($innoDuring -match '2\.26') 'E current Inno program stopped working during the pending update'
         $innoRecovered = Coop-Json 'e-inno-recover' $rootE @('recover','--json')
         Check ($innoRecovered[0].status -eq 'recovered') 'E Inno staging recovery failed'
         $innoAfter = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
-        Check ($innoAfter -match '2\.27') 'E Inno recovery changed the current program'
+        Check ($innoAfter -match '2\.26') 'E Inno recovery changed the current program'
         Coop-Json 'e-inno-retry' $rootE @('update','units','--json') | Out-Null
         $innoUpdated = (Invoke-CoopNative "$rootE/apps/units/current/units.exe"  --version) | Out-String
-        Check ($innoUpdated -match '2\.26') 'E retried Inno update did not publish 2.26'
+        Check ($innoUpdated -match '2\.27') 'E retried Inno update did not publish 2.27'
     } else {
         throw "Missing Inno artifacts in $archives; run scripts/fetch-deps.ps1"
     }

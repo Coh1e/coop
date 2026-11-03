@@ -145,7 +145,7 @@ $helperHash = File-Hash $helperExecutable
 $helperBefore = @(Get-TreeSnapshot "$root/apps/7zip/26.05")
 
 # --- 1. Preview states the NSIS route, the helper and the vendor-installer boundary. -------------
-Write-Manifest 'apng' (& $apngManifest '3.1.3' $apng313 $hash313)
+Write-Manifest 'apng' (& $apngManifest '3.1.1' $apng311 $hash311)
 $transactionsBefore = @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue).Count
 $preview = Invoke-Guarded 'nsis-preview' @('--root',$root,'install','main/apng','--dry-run','--json') $false
 Check ($preview.exit -eq 0) "NSIS preview failed: $($preview.error)"
@@ -175,14 +175,14 @@ Check (-not (Test-Path -LiteralPath "$root/apps/apng") -and
     @(Get-ChildItem "$root/.coop/transactions" -Directory -ErrorAction SilentlyContinue).Count -eq $transactionsBefore) 'NSIS preview wrote installation state'
 Check (((Get-TreeSnapshot "$root/apps/7zip/26.05") -join "`n") -eq ($helperBefore -join "`n")) 'the preview changed the helper package'
 
-# --- 2. Install the real 3.1.3 NSIS installer payload. -----------------------------------------
+# --- 2. Install the real 3.1.1 NSIS installer payload. -----------------------------------------
 $install = Invoke-Guarded 'nsis-install' @('--root',$root,'install','main/apng','--json') $true
 Check ($install.exit -eq 0) "NSIS install failed: $($install.error)"
 Assert-Workloads $install @('7z\.exe$','(?:pwsh|powershell)\.exe$')
 Check (@((Workload-Names $install) | Where-Object { $_ -match '7z\.exe$' })[0] -match '(?i)apps[\\/]7zip') 'the 7-Zip helper did not come from the shared root'
 $installResult = Parse-Json 'nsis-install' $install
 Check ($installResult.status -eq 'success') 'NSIS install result is not successful'
-$versionDirectory = Join-Path $root 'apps/apng/3.1.3'
+$versionDirectory = Join-Path $root 'apps/apng/3.1.1'
 foreach ($relative in @('bin/apngasm.exe','bin/apngasm.dll','bin/msvcp120.dll','include/apngasm.h')) {
     Check (Test-Path -LiteralPath (Join-Path $versionDirectory $relative)) "NSIS layout is missing $relative"
 }
@@ -193,7 +193,7 @@ Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/apng/cu
 Check (Test-Path -LiteralPath "$root/shims/apngasm.exe") 'NSIS install did not create the Scoop-compatible command entry'
 Check (Test-Path -LiteralPath "$root/shims/apngasm-cli.exe") 'NSIS install did not create the aliased command entry'
 $installedBanner = Program-Banner "$root/shims/apngasm.exe"
-Check ($installedBanner.output -match 'apngasm 3\.1\.3') "the installed program reports the wrong version: $($installedBanner.output)"
+Check ($installedBanner.output -match 'apngasm 3\.1\.1') "the installed program reports the wrong version: $($installedBanner.output)"
 Check ((Test-Path -LiteralPath "$versionDirectory/scoop-install.json") -and (Test-Path -LiteralPath "$versionDirectory/scoop-manifest.json")) 'NSIS install did not write the shared Scoop records'
 $installJournal = Last-Journal 'apng'
 Check ($installJournal.state -eq 'committed' -and (@($installJournal.observed_steps) -join ',') -eq (@($plan.ir_operations | ForEach-Object { $_.operation }) -join ',')) 'NSIS journal does not match the previewed plan'
@@ -205,15 +205,15 @@ Check ($nsisRecord.exit_code -eq 0 -and (@($nsisRecord.arguments)[0] -eq 'x') -a
 Check ($nsisRecord.detection.signature -match 'NullsoftInst' -and $nsisRecord.detection.offset -eq 65028) 'NSIS journal does not record the content detection that selected the helper'
 Check ($nsisRecord.installer_executed -eq $false -and $nsisRecord.elevation -match 'not requested' -and
     $nsisRecord.reboot -match 'not scheduled' -and $nsisRecord.installer_effects -match 'not executed') 'NSIS journal does not record the extraction boundary'
-Check ($nsisRecord.files -eq 16 -and $nsisRecord.bytes -eq 2549477) "NSIS journal extraction totals are wrong: $($nsisRecord.files) files, $($nsisRecord.bytes) bytes"
+Check ($nsisRecord.files -eq 16 -and $nsisRecord.bytes -eq 2543602) "NSIS journal extraction totals are wrong: $($nsisRecord.files) files, $($nsisRecord.bytes) bytes"
 Check ($nsisRecord.stdout_tail -match 'Everything is Ok') 'NSIS journal does not keep the helper output'
 Check (((Get-TreeSnapshot "$root/apps/7zip/26.05") -join "`n") -eq ($helperBefore -join "`n")) 'the install changed the helper package'
 $installedList = Invoke-Coop 'nsis-list' @('--root',$root,'list','--json')
 Check ($installedList.exit -eq 0 -and $installedList.output -match 'apng') 'Coop list does not see the NSIS installation'
-$image313 = Get-TreeSnapshot $versionDirectory
+$image311 = Get-TreeSnapshot $versionDirectory
 
-# --- 3. Update to the real 3.1.1 NSIS installer and keep the old version. -----------------------
-Write-Manifest 'apng' (& $apngManifest '3.1.1' $apng311 $hash311)
+# --- 3. Update to the real 3.1.3 NSIS installer and keep the old version. -----------------------
+Write-Manifest 'apng' (& $apngManifest '3.1.3' $apng313 $hash313)
 $updatePreview = Invoke-Guarded 'nsis-update-preview' @('--root',$root,'update','apng','--dry-run','--json') $false
 Check ($updatePreview.exit -eq 0) "NSIS update preview failed: $($updatePreview.error)"
 Assert-Workloads $updatePreview @()
@@ -222,26 +222,26 @@ $update = Invoke-Guarded 'nsis-update' @('--root',$root,'update','apng','--json'
 Check ($update.exit -eq 0) "NSIS update failed: $($update.error)"
 Assert-Workloads $update @('7z\.exe$','(?:pwsh|powershell)\.exe$')
 $updateResult = Parse-Json 'nsis-update' $update
-Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '3.1.3')) 'NSIS update did not retain the previous version'
-Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/apng/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/apng/3.1.1'))) 'NSIS update did not repoint current'
+Check ($updateResult.status -eq 'success' -and ($updateResult.retained_versions -contains '3.1.1')) 'NSIS update did not retain the previous version'
+Check ([IO.Path]::GetFullPath([string](Get-Item -LiteralPath "$root/apps/apng/current").Target) -eq [IO.Path]::GetFullPath((Join-Path $root 'apps/apng/3.1.3'))) 'NSIS update did not repoint current'
 $updatedBanner = Program-Banner "$root/shims/apngasm.exe"
-Check ($updatedBanner.output -match 'apngasm 3\.1\.1') "NSIS update did not switch the real program version: $($updatedBanner.output)"
-Check ((Test-Path -LiteralPath "$root/apps/apng/3.1.3/bin/apngasm.exe") -and (Test-Path -LiteralPath "$root/apps/apng/3.1.1/bin/apngasm.exe")) 'NSIS update did not keep both version directories'
+Check ($updatedBanner.output -match 'apngasm 3\.1\.3') "NSIS update did not switch the real program version: $($updatedBanner.output)"
+Check ((Test-Path -LiteralPath "$root/apps/apng/3.1.1/bin/apngasm.exe") -and (Test-Path -LiteralPath "$root/apps/apng/3.1.3/bin/apngasm.exe")) 'NSIS update did not keep both version directories'
 $updateJournal = Last-Journal 'apng'
 Check ($updateJournal.state -eq 'committed' -and @($updateJournal.nsis_extractions).Count -eq 1) 'NSIS update journal is incomplete'
 Check ((@($updateJournal.nsis_extractions)[0].files) -eq 16) 'NSIS update did not unpack the new payload through the helper'
-$image311 = Get-TreeSnapshot "$root/apps/apng/3.1.1"
-Check (($image311 -join "`n") -ne ($image313 -join "`n")) 'NSIS update did not actually replace the extracted files'
+$image313 = Get-TreeSnapshot "$root/apps/apng/3.1.3"
+Check (($image313 -join "`n") -ne ($image311 -join "`n")) 'NSIS update did not actually replace the extracted files'
 
 # --- 4. A truncated NSIS payload fails accurately and protects the installed version. -----------
 $broken = Join-Path $root 'build/broken-apngasm.exe'
-[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($apng313)[0..99999])
+[IO.File]::WriteAllBytes($broken,[IO.File]::ReadAllBytes($apng311)[0..99999])
 Write-Manifest 'apng' (& $apngManifest '3.1.9' $broken (File-Hash $broken))
 $failedUpdate = Invoke-Guarded 'nsis-broken-update' @('--root',$root,'update','apng','--json') $true
 Check ($failedUpdate.exit -ne 0) 'Truncated NSIS update unexpectedly succeeded'
 Check ($failedUpdate.error -match '7-Zip could not unpack the NSIS installer') "Truncated NSIS failure was not reported by the helper: $($failedUpdate.error)"
 Assert-Workloads $failedUpdate @('7z\.exe$')
-Check ((Program-Banner "$root/shims/apngasm.exe").output -match 'apngasm 3\.1\.1') 'Truncated NSIS update changed the working program'
+Check ((Program-Banner "$root/shims/apngasm.exe").output -match 'apngasm 3\.1\.3') 'Truncated NSIS update changed the working program'
 Check (-not (Test-Path -LiteralPath "$root/apps/apng/3.1.9")) 'Truncated NSIS update published a version directory'
 $failedJournal = Last-Journal 'apng'
 Check ($failedJournal.state -eq 'rolled-back') 'Truncated NSIS update journal does not show rollback'
@@ -278,8 +278,8 @@ Assert-Workloads $uninstall @()
 Check (-not (Test-Path -LiteralPath "$root/apps/apng/current")) 'NSIS uninstall left current published'
 Check (-not (Test-Path -LiteralPath "$root/shims/apngasm.exe")) 'NSIS uninstall left the command entry'
 Check (-not (Test-Path -LiteralPath "$root/shims/apngasm-cli.exe")) 'NSIS uninstall left the aliased command entry'
-Check (-not (Test-Path -LiteralPath "$root/apps/apng/3.1.1")) 'NSIS uninstall left the current version directory'
-Check (Test-Path -LiteralPath "$root/apps/apng/3.1.3") 'NSIS uninstall deleted the retained previous version instead of keeping it for cleanup'
+Check (-not (Test-Path -LiteralPath "$root/apps/apng/3.1.3")) 'NSIS uninstall left the current version directory'
+Check (Test-Path -LiteralPath "$root/apps/apng/3.1.1") 'NSIS uninstall deleted the retained previous version instead of keeping it for cleanup'
 Check (-not (Test-Path -LiteralPath "$root/.coop/packages/apng.json")) 'NSIS uninstall left the managed package record'
 Check (-not (Test-Path -LiteralPath "$root/apps/apngnsis")) 'the blocked NSIS install left an application directory'
 $finalList = Invoke-Coop 'nsis-list-final' @('--root',$root,'list','--json')
@@ -287,7 +287,7 @@ Check ($finalList.exit -eq 0) "final list failed: $($finalList.error)"
 $finalEntries = @(Parse-Json 'nsis-list-final' $finalList)
 $apngEntry = @($finalEntries | Where-Object { $_.name -eq 'apng' })
 Check ($apngEntry.Count -eq 1 -and $apngEntry[0].status -eq 'uninstalled' -and $null -eq $apngEntry[0].version -and
-    @($apngEntry[0].old_versions).Count -eq 1 -and @($apngEntry[0].old_versions)[0].version -eq '3.1.3' -and
+    @($apngEntry[0].old_versions).Count -eq 1 -and @($apngEntry[0].old_versions)[0].version -eq '3.1.1' -and
     @($apngEntry[0].old_versions)[0].status -eq 'cleanable') 'Coop does not report the uninstalled NSIS package and its retained cleanable version accurately'
 Check (((Get-TreeSnapshot "$root/apps/7zip/26.05") -join "`n") -eq ($helperBefore -join "`n")) 'the lifecycle changed the helper package'
 
@@ -337,13 +337,13 @@ Check (((Get-TreeSnapshot "$root/apps/7zip/26.05") -join "`n") -eq ($helperBefor
         @{path=$apng313;sha256=$hash313;reported_version='apngasm 3.1.3'},
         @{path=$apng311;sha256=$hash311;reported_version='apngasm 3.1.1'},
         @{path=$elm;sha256=$hashElm;reported_version='elm 0.19.3'},
-        @{path=$broken;sha256=(File-Hash $broken);reported_version='truncated 100000-byte copy of apngasm 3.1.3 NSIS installer'}
+        @{path=$broken;sha256=(File-Hash $broken);reported_version='truncated 100000-byte copy of apngasm 3.1.1 NSIS installer'}
     )
     plan=@{operations=@($plan.ir_operations | ForEach-Object { $_.operation });mechanism=$facts.mechanism;
         detection=$facts.content_detection;arguments=$facts.arguments;elevation=$facts.elevation;reboot=$facts.reboot}
     install=@{files=$nsisRecord.files;bytes=$nsisRecord.bytes;detection_offset=$nsisRecord.detection.offset;
-        reported_version='apngasm 3.1.3'}
-    update=@{reported_version='apngasm 3.1.1';retained_versions=@($updateResult.retained_versions)}
+        reported_version='apngasm 3.1.1'}
+    update=@{reported_version='apngasm 3.1.3';retained_versions=@($updateResult.retained_versions)}
     subdirectory=@{selection=$elmRecord.selection;files=$elmRecord.files;reported_version='elm 0.19.3'}
     failure=@{exit=$failedUpdate.exit;error=$failedUpdate.error.Trim();journal=$failedJournal.state}
     missing_helper=@{preview_helper_available=$missingPlan.package.nsis_extraction.helper_available;
