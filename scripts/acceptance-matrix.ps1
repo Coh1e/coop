@@ -6,6 +6,7 @@ param(
 # local root with file:// fixtures, so the result is reproducible without network, and every transcript
 # records the exact command, its exit code and its output.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'transcript-text.ps1')
 $CoopExe = [IO.Path]::GetFullPath($CoopExe)
 $Output = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $Output) { throw "Output path already exists: $Output. Choose a new path with -Output." }
@@ -49,9 +50,9 @@ function Invoke-Recorded([string]$label,[string[]]$arguments,[hashtable]$environ
         "COMMAND: coop $($arguments -join ' ')"
         "EXIT: $($result.exit)"
         '--- stdout ---'
-        ($result.output -replace "`e","<ESC>")
+        (Format-TranscriptText $result.output)
         '--- stderr ---'
-        ($result.error -replace "`e","<ESC>")
+        (Format-TranscriptText $result.error)
     ) -join "`n"
     [IO.File]::WriteAllText((Join-Path $Output "$label.txt"),$transcript,[Text.UTF8Encoding]::new($false))
     return $result

@@ -6,6 +6,7 @@ param(
 # in a project-local root, with the command, exit code and output recorded. Without this script the
 # column can only be quoted as a historical capture; with it, a reader can regenerate it on their box.
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'transcript-text.ps1')
 if (-not (Test-Path -LiteralPath $ScoopShim)) { throw "No Scoop installation at $ScoopShim; the Scoop column needs one." }
 $Output = [IO.Path]::GetFullPath($Output)
 if (Test-Path -LiteralPath $Output) { throw "Output path already exists: $Output. Choose a new path with -Output." }
@@ -33,7 +34,7 @@ $transcript = [System.Collections.Generic.List[string]]::new()
 function Invoke-Recorded([string]$label,[string[]]$arguments,[int]$expected = 0) {
     $start = [Diagnostics.Stopwatch]::StartNew()
     # *>&1 also captures Scoop's Write-Host streams, which 2>&1 alone misses.
-    $out = & $ScoopShim @arguments *>&1 | ForEach-Object { ([string]$_ -replace "`e",'<ESC>') }
+    $out = & $ScoopShim @arguments *>&1 | ForEach-Object { (Format-TranscriptText ([string]$_)) }
     $code = $LASTEXITCODE
     $start.Stop()
     $transcript.Add("[${label}] scoop $($arguments -join ' ')")

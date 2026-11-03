@@ -189,8 +189,9 @@ void read_local_status(const Context& context, const Json& sources, OperationRes
                         item.reason = update_state_name(decision.state);
                     }
                 }
-                if (manifest.contains("depends")) {
-                    auto dependencies = manifest.at("depends");
+                if (const auto dependencies_by_arch = manifest.value("architecture",Json::object()).value(fact.architecture,Json::object());
+                    dependencies_by_arch.contains("depends") || manifest.contains("depends")) {
+                    auto dependencies = dependencies_by_arch.contains("depends") ? dependencies_by_arch.at("depends") : manifest.at("depends");
                     if (dependencies.is_string()) dependencies = Json::array({dependencies});
                     if (!dependencies.is_array()) throw std::runtime_error("Manifest depends must be a string or array");
                     for (const auto& entry : dependencies) {

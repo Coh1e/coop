@@ -47,3 +47,10 @@ if ((Test-Path -LiteralPath "$root/shims/hello.exe") -or (Test-Path -LiteralPath
 $lines = Invoke-CoopNative $CoopExe  --root $root shim add bad 'D:\no\such\tool.exe'
 if ($LASTEXITCODE -cne 1 -or ($lines -join '|') -cnotmatch 'does not exist') { throw "shim add on a missing target said '$($lines -join ' | ')'" }
 Write-Output 'PASS: shim add/list/info/alter/rm with a runnable launcher'
+
+$existing = Join-Path $root 'shims/existing.exe'
+[IO.File]::WriteAllText($existing,'caller data')
+Invoke-CoopNative $CoopExe --root $root shim add existing $env:ComSpec | Out-Null
+if ($LASTEXITCODE -eq 0 -or [IO.File]::ReadAllText($existing) -cne 'caller data') {
+    throw 'shim add did not protect the existing executable'
+}

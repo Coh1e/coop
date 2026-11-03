@@ -187,6 +187,27 @@ try {
     Assert-True ($environmentAfterPreview.value -eq $environmentBefore.value -and $environmentAfterPreview.kind -eq $environmentBefore.kind) 'preview changed PSModulePath'
     Assert-True (($rootBefore -join '|') -eq ((Get-Snapshot $root) -join '|')) 'preview changed the installation root'
 
+    # Interrupt after both the junction and PSModulePath have been published.
+    $faults = Join-Path $root '.coop/test-faults.json'
+    New-Item -ItemType Directory -Path (Split-Path $faults) -Force | Out-Null
+    [IO.File]::WriteAllText($faults,'{"crash":["after-ps-module"]}')
+    $savedFaults = $env:COOP_ALLOW_TEST_FAULTS
+    try {
+        $env:COOP_ALLOW_TEST_FAULTS = '1'
+        $interrupted = Invoke-CoopNativeRaw $CoopExe --root $root install "test/$package" --json
+        Assert-True ($interrupted.code -ne 0) 'module installation did not interrupt'
+        Assert-True (Test-Path -LiteralPath $moduleLink) 'interruption did not reach module publication'
+        Assert-PathHas (Get-UserRaw 'PSModulePath').value $modulesDirectory 'interruption did not reach PSModulePath publication'
+    } finally {
+        $env:COOP_ALLOW_TEST_FAULTS = $savedFaults
+        Remove-Item -LiteralPath $faults
+    }
+    $recovery = Invoke-CoopNativeRaw $CoopExe --root $root recover --json
+    Assert-True ($recovery.code -eq 0) "module recovery failed: $($recovery.err)"
+    Assert-True (-not (Test-Path -LiteralPath $moduleLink)) 'recovery left the module junction'
+    $afterRecovery = Get-UserRaw 'PSModulePath'
+    Assert-True ($afterRecovery.value -eq $environmentBefore.value -and $afterRecovery.kind -eq $environmentBefore.kind) 'recovery did not restore PSModulePath'
+
     # --- The spoken plan is what runs; the module is visible to a new PowerShell process ---------
     $install = CoopJson @('--root',$root,'install',"test/$package",'--json')
     Assert-True ($install.status -eq 'success') "psmodule install did not succeed: $($install | ConvertTo-Json -Depth 4)"

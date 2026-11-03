@@ -146,7 +146,7 @@ for ($attempt = 1; $attempt -le 4 -and -not $interrupted; $attempt++) {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     $sawJournal = $false
     while (-not $updater.HasExited -and [DateTime]::UtcNow -lt $deadline) {
-        $newJournal = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin $existingJournals })
+        $newJournal = @(Get-ChildItem -LiteralPath $journals -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'git.json' -and $_.Name -notin $existingJournals })
         if ($newJournal.Count) {
             $sawJournal = $true
             if ((Get-FileHash -LiteralPath $registryPath).Hash -eq $beforeCrash) {

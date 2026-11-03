@@ -9,6 +9,7 @@ if (-not ($TestRoot.TrimEnd('\')+'\').StartsWith($projectTests,[StringComparison
 $run = Join-Path $TestRoot ([guid]::NewGuid().ToString('N'))
 $root = Join-Path $run 'root'
 $savedState = $env:COOP_STATE_DIR
+$savedProfile = $env:USERPROFILE
 try {
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     foreach ($case in @('sharing','directory')) {
@@ -35,6 +36,42 @@ try {
             if ($null -ne $held) { $held.Dispose() }
         }
     }
+    $env:COOP_STATE_DIR = $null
+    $env:USERPROFILE = $run
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($root))
+        $suffix = [BitConverter]::ToString($bytes).Replace('-','').Substring(0,8).ToLowerInvariant()
+    } finally {
+        $hash.Dispose()
+    }
+    $legacy = Join-Path $run ".coop/roots/root-$suffix"
+    New-Item -ItemType Directory -Path $legacy | Out-Null
+    $held = [IO.File]::Open((Join-Path $legacy 'write.lock'),'CreateNew','ReadWrite','None')
+    try {
+        $result = Invoke-CoopNativeRaw $CoopExe --root $root.ToUpperInvariant() bucket update diagnostic-fixture
+        if ($result.code -eq 0 -or $result.err -notmatch 'Windows error 32') {
+            throw "Root spelling bypassed the existing lock: $($result.err)"
+        }
+    } finally {
+        $held.Dispose()
+    }
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = $hash.ComputeHash([Text.Encoding]::UTF8.GetBytes($root.ToUpperInvariant()))
+        $suffix = [BitConverter]::ToString($bytes).Replace('-','').Substring(0,8).ToLowerInvariant()
+    } finally {
+        $hash.Dispose()
+    }
+    $split = Join-Path $run ".coop/roots/ROOT-$suffix"
+    New-Item -ItemType Directory -Path $split | Out-Null
+    foreach ($spelling in $root,$root.ToUpperInvariant()) {
+        $result = Invoke-CoopNativeRaw $CoopExe --root $spelling bucket update diagnostic-fixture
+        if ($result.code -eq 0 -or $result.err -notmatch 'Conflicting Coop state directories') {
+            throw "Split historical state did not block the write: $($result.err)"
+        }
+    }
 } finally {
+    $env:USERPROFILE = $savedProfile
     $env:COOP_STATE_DIR = $savedState
 }

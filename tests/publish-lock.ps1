@@ -31,16 +31,28 @@ if ($LASTEXITCODE -cne 0) { throw 'the fixture package did not install' }
 # shorter than the new one. An antivirus scanner looks exactly like this to the publisher.
 $victim = Join-Path $root 'apps/held/1.0/rg.exe'
 $holder = Start-Job -ScriptBlock {
-    param($path)
+    param($path, $ready)
     $stream = [IO.File]::Open($path,'Open','Read','Read')
-    Start-Sleep -Seconds 6
-    $stream.Dispose()
-} -ArgumentList $victim
-Start-Sleep -Milliseconds 700
+    try {
+        [IO.File]::WriteAllText($ready, 'locked')
+        Start-Sleep -Seconds 6
+    } finally {
+        $stream.Dispose()
+    }
+} -ArgumentList $victim, (Join-Path $root 'lock-ready')
+$deadline = [DateTime]::UtcNow.AddSeconds(30)
+while (-not (Test-Path -LiteralPath (Join-Path $root 'lock-ready'))) {
+    if ($holder.State -in 'Completed','Failed','Stopped' -or [DateTime]::UtcNow -ge $deadline) {
+        Receive-Job $holder
+        throw 'The holder did not acquire the fixture lock'
+    }
+    Start-Sleep -Milliseconds 20
+}
 
 $install = Invoke-CoopNative $CoopExe  --root $root update held -f
 $code = $LASTEXITCODE
 Wait-Job $holder -Timeout 30 | Out-Null
+Receive-Job $holder
 Remove-Job $holder -Force
 if ($code -cne 0) { throw "a forced reinstall failed while a file was briefly held: $($install -join ' | ')" }
 if (($install -join "`n") -cnotmatch 'was installed successfully') { throw "the reinstall did not report success: $($install -join ' | ')" }

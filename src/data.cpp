@@ -121,8 +121,30 @@ fs::path state_directory_for_root(const fs::path& root) {
     while (!name.empty() && (name.back() == L'.' || name.back() == L' ')) name.pop_back();
     if (name.empty()) name = L"root";
     if (name.size() > 64u) name.resize(64);
-    const auto digest = sha256_text(path_text(root)).substr(0,8);
-    return operating_path(fs::path(profile)/L".coop"/L"roots"/(name+L"-"+wide(digest)));
+    std::error_code canonical_error;
+    const auto canonical = fs::weakly_canonical(root,canonical_error);
+    if (canonical_error) throw std::runtime_error("Cannot resolve installation root for state: "+canonical_error.message());
+    const auto directory = fs::path(profile)/L".coop"/L"roots";
+    const auto legacy_key = [&](const fs::path& spelling) {
+        return operating_path(directory/(name+L"-"+wide(sha256_text(path_text(spelling)).substr(0,8))));
+    };
+    const auto preferred = legacy_key(canonical);
+    auto upper = canonical.wstring();
+    auto lower = upper;
+    CharUpperBuffW(upper.data(),static_cast<DWORD>(upper.size()));
+    CharLowerBuffW(lower.data(),static_cast<DWORD>(lower.size()));
+    fs::path existing;
+    for (const auto& candidate : {preferred,legacy_key(upper),legacy_key(lower)}) {
+        if (!fs::exists(fs::symlink_status(candidate))) continue;
+        if (!existing.empty() && !fs::equivalent(existing,candidate))
+            throw std::runtime_error("Conflicting Coop state directories: "+path_text(existing)+" and "+path_text(candidate));
+        existing = candidate;
+    }
+    const auto supplied = legacy_key(root);
+    if (fs::exists(fs::symlink_status(supplied)) &&
+        (existing.empty() || !fs::equivalent(existing,supplied)))
+        throw std::runtime_error("Legacy Coop state requires reconciliation: "+path_text(supplied));
+    return existing.empty() ? preferred : existing;
 }
 fs::path state_directory(const Context& context) { return state_directory_for_root(context.root); }
 fs::path state_cache_directory(const Context& context) { return state_directory(context)/L"cache"; }

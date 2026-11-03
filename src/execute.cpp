@@ -293,6 +293,7 @@ bool recovery_path_allowed(const Context& context, const fs::path& path) {
     const std::vector<std::pair<fs::path,std::size_t>> roots = {
         {context.root/L"apps",2},
         {context.root/L"shims",1},
+        {context.root/L"modules",1},
         {state/L"packages",1},
         {state/L"transactions",2},
         {state/L"retained",1},
@@ -1679,6 +1680,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                     record["user_environment"] = std::move(reverted);
                 }
                 psmodule_record = Json(nullptr);
+                journal["environment_undo"] = environment_undo;
                 journal["ps_module"] = record; save();
                 break;
             }
@@ -1949,6 +1951,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
                 environment_undo.push_back(applied.value("undo",Json::object()));
                 record["user_environment"] = std::move(applied);
                 psmodule_record = std::move(record);
+                journal["environment_undo"] = environment_undo;
                 journal["ps_module"] = psmodule_record; save();
                 test_fault_point(context,"after-ps-module");
                 break;

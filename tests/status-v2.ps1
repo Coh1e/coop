@@ -95,7 +95,7 @@ try {
     $unreadableDemo = @($missingHead.apps | Where-Object name -eq 'demo')[0]
     Check ($unreadableDemo.state -eq 'failed' -and -not $unreadableDemo.data.manifest_removed) 'Unreadable source falsely reported as a removed manifest'
     [IO.File]::WriteAllBytes($headPath,$headBytes)
-    '{"version":"2","depends":"missing"}' | Set-Content "$root/buckets/main/bucket/demo.json" -Encoding ascii
+    '{"version":"2","architecture":{"64bit":{"depends":"missing"}}}' | Set-Content "$root/buckets/main/bucket/demo.json" -Encoding ascii
     $attention = Read-V2
     $demo = @($attention.apps | Where-Object name -eq 'demo')[0]
     Check ($demo.state -eq 'attention' -and $demo.data.manifest_version -eq '2' -and @($demo.data.missing_dependencies) -contains 'missing') 'Local software issues lost'

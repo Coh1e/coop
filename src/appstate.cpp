@@ -109,7 +109,7 @@ void publish_launcher(const fs::path& executable) {
     if (!length || static_cast<std::size_t>(length) >= module.size())
         throw std::runtime_error("Cannot find the launcher executable");
     std::error_code error;
-    if (!fs::copy_file(fs::path(module.data()),executable,fs::copy_options::overwrite_existing,error))
+    if (!fs::copy_file(fs::path(module.data()),executable,fs::copy_options::none,error))
         throw std::runtime_error("Cannot publish the launcher at "+path_text(executable)+": "+error.message());
 }
 std::string shim_source(const Context& context,const std::string& target) {
