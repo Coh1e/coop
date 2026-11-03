@@ -156,9 +156,14 @@ RootLock::RootLock(const Context& context) : handle_(INVALID_HANDLE_VALUE) {
     if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
         throw std::runtime_error("Coop state directory cannot be a reparse point");
     fs::create_directories(state_);
-    handle_ = CreateFileW((state_/L"write.lock").c_str(), GENERIC_READ|GENERIC_WRITE, 0, nullptr,
+    const auto lock_path = state_/L"write.lock";
+    handle_ = CreateFileW(lock_path.c_str(), GENERIC_READ|GENERIC_WRITE, 0, nullptr,
         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (handle_ == INVALID_HANDLE_VALUE) throw std::runtime_error("Root is busy or write lock cannot be opened");
+    if (handle_ == INVALID_HANDLE_VALUE) {
+        const DWORD error = GetLastError();
+        throw std::runtime_error("Root is busy or write lock cannot be opened (Windows error "+
+            std::to_string(error)+"): "+path_text(lock_path));
+    }
     FILE_ATTRIBUTE_TAG_INFO tag{};
     if (!GetFileInformationByHandleEx(handle_, FileAttributeTagInfo, &tag, sizeof(tag)) || (tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
         CloseHandle(handle_);
