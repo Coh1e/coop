@@ -184,11 +184,11 @@ if (-not (Test-Path "$root/apps/luajit/current/bin/luajit.exe") -or (Test-Path "
 # A corrupt tar.zst update must leave the working current version in place.
 $badZst = Join-Path $root 'bad.tar.zst'
 [IO.File]::WriteAllBytes($badZst,[byte[]](1..512 | ForEach-Object { $_ % 251 }))
-Write-Manifest $root 'luajit' @{version='2.1.999';architecture=@{'64bit'=@{url=(File-Uri $badZst);hash=(Get-FileHash -LiteralPath $badZst -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
+Write-Manifest $root 'luajit' @{version='2.1.1791988262-1';architecture=@{'64bit'=@{url=(File-Uri $badZst);hash=(Get-FileHash -LiteralPath $badZst -Algorithm SHA256).Hash.ToLower();extract_dir='mingw64'}};bin='bin\luajit.exe'}
 $failed = Invoke-CoopNative $CoopExe  --root $root update luajit --json
-if ($LASTEXITCODE -eq 0) { throw 'corrupt tar.zst update unexpectedly succeeded' }
+if ($LASTEXITCODE -eq 0 -or ($failed -join "`n") -notmatch 'archive') { throw "corrupt tar.zst did not reach the archive failure: $failed" }
 $luajitOutput = (& "$root/shims/luajit.exe" -v) -join "`n"
-if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1' -or (Test-Path "$root/apps/luajit/2.1.999")) { throw 'corrupt tar.zst update damaged the current version' }
+if ($LASTEXITCODE -ne 0 -or $luajitOutput -notmatch 'LuaJIT 2\.1' -or (Test-Path "$root/apps/luajit/2.1.1791988262-1")) { throw 'corrupt tar.zst update damaged the current version' }
 $luajitUninstall = & $CoopExe --root $root uninstall luajit --json
 Assert-Exit 'tar.zst uninstall failed'
 

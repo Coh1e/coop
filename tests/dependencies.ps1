@@ -192,6 +192,7 @@ if ($LASTEXITCODE -eq 0 -or ($sourceConflict -join "`n") -notmatch 'dependency-b
 
 # Update preview checks the new Manifest against actually installed dependencies.
 Rename-Item -LiteralPath "$root/apps/base" -NewName 'base-hidden'
+Write-Manifest $root 'test' 'leaf' '2' $fixture2 'leaf.exe' 'base'
 $update = & $CoopExe --root $root update leaf --dry-run --json
 if ($LASTEXITCODE -eq 0 -or ($update -join "`n") -notmatch 'dependency-missing' -or ($update -join "`n") -notmatch 'base') { throw 'update did not detect a missing declared dependency' }
 Rename-Item -LiteralPath "$root/apps/base-hidden" -NewName 'base'
