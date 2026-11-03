@@ -399,6 +399,8 @@ if(BUILD_TESTING)
   target_compile_options(update_policy_test PRIVATE /W4 /WX /utf-8 /permissive-)
   set_property(TARGET update_policy_test PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
   add_test(NAME update_policy_module COMMAND update_policy_test)
+  add_test(NAME update_source COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update-source.ps1"
+    -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-source")
   add_test(NAME update_policy COMMAND "${POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -File "${PROJECT_SOURCE_DIR}/tests/update-policy.ps1"
     -CoopExe "$<TARGET_FILE:coop>" -TestRoot "${PROJECT_SOURCE_DIR}/.local/tests/update-policy")
 

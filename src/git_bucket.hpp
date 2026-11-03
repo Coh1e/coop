@@ -9,4 +9,5 @@ Json prepare_git_bucket(const Context& context, const std::string& name, const s
                         const std::string& branch, const std::string& revision, const Json* previous);
 // Reads an existing unmanaged shared Git bucket without changing it.
 Json inspect_scoop_bucket(const Context& context, const std::string& name);
+std::string update_source_revision(const Json& record, bool preview);
 }

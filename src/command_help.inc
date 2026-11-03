@@ -356,6 +356,9 @@ Options:
   -p, --purge    Remove all persistent data)coophelp"},
 {"update",R"coophelp('coop update' updates coop to the latest version.
 'coop update <app>' installs a new version of that app, if there is one.
+Named updates refresh the app's Git bucket and dependency sources before planning.
+With --dry-run, Git revisions are checked read-only. Preview is blocked when
+the shared checkout cannot supply the required revision.
 
 You can use '*' in place of <app> to update all apps.
 

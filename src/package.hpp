@@ -19,6 +19,7 @@ struct Plan {
     std::optional<ir::Package> previous;
     std::vector<ir::Step> steps;
     std::vector<FilePrecondition> preconditions;
+    std::vector<Json> source_revisions;
     std::vector<ir::Diagnostic> diagnostics;
     LocalFacts local;
     // A package that exists only in the system-level root stays read-only. A user-scope install
@@ -64,6 +65,7 @@ ir::Package parse_package(const fs::path& path, const std::string& name, const s
 Plan make_plan(const Context& context, ir::Action action, const std::string& request, const std::string& architecture,
                bool purge = false);
 void recheck_plan(const Plan& plan);
+Json update_source_evidence(const Plan& plan);
 int execute_plan(const Context& context, const Plan& plan);
 Json execute_plan_result(const Context& context, const Plan& plan);
 // The one executability judgement. The plan builder stores its result in Plan::blocker; the same

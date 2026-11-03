@@ -25,7 +25,7 @@ void migrate_legacy_state(const Context& context);
 void move_tree(const fs::path& source, const fs::path& destination);
 // Typed catalogue entries for the planner: the package identity the adapter published, never a
 // raw Manifest field read by the planner itself.
-std::vector<ir::CatalogueEntry> catalogue(const Context& context);
+std::vector<ir::CatalogueEntry> catalogue(const Context& context, bool scan_worktree = false);
 Json bucket_sources(const Context& context);
 // durable=false skips the write-through flush for high-frequency records that a crash can re-derive;
 // the commit points (version publish, current switch, install record) keep the durable default.

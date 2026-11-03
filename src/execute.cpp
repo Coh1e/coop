@@ -821,9 +821,13 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // batch already performed.
     const auto syncs_before = durable_syncs();
     if (plan_is_no_op(plan)) {
+        if (plan.action == ir::Action::update) recheck_plan(plan);
         Json result = {{"package",plan.package.name},{"version",plan.package.version},
             {"status",plan.action == ir::Action::install ? "already-installed" : "up-to-date"}};
-        if (plan.update) result["update_decision"] = update_state_name(plan.update->state);
+        if (plan.update) {
+            result["update_decision"] = update_state_name(plan.update->state);
+            result["source_revisions"] = update_source_evidence(plan);
+        }
         return result;
     }
     const auto& package = plan.package;
@@ -1122,6 +1126,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     Json journal = {{"state","pending"},{"package",package.name},{"action",updating ? "update" : resetting ? "reset" : plan.action == ir::Action::install ? "install" : "uninstall"},
         {"created",Json::array()},{"moves",Json::array()},{"scripts",Json::array()},{"installers",Json::array()},
         {"shortcuts_already_absent",absent_shortcuts}};
+    if (plan.update) journal["source_revisions"] = update_source_evidence(plan);
     // A shared Scoop installation has no Coop ownership record. The installed Manifest still
     // declares the values this package previously wrote, so use those declarations as attribution
     // evidence before deciding whether a current value is package-owned or a later user edit.
@@ -2072,6 +2077,7 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // The Manifest's post-install text is part of the machine-readable result too, so a script sees
     // the same facts the terminal does.
     result["notes"] = package.notes;
+    if (plan.update) result["source_revisions"] = update_source_evidence(plan);
     Json suggestions = Json::array();
     for (const auto& [feature,candidates] : package.suggestions)
         suggestions.push_back({{"feature",feature},{"candidates",candidates}});

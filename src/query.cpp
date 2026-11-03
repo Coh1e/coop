@@ -299,7 +299,7 @@ static Json matching_catalog(const Context& context, const std::wstring& command
     sort_catalog(result);
     return result;
 }
-std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
+std::vector<ir::CatalogueEntry> catalogue(const Context& context, bool scan_worktree) {
     std::vector<ir::CatalogueEntry> result;
     for (const auto& source : bucket_sources(context)) {
         if (source.value("kind",std::string{}) == "removed") continue;
@@ -307,7 +307,8 @@ std::vector<ir::CatalogueEntry> catalogue(const Context& context) {
         if (!fs::is_directory(location)) continue;
         const auto directory = fs::is_directory(location/L"bucket") ? location/L"bucket" : location;
         const auto bucket = source.at("name").get<std::string>();
-        for (const auto& entry : catalog_entries(context,source)) {
+        const auto entries = scan_worktree ? scan_catalog_entries(source) : catalog_entries(context,source);
+        for (const auto& entry : entries) {
             if (!entry.is_object() || !entry.contains("name") || !entry.at("name").is_string()) continue;
             const auto name = entry.at("name").get<std::string>();
             result.push_back({name,bucket,directory/(wide(name)+L".json")});

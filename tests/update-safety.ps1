@@ -84,13 +84,14 @@ try {
             New-Item -ItemType Directory -Force -Path "$root/.coop" | Out-Null
             'legacy-state-must-stay' | Set-Content "$root/.coop/sentinel" -Encoding ascii
         }
-        if (-not $case.noBucket) {
+        if (-not $case.noBucket -and -not $case.installed) {
             New-Item -ItemType Directory -Force -Path "$root/buckets" | Out-Null
             & git clone -q $source "$root/buckets/main"
             & git -C "$root/buckets/main" reset -q --hard $initial
             if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare local bucket' }
         }
         if ($case.installed) {
+            New-Item -ItemType Directory -Force -Path "$root/buckets/main/bucket" | Out-Null
             Copy-Item "$PSScriptRoot/corpus/main/jq.json" "$root/buckets/main/bucket/demo.json"
             New-Item -ItemType Directory -Force -Path "$root/apps/demo/1.7.1" | Out-Null
             $savedManifest = [IO.File]::ReadAllText("$PSScriptRoot/corpus/main/jq.json").Replace('"version": "1.8.2"','"version": "1.7.1"')
