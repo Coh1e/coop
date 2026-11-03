@@ -76,6 +76,7 @@ try {
     & git -C "$root/buckets/main" remote add origin $remote
     $head = & git -C "$root/buckets/main" rev-parse HEAD
     Install-Fact demo 1
+    Copy-Item "$root/buckets/main/bucket/demo.json" "$root/apps/demo/current/scoop-manifest.json" -Force
     $oldBefore = Invoke-CoopNativeRaw -Exe $CoopExe -Arguments @('--root',$root,'status','--json')
     Check ($oldBefore.code -eq 0 -and $oldBefore.out.Trim() -ceq '[]') 'Legacy baseline changed'
     New-Item -ItemType Directory -Force -Path "$root/.coop" | Out-Null
@@ -120,9 +121,11 @@ try {
     $badRegistry = Read-V2 1
     Check (@($badRegistry.diagnostics).Count -gt 0 -and @($badRegistry.buckets).Count -eq 1) 'Bad registry hid shared buckets or lacked a diagnostic'
     [IO.File]::Delete("$state/buckets.json")
+    Copy-Item "$root/buckets/main/bucket/demo.json" "$root/apps/demo/current/scoop-manifest.json" -Force
     $legacy = Invoke-CoopNativeRaw -Exe $CoopExe -Arguments @('--root',$root,'status','--json')
     Check ($legacy.code -eq 0 -and $legacy.out.Trim() -ceq '[]') 'Legacy JSON shape/content changed'
     '{bad' | Set-Content "$root/apps/demo/current/scoop-install.json" -Encoding ascii
+    '{"version":"2"}' | Set-Content "$root/buckets/main/bucket/demo.json" -Encoding ascii
     $badInstall = Read-V2 1
     $demo = @($badInstall.apps | Where-Object name -eq 'demo')[0]
     Check ($demo.state -eq 'failed' -and $demo.data.installed_version -eq '1') 'Bad install record hid a readable installed version'

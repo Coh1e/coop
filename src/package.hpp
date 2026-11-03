@@ -1,6 +1,7 @@
 #pragma once
 #include "data.hpp"
 #include "ir.hpp"
+#include "update_policy.hpp"
 #include <optional>
 
 namespace coop {
@@ -13,6 +14,7 @@ struct LocalFacts { fs::path current; fs::path directory; bool exists = false; }
 // operation list, so execution cannot re-derive package ordering or package semantics.
 struct Plan {
     ir::Action action = ir::Action::install;
+    std::optional<UpdateDecision> update;
     ir::Package package;
     std::optional<ir::Package> previous;
     std::vector<ir::Step> steps;

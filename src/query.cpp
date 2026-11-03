@@ -9,6 +9,7 @@
 #include "inno.hpp"
 #include "nsis.hpp"
 #include "status_local.hpp"
+#include "package.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -1002,8 +1003,10 @@ static int status_command(const Context& context, bool local) {
         clients_ok = check_scoop_update(context) && clients_ok;
     }
     std::map<std::string,fs::path> catalogue_paths;
-    for (const auto& entry : catalogue(context))
+    for (const auto& entry : catalogue(context)) {
         if (!catalogue_paths.contains(lowercase(entry.name))) catalogue_paths[lowercase(entry.name)] = entry.manifest_path;
+        catalogue_paths[lowercase(entry.bucket)+"/"+lowercase(entry.name)] = entry.manifest_path;
+    }
     const auto installed = installed_packages(context);
     std::set<std::string> installed_names;
     for (const auto& item : installed) installed_names.insert(lowercase(field_text(item,"name")));
@@ -1013,14 +1016,21 @@ static int status_command(const Context& context, bool local) {
     for (const auto& item : installed) {
         const auto name = field_text(item,"name");
         const auto current = field_text(item,"version");
-        const auto found = catalogue_paths.find(lowercase(name));
+        const auto bucket = field_text(item,"bucket");
+        const auto found = catalogue_paths.find(bucket.empty() ? lowercase(name) : lowercase(bucket)+"/"+lowercase(name));
         std::string latest, missing, info;
         if (found == catalogue_paths.end()) info = "Manifest removed";
         else {
             const auto candidate = manifest_version_text(found->second);
-            // `update` changes a package whenever the manifest names a different version, so `status`
-            // answers with the same predicate instead of a second, differently-ordered comparison.
-            if (!candidate.empty() && candidate != current) latest = candidate;
+            const auto root = field_text(item,"scope") == "global" && context.global_root ? *context.global_root : context.root;
+            const auto directory = root/L"apps"/wide(name)/L"current";
+            try {
+                const auto decision = decide_update(current,candidate,
+                    sha256_file(found->second) != sha256_file(installed_record(directory,L"manifest")),
+                    package_is_held(directory));
+                if (decision.state == UpdateState::available) latest = candidate;
+                else if (decision.state != UpdateState::current) info = update_state_message(decision.state);
+            } catch (const std::exception&) { info = "Cannot inspect installed manifest for update comparison"; }
             std::vector<std::string> absent;
             for (const auto& dependency : declared_depends(found->second))
                 if (!installed_names.contains(lowercase(dependency))) absent.push_back(dependency);

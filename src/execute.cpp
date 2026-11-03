@@ -576,6 +576,13 @@ std::string capability_blocker(const Context& context, const ir::Package& packag
     return {};
 }
 std::string execution_blocker(const Context& context, const Plan& plan) {
+    if (plan.action == ir::Action::update) {
+        if (!plan.update) return "Update decision is missing";
+        if (plan.update->blocked) return update_state_message(plan.update->state);
+        // A valid no-op does not need the capabilities required to replace an installation.
+        if (!plan.update->changes_installation)
+            return plan.diagnostics.empty() ? std::string{} : "Plan has unresolved diagnostics";
+    }
     // Reverse dependency protection is the first reason an uninstall can be refused. Reporting it
     // before unrelated lifecycle gaps keeps the user-facing failure about the dependent package.
     if (plan.action == ir::Action::uninstall) {
@@ -679,6 +686,7 @@ void print_install_success(const std::string& name, const std::string& version) 
     std::cout << lines::installed(name,version) << '\n';
 }
 void announce_update_move(const Context& context, const Plan& plan, bool heading) {
+    if (plan_is_no_op(plan)) return;
     if (context.json_output || plan.action != ir::Action::update || !plan.previous) return;
     if (plan.package.version == plan.previous->version &&
         plan.package.manifest_digest == plan.previous->manifest_digest) return;
@@ -723,7 +731,7 @@ int execute_plan(const Context& context, const Plan& plan) {
         return partial ? 1 : 0;
     }
     if (result.value("status",std::string{}) == "up-to-date") {
-        std::cout << lines::up_to_date(plan.package.name) << '\n';
+        report_no_op(context,plan);
         return 0;
     }
     if (partial) {
@@ -782,8 +790,7 @@ int execute_plan(const Context& context, const Plan& plan) {
 bool plan_is_no_op(const Plan& plan) {
     if (plan.action == ir::Action::install) return plan.already_installed;
     if (plan.action == ir::Action::update && plan.previous)
-        return plan.package.version == plan.previous->version &&
-            plan.package.manifest_digest == plan.previous->manifest_digest;
+        return plan.update && !plan.update->changes_installation && !plan.update->blocked;
     return false;
 }
 void report_no_op(const Context& context, const Plan& plan) {
@@ -802,7 +809,9 @@ void report_no_op(const Context& context, const Plan& plan) {
             {"status","up-to-date"}}.dump(2) << '\n';
         return;
     }
-    std::cout << lines::up_to_date(plan.package.name) << '\n';
+    if (plan.update && plan.update->state == UpdateState::manifest_changed)
+        std::cout << plan.package.name << ": " << update_state_message(plan.update->state) << '\n';
+    else std::cout << lines::up_to_date(plan.package.name) << '\n';
 }
 Json execute_plan_result(const Context& context, const Plan& plan) {
     // Execution reads the one verdict the plan builder stored, exactly like the preview. The
@@ -811,13 +820,11 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
     // The record counts this package's own write-throughs, not the ones earlier packages in the same
     // batch already performed.
     const auto syncs_before = durable_syncs();
-    // A no-op has no block: nothing is announced and nothing is written.
-    // A no-op has no block: nothing is announced and nothing is written. `-f` asks to act anyway, so a
-    // forced update continues into the replacement path below.
-    const bool forced_reinstall = context.force && plan.action == ir::Action::update;
-    if (plan_is_no_op(plan) && !forced_reinstall) {
-        return Json{{"package",plan.package.name},{"version",plan.package.version},
+    if (plan_is_no_op(plan)) {
+        Json result = {{"package",plan.package.name},{"version",plan.package.version},
             {"status",plan.action == ir::Action::install ? "already-installed" : "up-to-date"}};
+        if (plan.update) result["update_decision"] = update_state_name(plan.update->state);
+        return result;
     }
     const auto& package = plan.package;
     if (auto* progress = active_progress()) {
@@ -1065,11 +1072,6 @@ Json execute_plan_result(const Context& context, const Plan& plan) {
         owned_inputs.push_back({link,sha256_file(link)});
     }
     if (updating) {
-        // `-f/--force` asks to act even when nothing changed; the installed version directory is then
-        // replaced in place (see `ensure_version`).
-        if (!context.force && package.version == installed.version && package.manifest_digest == installed.manifest_digest) {
-            return Json{{"package",package.name},{"version",package.version},{"status","up-to-date"}};
-        }
         // Replacing the directory of the version that is already installed is only allowed when the
         // user asked for a forced reinstall; every other collision still refuses.
         const bool replacing_installed_version = context.force && package.version == installed.version;

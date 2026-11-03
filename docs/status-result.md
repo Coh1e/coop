@@ -10,7 +10,7 @@ v2 本地报告读取当前运行的 Coop、同根 Scoop、已登记或共用 bu
 
 客户端和 bucket 的远端状态为 `not_checked`，原因 `local-only`；这不表示它们已是最新。Scoop 缺席为 `not_applicable`，原因 `not-installed`。本地 Git 修订从实际 HEAD 读取，不把登记中缓存的修订当成当前事实。非 Git 或空仓库的修订可以为 null。
 
-软件提供已装版本、清单版本、版本是否不同、缺依赖、hold、deprecated 和清单缺失等本地事实。`version_differs` **不表示目标版本更高或允许执行更新**；统一版本比较和执行判定属于 #105，本任务不改变更新策略。
+软件提供已装版本、清单版本、版本是否不同、缺依赖、hold、deprecated 和清单缺失等本地事实。`version_differs` **不表示目标版本更高或允许执行更新**。#105 接入[统一软件更新判定](update-policy.md)：`update_state` 表示判定，`update_available` 表示普通更新可变更安装，`update_blocked` 表示保护阻断；缺少目标清单时不伪造判定。同版清单改变、降级、无法比较和 hold 均有明确提示。无法比较是已识别的保护状态，检查完成仍退出 0；执行或预览该更新退出 1。
 
 完整远端 v2 和 update v2 CLI 仍由后续任务接入，目前明确退出 1、说明能力尚未提供；不静默降格成局部成功。未知 JSON 版本或同时指定冲突格式退出 2，并在副作用前拒绝。
 

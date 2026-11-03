@@ -49,6 +49,10 @@ if ($corruptPreview.code -ne 0) { throw "a corrupt private record blocked the pr
 Remove-Item -LiteralPath "$root/.coop" -Recurse -Force
 
 # --- Query and preview run through the IR pipeline without side effects ----------------
+# A higher target exercises the actual update sequence; a current target now has no write steps.
+$targetManifest = Get-Content "$root/buckets/main/bucket/jq.json" -Raw | ConvertFrom-Json
+$targetManifest.version = '1.8.3'
+$targetManifest | ConvertTo-Json -Depth 12 | Set-Content "$root/buckets/main/bucket/jq.json" -Encoding utf8
 $before = Get-Snapshot $root
 $list = Invoke-Coop @('--root',$root,'list','--json')
 $info = Invoke-Coop @('--root',$root,'info','main/jq','--json')
@@ -59,7 +63,7 @@ if (@(Compare-Object $before $after).Count) { throw 'query or preview changed sh
 if (Test-Path "$root/.coop") { throw 'query or preview wrote management state' }
 
 $plan = ($preview.text | ConvertFrom-Json)
-if ($plan.action -ne 'update' -or $plan.package.version -ne '1.8.2') { throw 'update preview lost the installed target' }
+if ($plan.action -ne 'update' -or $plan.package.version -ne '1.8.3') { throw 'update preview lost the higher target' }
 $kinds = @($plan.ir_operations | ForEach-Object { $_.operation })
 if ('download' -notin $kinds -or 'verify' -notin $kinds -or 'publish-current' -notin $kinds -or 'commit-state' -notin $kinds) { throw "preview operations are incomplete: $kinds" }
 $verifyOperations = @($plan.ir_operations | Where-Object operation -eq 'verify')

@@ -370,11 +370,6 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
     plan.local.current = context.root/L"apps"/wide(name)/L"current";
     plan.local.exists = fs::is_directory(plan.local.current);
     if (plan.local.exists) plan.local.directory = operating_path(fs::canonical(plan.local.current));
-    // `hold` disables updates, which is what both Scoop and Coop read from the install record. The
-    // plan refuses before any write instead of silently updating a held package.
-    if (action == ir::Action::update && plan.local.exists && package_is_held(plan.local.directory))
-        plan.diagnostics.push_back({ir::Layer::environment,"held-package",
-            "Package is held; run 'coop unhold "+name+"' to allow updates"});
     // The system-level root is a read-only source of installation facts. A request that names a
     // package installed only there must not be reinterpreted as a user-scope change: update,
     // uninstall and reset would otherwise silently target a different installation than the one
@@ -487,19 +482,27 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
         ir::validate(plan.package);
         if (!version.empty() && plan.package.version != version)
             plan.diagnostics.push_back({ir::Layer::environment,"version-unavailable","Requested version is absent locally; no URL will be guessed"});
-        if (action == ir::Action::update && plan.previous && !same_persistence(*plan.previous,plan.package))
-            plan.diagnostics.push_back({ir::Layer::verification,"persist-change-unverified",
-                "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
     } else if (action != ir::Action::reset) {
         plan.package = read_installed();
         if (!version.empty() && version != plan.package.version)
             plan.diagnostics.push_back({ir::Layer::environment,"installed-version-mismatch","Requested version is not the current local installation"});
     }
+    if (action == ir::Action::update && plan.previous) {
+        plan.update = decide_update(plan.previous->version,plan.package.version,
+            plan.previous->manifest_digest != plan.package.manifest_digest,
+            package_is_held(plan.local.directory),context.force);
+        if (plan.update->blocked)
+            plan.diagnostics.push_back({ir::Layer::environment,update_state_name(plan.update->state),update_state_message(plan.update->state)});
+        if (plan.update->changes_installation && !same_persistence(*plan.previous,plan.package))
+            plan.diagnostics.push_back({ir::Layer::verification,"persist-change-unverified",
+                "Persist mapping differs from the installed version; data migration is not verified, so the update is refused"});
+    }
     // Installing what is already current changes nothing, not even a missing dependency: the no-op
     // verdict is decided before dependency resolution so a reinstall never installs anything.
     plan.already_installed = action == ir::Action::install && plan.local.exists &&
         plan.local.directory.filename().wstring() == wide(plan.package.version);
-    if (action != ir::Action::uninstall && !plan.already_installed) {
+    if (action != ir::Action::uninstall && !plan.already_installed &&
+        (!plan.update || plan.update->changes_installation)) {
         // The IR planner resolves the declared dependency graph once. The plan carries the ordered
         // result, so preview, execution and the saved evidence cannot disagree about it.
         auto resolution = resolve_package_dependencies(context,plan.package,action != ir::Action::install);
@@ -539,7 +542,8 @@ Plan make_plan(const Context& context, ir::Action action, const std::string& req
     case ir::Action::uninstall: plan.steps = ir::plan(ir::Action::uninstall,plan.package,nullptr,false).steps; break;
     case ir::Action::reset: plan.steps = ir::plan(ir::Action::reset,plan.package,plan.previous ? &*plan.previous : nullptr,true).steps; break;
     }
-    if (plan.steps.empty()) {
+    if (plan.update && !plan.update->changes_installation) plan.steps.clear();
+    if (plan.steps.empty() && (!plan.update || plan.update->changes_installation)) {
         // An empty sequence is a contract violation, not a successful no-op: refuse it here so no
         // caller can present or execute a plan that carries no operations.
         plan.diagnostics.push_back({ir::Layer::validation,"empty-plan",
@@ -618,6 +622,9 @@ static Json describe_plan(const Context& context, const Plan& plan) {
     // The preview states the no-op verdict too, so --dry-run never promises a write that install
     // would refuse to perform.
     result["already_installed"] = plan.already_installed;
+    if (plan.update) result["update_decision"] = {{"state",update_state_name(plan.update->state)},
+        {"changes_installation",plan.update->changes_installation},{"blocked",plan.update->blocked},
+        {"message",update_state_message(plan.update->state)}};
     if (plan.already_installed) result["status"] = "already-installed";
     if (plan.global_installation) result["global_installation"] = {{"scope","global"},{"read_only",true},
         {"directory",path_text(*plan.global_installation)}};
@@ -843,6 +850,8 @@ std::string preview_line(const Json& plan) {
 void print_preview(const Json& plan) {
     if (!plan.is_object()) return;
     std::cout << preview_line(plan) << '\n';
+    if (plan.contains("update_decision"))
+        std::cout << "  " << plan.at("update_decision").value("message",std::string{}) << '\n';
     for (const auto& diagnostic : plan.value("diagnostics",Json::array()))
             if (diagnostic.is_object() && diagnostic.value("code",std::string{}) != "lifecycle-verification")
                 std::cout << "  "<<diagnostic.value("code",std::string{"diagnostic"})<<": "
@@ -1001,7 +1010,7 @@ PackageOutcome simple_execute(const Context& context, ir::Action action, const s
         if (!partial && !upToDate) announce_success_line(context,plan);
         outcome.failed = partial;
         outcome.status = partial ? "partial" : (upToDate ? "up-to-date" : "success");
-        if (upToDate && !context.json_output) std::cout << lines::up_to_date(plan.package.name) << '\n';
+        if (upToDate && !context.json_output) report_no_op(context,plan);
         if (partial) outcome.reason = result.value("reason",result.value("purge",Json::object()).value("reason",std::string("Persistent data deletion was incomplete")));
         outcome.value = result;
     } catch (const std::exception& error) {

@@ -1,5 +1,6 @@
 #include "status_local.hpp"
 #include "catalog_index.hpp"
+#include "package.hpp"
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -175,6 +176,18 @@ OperationResult local_status_report(const Context& context) {
                 if (version.empty()) throw std::runtime_error("Manifest version is empty");
                 item.data["manifest_version"] = version;
                 item.data["version_differs"] = fact.present && version != fact.version;
+                if (fact.present && item.state != ResultState::failed) {
+                    const auto decision = decide_update(fact.version,version,
+                        sha256_file(candidate) != sha256_file(installed_record(fact.directory,L"manifest")),
+                        std::get<bool>(item.data.at("held")));
+                    item.data["update_state"] = std::string(update_state_name(decision.state));
+                    item.data["update_available"] = decision.changes_installation;
+                    item.data["update_blocked"] = decision.blocked;
+                    if (decision.state != UpdateState::current) {
+                        item.state = ResultState::attention;
+                        item.reason = update_state_name(decision.state);
+                    }
+                }
                 if (manifest.contains("depends")) {
                     auto dependencies = manifest.at("depends");
                     if (dependencies.is_string()) dependencies = Json::array({dependencies});

@@ -360,7 +360,7 @@ Options:
 You can use '*' in place of <app> to update all apps.
 
 Options:
-  -f, --force            Force update even when there isn't a newer version
+  -f, --force            Reinstall the same version; never bypass downgrade, unknown version or hold protection
   -g, --global           Update a globally installed app
   -i, --independent      Don't install dependencies automatically
   -k, --no-cache         Don't use the download cache
