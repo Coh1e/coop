@@ -65,7 +65,11 @@ $cases += @(
     @{name='empty-all-preview'; args=@('*','--dry-run'); code=0},
     @{name='missing-version'; args=@('demo@'); code=2; noBucket=$true},
     @{name='missing-source-name'; args=@('main/'); code=2; noBucket=$true},
-    @{name='unsafe-selector'; args=@('../demo'); code=2; noBucket=$true}
+    @{name='unsafe-selector'; args=@('../demo'); code=2; noBucket=$true},
+    @{name='root-value-is-preview'; args=@('--root','--dry-run','--root','{root}'); code=2},
+    @{name='global-root-value-is-preview'; args=@('--global-root','--dry-run','--global-root','{root}'); code=2},
+    @{name='literal-root-value'; args=@('--root=--dry-run','--root','{root}','--dry-run'); code=1},
+    @{name='installed-preview-before-run-record'; args=@('demo','--dry-run'); code=0; installed=$true; stateFile=$true; noLegacy=$true}
 )
 $savedState = $env:COOP_STATE_DIR
 $failures = @()
@@ -97,7 +101,8 @@ try {
         $env:COOP_STATE_DIR = $state
         $beforeRoot = Snapshot $root
         $beforeState = Snapshot $state
-        $invocation = @('--root',$root,'update') + $case.args
+        $caseArguments = @($case.args | ForEach-Object { if ($_ -ceq '{root}') { $root } else { $_ } })
+        $invocation = @('--root',$root,'update') + $caseArguments
         $result = Invoke-CoopNativeRaw -Exe $CoopExe -Arguments $invocation
         $afterRoot = Snapshot $root
         $afterState = Snapshot $state

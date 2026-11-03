@@ -24,7 +24,7 @@ coop --arch=64bit install main/ripgrep
 
 ### update 参数与预览
 
-修复任务 [#103](https://github.com/Coh1e/coop/issues/103) 要求在状态迁移、运行记录和来源刷新之前完成 update 参数校验。未知长短选项、空包名、重复 `--dry-run`、包名与 `*/-a/--all` 混用，以及 update 的 `--purge` 等无效参数退出 2；系统级写请求保持 `global-scope-readonly`，退出 1。`--force`、`--no-cache`、`--skip-hash-check`、`--independent` 必须带包名或全部软件选择，不能在裸更新中被静默丢弃。
+修复任务 [#103](https://github.com/Coh1e/coop/issues/103) 要求在状态迁移、运行记录和来源刷新之前完成 update 参数校验。未知长短选项、空包名、重复 `--dry-run`、包名与 `*/-a/--all` 混用，以及 update 的 `--purge` 等无效参数退出 2；系统级写请求保持 `global-scope-readonly`，退出 1。`--force`、`--no-cache`、`--skip-hash-check`、`--independent` 必须带包名或全部软件选择，不能在裸更新中被静默丢弃。全局选项的分离值不能吞掉后续开关（如 `--root --dry-run`）；以 `-` 开头的字面值使用等号形式或明确的相对路径，例如 `--root=--dry-run` 或 `--root .\--dry-run`。
 
 指定本地软件或全部软件的 `update --dry-run` 不迁移旧状态、不写运行记录、不刷新来源、不修改软件。当前尚不能完成裸更新和清单 URL 的完整预览：这两种预览明确退出 1，说明能力不足，不执行刷新，也不把 URL 清单写入私有缓存。完整客户端和来源预览仍属于 [status/update 总规格 #102](https://github.com/Coh1e/coop/issues/102) 的后续任务，本修复不宣称已实现。
 

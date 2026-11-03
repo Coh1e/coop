@@ -124,6 +124,8 @@ int wmain(int argc, wchar_t** argv) {
             const std::wstring prefix = std::wstring(name)+L"=";
             if (std::wstring_view(arg).starts_with(prefix)) return std::wstring(arg.substr(prefix.size()));
             if (++index == argc) throw coop::UsageError(coop::utf8(std::wstring(arg))+" requires a value");
+            if (std::wstring_view(argv[index]).starts_with(L"-"))
+                throw coop::UsageError(coop::utf8(std::wstring(name))+" requires a value; use the = form for values beginning with '-'");
             return argv[index];
         };
         const auto set_root = [&context](std::wstring_view arg, const std::wstring& value) {
