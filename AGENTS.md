@@ -59,24 +59,11 @@ Report the result, key changes, checks run with outcomes, and remaining limitati
 Claim completion only when the evidence supports the agreed acceptance criteria.
 Keep the report concise. Include exact commands when they help reproduce verification.
 
-## Agent skills
+## Issue tracking
 
-### Issue tracker
+Use GitHub Issues in Coh1e/coop for tasks and specifications.
 
-任务与规格使用 GitHub 仓库 Coh1e/coop 的 Issues 跟踪。
-详见 `docs/agents/issue-tracker.md`。
-
-### Triage labels
-
-使用五个默认 triage 标签。
-详见 `docs/agents/triage-labels.md`。
-
-### Domain docs
-
-采用 single-context：根目录 GLOSSARY.md 与 docs/adr/。
-详见 `docs/agents/domain.md`。
-
-### Next-step guidance
+## Next-step guidance
 
 For coding and directly related work, read
 `C:/Users/Neo/.agents/skills/grill-agent/SKILL.md` before ending a response.
