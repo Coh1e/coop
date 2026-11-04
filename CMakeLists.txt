@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(coop VERSION 0.3.4 LANGUAGES C CXX)
+project(coop VERSION 0.3.5 LANGUAGES C CXX)
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/.local/deps/include/nlohmann/json.hpp")
   message(FATAL_ERROR "Run scripts/fetch-deps.ps1 to fetch pinned project-local dependencies")
 endif()
