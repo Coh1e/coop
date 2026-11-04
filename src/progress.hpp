@@ -87,7 +87,8 @@ bool stdout_is_terminal();
 // Character width of a UTF-8 string: a multi-byte sequence counts once, so tables line up.
 std::size_t display_width(const std::string& value);
 void print_table(const std::vector<std::string>& header,
-                 const std::vector<std::vector<std::string>>& rows);
+                 const std::vector<std::vector<std::string>>& rows,
+                 bool compact_last_column = false);
 // Human-readable byte size, the way Scoop prints one: one decimal place above a kilobyte.
 std::string human_bytes(std::uint64_t bytes);
 

@@ -6,6 +6,7 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <windows.h>
 
 namespace coop {
 namespace {
@@ -75,29 +76,53 @@ std::size_t display_width(const std::string& value) {
     return width;
 }
 void print_table(const std::vector<std::string>& header,
-                 const std::vector<std::vector<std::string>>& rows) {
-    const auto width_of = [](const std::string& value) {
-        // Character width, not byte width, so a non-ASCII name still lines up.
-        std::size_t width = 0;
-        for (const auto character : value) if ((static_cast<unsigned char>(character) & 0xC0) != 0x80) ++width;
-        return width;
-    };
+                 const std::vector<std::vector<std::string>>& rows,
+                 bool compact_last_column) {
     std::vector<std::size_t> widths(header.size(),0);
-    for (std::size_t index = 0; index < header.size(); ++index) widths[index] = width_of(header[index]);
+    for (std::size_t index = 0; index < header.size(); ++index) widths[index] = display_width(header[index]);
     for (const auto& row : rows) for (std::size_t index = 0; index < row.size() && index < widths.size(); ++index)
-        widths[index] = (std::max)(widths[index],width_of(row[index]));
-    const auto print_row = [&widths,&width_of](const std::vector<std::string>& cells) {
+        widths[index] = (std::max)(widths[index],display_width(row[index]));
+    if (compact_last_column && !widths.empty()) {
+        CONSOLE_SCREEN_BUFFER_INFO console{};
+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE),&console)) {
+            // Leave the final console cell free so the newline cannot wrap a second time.
+            const auto available = static_cast<std::size_t>(console.srWindow.Right-console.srWindow.Left);
+            std::size_t prefix = 0;
+            for (std::size_t index = 0; index+1 < widths.size(); ++index) prefix += widths[index]+1;
+            const auto remaining = available > prefix ? available-prefix : 0;
+            widths.back() = (std::min)(widths.back(),remaining);
+        }
+    }
+    const auto print_row = [&widths,compact_last_column](const std::vector<std::string>& cells) {
         for (std::size_t index = 0; index < cells.size(); ++index) {
+            const auto& cell = cells[index];
+            const auto width = display_width(cell);
+            if (compact_last_column && index+1 == widths.size()) {
+                const auto limit = widths[index];
+                if (limit == 0) break;
+                if (index) std::cout << ' ';
+                if (width <= limit) std::cout << cell;
+                else {
+                    const auto dots = (std::min)(limit,std::size_t{3});
+                    std::size_t end = 0, columns = 0;
+                    for (; end < cell.size(); ++end) {
+                        if ((static_cast<unsigned char>(cell[end]) & 0xC0) == 0x80) continue;
+                        if (columns == limit-dots) break;
+                        ++columns;
+                    }
+                    std::cout << cell.substr(0,end) << std::string(dots,'.');
+                }
+                continue;
+            }
             if (index) std::cout << ' ';
-            std::cout << cells[index];
-            const auto width = width_of(cells[index]);
+            std::cout << cell;
             if (index < widths.size() && width < widths[index]) std::cout << std::string(widths[index]-width,' ');
         }
         std::cout << '\n';
     };
     print_row(header);
     std::vector<std::string> rule;
-    for (const auto& cell : header) rule.push_back(std::string(width_of(cell),'-'));
+    for (const auto& cell : header) rule.push_back(std::string(display_width(cell),'-'));
     print_row(rule);
     for (const auto& row : rows) print_row(row);
 }

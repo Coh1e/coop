@@ -701,12 +701,16 @@ static void print_search_table(const Context& context, const Json& result, const
         // that matched, joined with " | ".
         std::string binaries;
         if (!item.value("matched_name",false) && item.contains("matched_binaries") && item.at("matched_binaries").is_array())
-            for (const auto& binary : item.at("matched_binaries"))
-                if (binary.is_string()) binaries += (binaries.empty() ? "" : " | ")+binary.get<std::string>();
+            for (const auto& binary : item.at("matched_binaries")) {
+                if (!binary.is_string()) continue;
+                const auto& path = binary.get_ref<const std::string&>();
+                binaries += (binaries.empty() ? "" : " | ")+path.substr(path.find_last_of("/\\")+1);
+            }
         rows.push_back({field_text(item,"name"),field_text(item,"version"),
             field_text(item,"bucket"),binaries});
     }
-    print_table({"Name","Version","Source","Binaries"},rows);
+    print_table({"Name","Version","Source","Binaries"},rows,true);
+    std::cout << '\n';
 }
 // Scoop reports the bucket's last commit that touched the manifest, not its file time. The bucket is
 // a Git working tree, so the same information is available through the embedded library; a walk that

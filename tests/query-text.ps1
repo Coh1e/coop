@@ -64,7 +64,7 @@ if (($lines -join "`n") -cne ($expected -join "`n")) {
 # the app name matched); only a binary match fills it. `scoop search jq` shows the same empty cell.
 $lines = @(& $CoopExe --root $root search jq)
 if ($LASTEXITCODE -cne 0) { throw 'search failed' }
-if ($lines.Count -cne 5) { throw "search printed $($lines.Count) lines: $($lines -join ' | ')" }
+if ($lines.Count -cne 6 -or $lines[5] -cne '') { throw "search lines are '$($lines -join ' | ')'" }
 if ($lines[0] -cne 'Results from local buckets...') { throw "search header is '$($lines[0])'" }
 if ($lines[1] -cne '') { throw 'search header is not followed by a blank line' }
 if ($lines[2] -notmatch '^Name\s+Version\s+Source\s+Binaries\s*$') { throw "search columns are '$($lines[2])'" }
@@ -72,8 +72,17 @@ if ($lines[3] -notmatch '^----\s+-------\s+------\s+--------\s*$') { throw "sear
 if ($lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s*$') { throw "search row is '$($lines[4])'" }
 # A query that matches only a binary lists that binary in the Binaries column.
 $lines = @(& $CoopExe --root $root search 'jq\.exe')
-if ($lines.Count -cne 5 -or $lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s+jq\.exe\s*$') {
+if ($lines.Count -cne 6 -or $lines[4] -notmatch '^jq\s+1\.8\.2\s+main\s+jq\.exe\s*$') {
     throw "binary match row is '$($lines -join ' | ')'"
+}
+'{"version":"1.0","bin":["bin\\scoop-tool.bat","other/scoop-helper.cmd"]}' |
+    Set-Content "$root/buckets/main/bucket/tool.json" -Encoding ascii
+$lines = @(& $CoopExe --root $root search scoop)
+if ($LASTEXITCODE -cne 0 -or $lines[4] -cne 'tool 1.0     main   scoop-tool.bat | scoop-helper.cmd') {
+    throw "nested binary match row is '$($lines -join ' | ')'"
+}
+if ($lines[2] -cne 'Name Version Source Binaries' -or $lines[3] -cne '---- ------- ------ --------') {
+    throw "search table pads its last column: '$($lines -join ' | ')'"
 }
 $lines = @(& $CoopExe --root $root search zzznomatch)
 if ($LASTEXITCODE -cne 0 -or ($lines -join '|') -cne 'WARN  No matches found.') {
